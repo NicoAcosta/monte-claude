@@ -184,11 +184,11 @@ class TestFullHand:
 
 class TestActionRecordComment:
     def test_action_record_without_comment(self):
-        rec = ActionRecord("P1", "fold")
+        rec = ActionRecord(id=1, timestamp=0.0, player_name="P1", action="fold")
         assert rec.comment is None
 
     def test_action_record_with_comment(self):
-        rec = ActionRecord("P1", "fold", comment="Nice bluff!")
+        rec = ActionRecord(id=1, timestamp=0.0, player_name="P1", action="fold", comment="Nice bluff!")
         assert rec.comment == "Nice bluff!"
 
     def test_comment_stored_in_hand_actions(self):
@@ -209,6 +209,37 @@ class TestActionRecordComment:
         hand.do_action(current.id, "fold")
         fold_action = [a for a in hand.actions if a.action == "fold"][0]
         assert fold_action.comment is None
+
+
+class TestActionIdAndTimestamp:
+    def test_actions_have_incrementing_ids(self):
+        players = make_players(3)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        # Blinds produce 2 actions (id=1, id=2), then player acts
+        current = hand.current_player
+        hand.do_action(current.id, "fold")
+        ids = [a.id for a in hand.actions]
+        assert ids == [1, 2, 3]
+
+    def test_actions_have_timestamps(self):
+        players = make_players(2)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        for a in hand.actions:
+            assert a.timestamp > 0
+
+    def test_starting_action_id_offset(self):
+        players = make_players(2)
+        hand = Hand(players, dealer_index=0, deck_seed=1, starting_action_id=100)
+        ids = [a.id for a in hand.actions]
+        assert ids == [100, 101]  # two blind actions
+
+    def test_timestamps_are_chronological(self):
+        players = make_players(2)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand.do_action(hand.current_player.id, "call")
+        hand.do_action(hand.current_player.id, "check")
+        timestamps = [a.timestamp for a in hand.actions]
+        assert timestamps == sorted(timestamps)
 
 
 class TestHandComplete:

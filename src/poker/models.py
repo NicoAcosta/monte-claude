@@ -46,6 +46,8 @@ class PlayerPublicState(BaseModel):
 
 
 class RecentAction(BaseModel):
+    id: int
+    timestamp: float
     player: str
     action: str
     amount: int | None = None

@@ -20,10 +20,12 @@ class Game:
     def __init__(self) -> None:
         self._players: list[RegisteredPlayer] = []
         self._next_id = 1
+        self._next_action_id = 1
         self.started = False
         self.hand_number = 0
         self.dealer_index = 0
         self.current_hand: Hand | None = None
+        self.previous_hand: Hand | None = None
         self.game_over = False
         self.winner: str | None = None
         self.recent_actions: list[ActionRecord] = []
@@ -108,6 +110,7 @@ class Game:
             dealer_index=self.dealer_index,
             small_blind=SMALL_BLIND,
             big_blind=BIG_BLIND,
+            starting_action_id=self._next_action_id,
         )
 
         self.recent_actions = []
@@ -119,6 +122,10 @@ class Game:
     def _finish_hand(self) -> None:
         if self.current_hand is None:
             return
+
+        # Store completed hand for spectator delay
+        self.previous_hand = self.current_hand
+        self._next_action_id = self.current_hand._action_id_counter
 
         # Copy recent actions
         self.recent_actions = list(self.current_hand.actions)

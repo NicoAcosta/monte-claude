@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 from poker.deck import Card, Deck
@@ -30,6 +31,8 @@ class SidePot:
 
 @dataclass(frozen=True)
 class ActionRecord:
+    id: int
+    timestamp: float
     player_name: str
     action: str
     amount: int | None = None
@@ -47,6 +50,7 @@ class Hand:
         small_blind: int = 10,
         big_blind: int = 20,
         deck_seed: int | None = None,
+        starting_action_id: int = 1,
     ) -> None:
         if len(players) < 2:
             raise ValueError("Need at least 2 players")
@@ -60,6 +64,7 @@ class Hand:
         self.phase = "preflop"
         self.pot = 0
         self.actions: list[ActionRecord] = []
+        self._action_id_counter = starting_action_id
         self.current_bet = 0  # highest bet this round
         self.min_raise_size = big_blind  # minimum raise increment
         self.current_turn_index: int | None = None
@@ -69,6 +74,24 @@ class Hand:
         self._post_blinds()
         self._deal_hole_cards()
         self._start_betting_round()
+
+    def _record_action(
+        self,
+        player_name: str,
+        action: str,
+        amount: int | None = None,
+        comment: str | None = None,
+    ) -> None:
+        record = ActionRecord(
+            id=self._action_id_counter,
+            timestamp=time.time(),
+            player_name=player_name,
+            action=action,
+            amount=amount,
+            comment=comment,
+        )
+        self._action_id_counter += 1
+        self.actions.append(record)
 
     @property
     def active_players(self) -> list[PlayerInHand]:
@@ -107,11 +130,11 @@ class Hand:
 
         sb_amount = min(self.small_blind, sb_player.chips)
         self._place_bet(sb_player, sb_amount)
-        self.actions.append(ActionRecord(sb_player.name, "small_blind", sb_amount))
+        self._record_action(sb_player.name, "small_blind", sb_amount)
 
         bb_amount = min(self.big_blind, bb_player.chips)
         self._place_bet(bb_player, bb_amount)
-        self.actions.append(ActionRecord(bb_player.name, "big_blind", bb_amount))
+        self._record_action(bb_player.name, "big_blind", bb_amount)
 
         self.current_bet = bb_amount
 
@@ -276,7 +299,7 @@ class Hand:
     def _do_fold(self, player: PlayerInHand, comment: str | None = None) -> str:
         player.is_folded = True
         self._mark_acted(self.current_turn_index)
-        self.actions.append(ActionRecord(player.name, "fold", comment=comment))
+        self._record_action(player.name, "fold", comment=comment)
 
         active = self.active_players
         if len(active) == 1:
@@ -294,7 +317,7 @@ class Hand:
             return "Cannot check, there is a bet to match"
 
         self._mark_acted(self.current_turn_index)
-        self.actions.append(ActionRecord(player.name, "check", comment=comment))
+        self._record_action(player.name, "check", comment=comment)
         self._advance_turn()
         return "ok"
 
@@ -306,7 +329,7 @@ class Hand:
         actual = min(to_call, player.chips)
         self._place_bet(player, actual)
         self._mark_acted(self.current_turn_index)
-        self.actions.append(ActionRecord(player.name, "call", player.current_bet, comment=comment))
+        self._record_action(player.name, "call", player.current_bet, comment=comment)
         self._advance_turn()
         return "ok"
 
@@ -327,7 +350,7 @@ class Hand:
         self.current_bet = player.current_bet
         self.min_raise_size = amount
         self._reset_acted_for_raise(self.current_turn_index)
-        self.actions.append(ActionRecord(player.name, "bet", player.current_bet, comment=comment))
+        self._record_action(player.name, "bet", player.current_bet, comment=comment)
         self._advance_turn()
         return "ok"
 
@@ -353,7 +376,7 @@ class Hand:
         self.min_raise_size = max(self.min_raise_size, raise_increment)
         self.current_bet = player.current_bet
         self._reset_acted_for_raise(self.current_turn_index)
-        self.actions.append(ActionRecord(player.name, "raise", player.current_bet, comment=comment))
+        self._record_action(player.name, "raise", player.current_bet, comment=comment)
         self._advance_turn()
         return "ok"
 
@@ -369,7 +392,7 @@ class Hand:
         else:
             self._mark_acted(self.current_turn_index)
 
-        self.actions.append(ActionRecord(player.name, "all_in", player.current_bet, comment=comment))
+        self._record_action(player.name, "all_in", player.current_bet, comment=comment)
         self._advance_turn()
         return "ok"
 

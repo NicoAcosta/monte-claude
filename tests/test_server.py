@@ -151,8 +151,11 @@ class TestSpectator:
         assert resp.status_code == 200
         data = resp.json()
         assert data["started"] is False
+        assert data["hand_number"] == 0
+        assert data["phase"] == "waiting"
 
-    def test_spectator_during_game(self, client):
+    def test_spectator_during_first_hand_sees_waiting(self, client):
+        """During hand 1, no previous hand exists — spectator sees waiting state."""
         client.post("/register", json={"name": "Alice"})
         client.post("/register", json={"name": "Bob"})
         client.post("/start")
@@ -160,11 +163,52 @@ class TestSpectator:
         assert resp.status_code == 200
         data = resp.json()
         assert data["started"] is True
+        assert data["hand_number"] == 0
+        assert data["phase"] == "waiting"
+        assert data["recent_actions"] == []
+
+    def test_spectator_sees_previous_hand_after_completion(self, client):
+        """After hand 1 completes, spectator sees hand 1's full state."""
+        client.post("/register", json={"name": "Alice"})
+        client.post("/register", json={"name": "Bob"})
+        client.post("/start")
+
+        # Complete hand 1 by folding
+        s1 = client.get("/state/1").json()
+        first = 1 if s1["is_your_turn"] else 2
+        client.post("/action", json={"player_id": first, "action": "fold"})
+
+        # Now on hand 2 — spectator should see hand 1
+        resp = client.get("/spectator")
+        data = resp.json()
         assert data["hand_number"] == 1
-        assert len(data["players"]) == 2
-        # Spectator can see all cards
+        assert data["phase"] == "complete"
+        assert len(data["recent_actions"]) > 0
+        # Spectator can see all cards from the previous hand
         for p in data["players"]:
             assert len(p["cards"]) == 2
+
+    def test_spectator_actions_have_id_and_timestamp(self, client):
+        client.post("/register", json={"name": "Alice"})
+        client.post("/register", json={"name": "Bob"})
+        client.post("/start")
+
+        # Complete hand 1
+        s1 = client.get("/state/1").json()
+        first = 1 if s1["is_your_turn"] else 2
+        client.post("/action", json={"player_id": first, "action": "fold"})
+
+        resp = client.get("/spectator")
+        data = resp.json()
+        for action in data["recent_actions"]:
+            assert "id" in action
+            assert "timestamp" in action
+            assert isinstance(action["id"], int)
+            assert isinstance(action["timestamp"], float)
+        # IDs should be sequential
+        ids = [a["id"] for a in data["recent_actions"]]
+        assert ids == sorted(ids)
+        assert ids == list(range(ids[0], ids[0] + len(ids)))
 
 
 class TestCommentary:
@@ -196,14 +240,20 @@ class TestCommentary:
         # Find who acts first
         s1 = client.get("/state/1").json()
         first = 1 if s1["is_your_turn"] else 2
+        second = 2 if first == 1 else 1
         resp = client.post("/action", json={
             "player_id": first, "action": "call", "comment": "I'm feeling lucky!"
         })
         assert resp.status_code == 200
-        # Check spectator sees the comment in recent_actions
-        spec = client.get("/spectator").json()
-        comments = [a["comment"] for a in spec["recent_actions"] if a.get("comment")]
+        # Comment should be visible in player state (current hand)
+        state = client.get(f"/state/{first}").json()
+        comments = [a["comment"] for a in state["recent_actions"] if a.get("comment")]
         assert "I'm feeling lucky!" in comments
+        # Complete the hand so spectator can see it
+        client.post("/action", json={"player_id": second, "action": "fold"})
+        spec = client.get("/spectator").json()
+        spec_comments = [a["comment"] for a in spec["recent_actions"] if a.get("comment")]
+        assert "I'm feeling lucky!" in spec_comments
 
     def test_player_comments_in_state(self, client):
         client.post("/register", json={"name": "Alice"})
