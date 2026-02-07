@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poker Spectator</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --felt:        #1a472a;
+    --felt-dark:   #0f2d1a;
+    --felt-light:  #236b3e;
+    --gold:        #d4a843;
+    --gold-dim:    #a17e2f;
+    --card-white:  #f5f0e8;
+    --card-shadow: rgba(0,0,0,.45);
+    --red-suit:    #c0392b;
+    --black-suit:  #1a1a2e;
+    --chip-green:  #27ae60;
+    --chip-blue:   #2980b9;
+    --text:        #e8e0d0;
+    --text-dim:    #8a9a7c;
+    --text-bright: #ffffff;
+    --glow-turn:   rgba(212,168,67,.7);
+    --allin-bg:    #e74c3c;
+    --folded-opacity: .35;
+    --radius:      8px;
+    --radius-card: 6px;
+    --transition:  .35s cubic-bezier(.4,0,.2,1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--felt-dark);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Layout ───────────────────────────────────────────── */
+  .app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: rgba(0,0,0,.3);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    flex-shrink: 0;
+  }
+  .header-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .header-meta {
+    display: flex;
+    gap: 20px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .header-meta span { white-space: nowrap; }
+  .phase-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: var(--felt-light);
+    color: var(--gold);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: .8px;
+  }
+
+  .table-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+  }
+
+  .footer {
+    flex-shrink: 0;
+    background: rgba(0,0,0,.35);
+    border-top: 1px solid rgba(255,255,255,.06);
+    max-height: 180px;
+    display: flex;
+    flex-direction: column;
+  }
+  .footer-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 10px 24px 6px;
+    flex-shrink: 0;
+  }
+  .action-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 24px 12px;
+  }
+  .action-log::-webkit-scrollbar { width: 6px; }
+  .action-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+  .action-entry {
+    font-size: 13px;
+    padding: 3px 0;
+    color: var(--text);
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    opacity: 0;
+    animation: fadeSlideIn .3s ease forwards;
+  }
+  .action-entry .action-player { color: var(--gold); font-weight: 600; }
+  .action-entry .action-type { color: var(--text-dim); }
+  .action-entry .action-amount { color: var(--chip-green); font-weight: 600; }
+
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Poker Table ──────────────────────────────────────── */
+  .poker-table {
+    position: relative;
+    width: min(900px, 90vw);
+    height: min(520px, 60vh);
+    min-height: 380px;
+  }
+
+  .table-felt {
+    position: absolute;
+    inset: 60px;
+    background: radial-gradient(ellipse at center, var(--felt-light) 0%, var(--felt) 60%, var(--felt-dark) 100%);
+    border-radius: 50%;
+    border: 6px solid #0d1f12;
+    box-shadow:
+      0 0 0 8px #162d1b,
+      0 0 0 12px rgba(0,0,0,.4),
+      inset 0 2px 30px rgba(0,0,0,.25);
+  }
+
+  /* ── Center Area (community cards + pot) ──────────────── */
+  .table-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    z-index: 2;
+  }
+
+  .community-cards {
+    display: flex;
+    gap: 8px;
+    min-height: 76px;
+    align-items: center;
+  }
+
+  .pot-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .pot-amount {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--gold);
+    text-shadow: 0 2px 8px rgba(0,0,0,.5);
+    letter-spacing: .5px;
+  }
+  .pot-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+  }
+  .side-pots {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 2px;
+  }
+  .side-pot {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(0,0,0,.35);
+    color: var(--gold-dim);
+    border: 1px solid rgba(212,168,67,.2);
+  }
+
+  /* ── Playing Card ─────────────────────────────────────── */
+  .card {
+    width: 48px;
+    height: 68px;
+    background: var(--card-white);
+    border-radius: var(--radius-card);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px var(--card-shadow);
+    position: relative;
+    font-family: Georgia, 'Times New Roman', serif;
+    transition: transform var(--transition);
+    flex-shrink: 0;
+  }
+  .card:hover { transform: translateY(-3px); }
+  .card.red  { color: var(--red-suit); }
+  .card.black { color: var(--black-suit); }
+  .card .card-rank {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .card .card-suit {
+    font-size: 18px;
+    line-height: 1;
+    margin-top: -1px;
+  }
+  .card .card-corner {
+    position: absolute;
+    top: 3px;
+    left: 4px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .card .card-corner-br {
+    position: absolute;
+    bottom: 3px;
+    right: 4px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.1;
+    text-align: center;
+    transform: rotate(180deg);
+  }
+
+  .card-small {
+    width: 36px;
+    height: 52px;
+  }
+  .card-small .card-rank { font-size: 13px; }
+  .card-small .card-suit { font-size: 14px; }
+  .card-small .card-corner,
+  .card-small .card-corner-br { font-size: 7px; }
+
+  .card-back {
+    background: linear-gradient(135deg, #c0392b 0%, #8e2424 100%);
+    color: transparent;
+    box-shadow: 0 2px 8px var(--card-shadow);
+  }
+  .card-back::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,.15);
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 3px,
+      rgba(255,255,255,.06) 3px,
+      rgba(255,255,255,.06) 6px
+    );
+  }
+
+  .card-placeholder {
+    width: 48px;
+    height: 68px;
+    border-radius: var(--radius-card);
+    border: 2px dashed rgba(255,255,255,.12);
+    flex-shrink: 0;
+  }
+
+  /* ── Player Seat ──────────────────────────────────────── */
+  .player-seat {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: opacity var(--transition), filter var(--transition);
+    z-index: 3;
+  }
+  .player-seat.folded {
+    opacity: var(--folded-opacity);
+    filter: grayscale(.6);
+  }
+
+  .player-cards {
+    display: flex;
+    gap: 3px;
+  }
+
+  .player-info {
+    background: rgba(0,0,0,.55);
+    border-radius: var(--radius);
+    padding: 6px 12px;
+    text-align: center;
+    min-width: 100px;
+    border: 2px solid transparent;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    backdrop-filter: blur(6px);
+  }
+  .player-seat.current-turn .player-info {
+    border-color: var(--gold);
+    box-shadow: 0 0 14px var(--glow-turn), 0 0 30px rgba(212,168,67,.25);
+  }
+  .player-seat.all-in .player-info {
+    border-color: var(--allin-bg);
+    box-shadow: 0 0 10px rgba(231,76,60,.4);
+  }
+
+  .player-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-bright);
+    white-space: nowrap;
+  }
+  .player-chips {
+    font-size: 12px;
+    color: var(--chip-green);
+    font-weight: 600;
+  }
+  .player-bet {
+    font-size: 11px;
+    color: var(--gold-dim);
+    margin-top: 1px;
+  }
+
+  .player-badges {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    margin-top: 2px;
+  }
+  .badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+  .badge-dealer { background: var(--gold); color: #1a1a1a; }
+  .badge-sb     { background: var(--chip-blue); color: #fff; }
+  .badge-bb     { background: #8e44ad; color: #fff; }
+  .badge-allin  { background: var(--allin-bg); color: #fff; }
+  .badge-folded { background: rgba(255,255,255,.15); color: var(--text-dim); }
+
+  /* ── Waiting Screen ───────────────────────────────────── */
+  .waiting-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    text-align: center;
+    padding: 40px;
+  }
+  .waiting-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 2px;
+  }
+  .waiting-sub {
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .waiting-players {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    max-width: 500px;
+  }
+  .waiting-player {
+    background: rgba(0,0,0,.35);
+    border-radius: var(--radius);
+    padding: 10px 18px;
+    border: 1px solid rgba(255,255,255,.08);
+    min-width: 120px;
+  }
+  .waiting-player-name {
+    font-weight: 600;
+    color: var(--text-bright);
+    font-size: 14px;
+  }
+  .waiting-player-chips {
+    font-size: 12px;
+    color: var(--chip-green);
+    margin-top: 2px;
+  }
+  .waiting-dots {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .waiting-dots span {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--gold);
+    opacity: .3;
+    animation: dotPulse 1.4s ease-in-out infinite;
+  }
+  .waiting-dots span:nth-child(2) { animation-delay: .2s; }
+  .waiting-dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes dotPulse {
+    0%, 100% { opacity: .3; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.3); }
+  }
+
+  /* ── Winner Overlay ───────────────────────────────────── */
+  .winner-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+    animation: fadeIn .5s ease;
+  }
+  .winner-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 2px solid var(--gold);
+    border-radius: 16px;
+    padding: 40px 60px;
+    text-align: center;
+    box-shadow: 0 0 40px rgba(212,168,67,.3);
+    animation: scaleIn .4s cubic-bezier(.34,1.56,.64,1);
+  }
+  .winner-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .winner-name {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--gold);
+    text-shadow: 0 2px 10px rgba(212,168,67,.5);
+  }
+  .winner-sub {
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+
+  @keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes scaleIn  { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
+
+  /* ── Connection Indicator ─────────────────────────────── */
+  .conn-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .conn-dot.ok    { background: #27ae60; box-shadow: 0 0 6px rgba(39,174,96,.5); }
+  .conn-dot.err   { background: #e74c3c; box-shadow: 0 0 6px rgba(231,76,60,.5); }
+  .conn-dot.loading { background: #f39c12; animation: dotPulse 1s infinite; }
+
+  /* ── Commentator Banner ──────────────────────────────── */
+  .commentary-banner {
+    background: rgba(0,0,0,.45);
+    border-top: 1px solid rgba(212,168,67,.2);
+    padding: 8px 24px;
+    text-align: center;
+    animation: fadeIn .4s ease;
+    flex-shrink: 0;
+  }
+  .commentary-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--gold-dim);
+    margin-bottom: 4px;
+  }
+  .commentary-text {
+    font-size: 14px;
+    font-style: italic;
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  /* ── Speech Bubbles ──────────────────────────────────── */
+  .speech-bubble {
+    position: relative;
+    margin-top: 4px;
+    background: rgba(255,255,255,.92);
+    color: #1a1a2e;
+    border-radius: 10px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-style: italic;
+    max-width: 160px;
+    text-align: center;
+    white-space: normal;
+    word-wrap: break-word;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    z-index: 5;
+    animation: fadeIn .3s ease;
+  }
+  .speech-bubble::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: rgba(255,255,255,.92);
+  }
+
+  /* ── Action comment inline ───────────────────────────── */
+  .action-comment {
+    font-style: italic;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  /* ── Audio Toggle ───────────────────────────────────── */
+  .audio-toggle {
+    background: none;
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .2s ease;
+    white-space: nowrap;
+  }
+  .audio-toggle:hover { border-color: var(--gold); color: var(--gold); }
+  .audio-toggle.active { border-color: var(--gold); color: var(--gold); }
+
+  /* ── Utilities ────────────────────────────────────────── */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-title">Poker Spectator</div>
+    <div class="header-meta">
+      <span id="hand-info"></span>
+      <span id="phase-info"></span>
+      <span><span class="conn-dot loading" id="conn-dot"></span><span id="conn-text">Connecting</span></span>
+      <button class="audio-toggle" id="audio-toggle" title="Toggle audio commentary">Sound: OFF</button>
+    </div>
+  </div>
+
+  <!-- Table Area -->
+  <div class="table-area">
+
+    <!-- Waiting Screen -->
+    <div class="waiting-screen" id="waiting-screen">
+      <div class="waiting-title">WAITING FOR PLAYERS</div>
+      <div class="waiting-sub">Game will begin shortly</div>
+      <div class="waiting-players" id="waiting-players"></div>
+      <div class="waiting-dots"><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- Active Game Table -->
+    <div class="poker-table hidden" id="poker-table">
+      <div class="table-felt"></div>
+      <div class="table-center">
+        <div class="community-cards" id="community-cards"></div>
+        <div class="pot-display">
+          <div class="pot-amount" id="pot-amount">0</div>
+          <div class="pot-label">Pot</div>
+        </div>
+        <div class="side-pots" id="side-pots"></div>
+      </div>
+      <!-- Player seats injected here by JS -->
+    </div>
+  </div>
+
+  <!-- Commentary Banner -->
+  <div class="commentary-banner hidden" id="commentary-banner">
+    <div class="commentary-label">Commentary</div>
+    <div class="commentary-text" id="commentary-text"></div>
+  </div>
+
+  <!-- Footer: Action Log -->
+  <div class="footer">
+    <div class="footer-title">Action Log</div>
+    <div class="action-log" id="action-log"></div>
+  </div>
+</div>
+
+<!-- Winner Overlay (hidden by default) -->
+<div class="winner-overlay hidden" id="winner-overlay">
+  <div class="winner-card">
+    <div class="winner-label">Winner</div>
+    <div class="winner-name" id="winner-name"></div>
+    <div class="winner-sub" id="winner-sub"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Constants ──────────────────────────────────────── */
+  const POLL_INTERVAL = 2000;
+  const SUIT_MAP = { 's': '\u2660', 'h': '\u2665', 'd': '\u2666', 'c': '\u2663' };
+  const SUIT_COLOR = { 's': 'black', 'h': 'red', 'd': 'red', 'c': 'black' };
+  const RANK_MAP = {
+    'A': 'A', 'K': 'K', 'Q': 'Q', 'J': 'J', 'T': '10',
+    '9': '9', '8': '8', '7': '7', '6': '6', '5': '5',
+    '4': '4', '3': '3', '2': '2'
+  };
+
+  /* Seat positions around an ellipse, indexed by total player count.
+     Each value is an array of {top, left} percentages. */
+  const SEAT_LAYOUTS = {
+    2: [
+      { top: 85, left: 50 },
+      { top: 5,  left: 50 }
+    ],
+    3: [
+      { top: 85, left: 50 },
+      { top: 20, left: 10 },
+      { top: 20, left: 90 }
+    ],
+    4: [
+      { top: 85, left: 50 },
+      { top: 50, left: 3  },
+      { top: 5,  left: 50 },
+      { top: 50, left: 97 }
+    ],
+    5: [
+      { top: 85, left: 50 },
+      { top: 65, left: 3  },
+      { top: 10, left: 18 },
+      { top: 10, left: 82 },
+      { top: 65, left: 97 }
+    ],
+    6: [
+      { top: 85, left: 50 },
+      { top: 60, left: 2  },
+      { top: 10, left: 15 },
+      { top: 5,  left: 50 },
+      { top: 10, left: 85 },
+      { top: 60, left: 98 }
+    ],
+    7: [
+      { top: 85, left: 50 },
+      { top: 70, left: 2  },
+      { top: 25, left: 3  },
+      { top: 5,  left: 30 },
+      { top: 5,  left: 70 },
+      { top: 25, left: 97 },
+      { top: 70, left: 98 }
+    ],
+    8: [
+      { top: 85, left: 50 },
+      { top: 70, left: 2  },
+      { top: 30, left: 2  },
+      { top: 5,  left: 25 },
+      { top: 5,  left: 50 },
+      { top: 5,  left: 75 },
+      { top: 30, left: 98 },
+      { top: 70, left: 98 }
+    ]
+  };
+
+  /* ── DOM References ─────────────────────────────────── */
+  const $handInfo        = document.getElementById('hand-info');
+  const $phaseInfo       = document.getElementById('phase-info');
+  const $connDot         = document.getElementById('conn-dot');
+  const $connText        = document.getElementById('conn-text');
+  const $waitingScreen   = document.getElementById('waiting-screen');
+  const $waitingPlayers  = document.getElementById('waiting-players');
+  const $pokerTable      = document.getElementById('poker-table');
+  const $communityCards  = document.getElementById('community-cards');
+  const $potAmount       = document.getElementById('pot-amount');
+  const $sidePots        = document.getElementById('side-pots');
+  const $actionLog       = document.getElementById('action-log');
+  const $winnerOverlay   = document.getElementById('winner-overlay');
+  const $winnerName      = document.getElementById('winner-name');
+  const $winnerSub       = document.getElementById('winner-sub');
+  const $commentaryBanner = document.getElementById('commentary-banner');
+  const $commentaryText   = document.getElementById('commentary-text');
+
+  /* ── State ──────────────────────────────────────────── */
+  let lastHandNumber = null;
+  let seenActionCount = 0;
+
+  /* ── Text-to-Speech ──────────────────────────────────── */
+  const $audioToggle = document.getElementById('audio-toggle');
+  let audioEnabled = false;
+  let lastSpokenCommentary = null;
+  const speechQueue = [];
+  let isSpeaking = false;
+
+  $audioToggle.addEventListener('click', function () {
+    audioEnabled = !audioEnabled;
+    $audioToggle.textContent = 'Sound: ' + (audioEnabled ? 'ON' : 'OFF');
+    $audioToggle.classList.toggle('active', audioEnabled);
+    if (!audioEnabled) {
+      window.speechSynthesis.cancel();
+      speechQueue.length = 0;
+      isSpeaking = false;
+    }
+  });
+
+  function speak(text, rate, pitch) {
+    if (!audioEnabled || !window.speechSynthesis) return;
+    speechQueue.push({ text: text, rate: rate || 1.0, pitch: pitch || 1.0 });
+    processQueue();
+  }
+
+  function processQueue() {
+    if (isSpeaking || speechQueue.length === 0) return;
+    isSpeaking = true;
+    var item = speechQueue.shift();
+    var utter = new SpeechSynthesisUtterance(item.text);
+    utter.rate = item.rate;
+    utter.pitch = item.pitch;
+    utter.onend = function () { isSpeaking = false; processQueue(); };
+    utter.onerror = function () { isSpeaking = false; processQueue(); };
+    window.speechSynthesis.speak(utter);
+  }
+
+  function speakCommentary(text) {
+    if (text && text !== lastSpokenCommentary) {
+      lastSpokenCommentary = text;
+      speak(text, 1.05, 1.1);
+    }
+  }
+
+  function speakPlayerComment(playerName, comment) {
+    speak(playerName + ' says: ' + comment, 1.0, 0.9);
+  }
+
+  /* ── Card Rendering ─────────────────────────────────── */
+  function parseCard(code) {
+    if (!code || code.length < 2) return null;
+    const rank = code.slice(0, -1);
+    const suit = code.slice(-1).toLowerCase();
+    return {
+      rank: RANK_MAP[rank] || rank,
+      suit: SUIT_MAP[suit] || suit,
+      color: SUIT_COLOR[suit] || 'black'
+    };
+  }
+
+  function renderCard(code, small) {
+    const info = parseCard(code);
+    if (!info) return renderCardBack(small);
+    const sizeClass = small ? 'card-small' : '';
+    return `<div class="card ${info.color} ${sizeClass}">
+      <span class="card-corner">${info.rank}<br>${info.suit}</span>
+      <span class="card-rank">${info.rank}</span>
+      <span class="card-suit">${info.suit}</span>
+      <span class="card-corner-br">${info.rank}<br>${info.suit}</span>
+    </div>`;
+  }
+
+  function renderCardBack(small) {
+    const sizeClass = small ? 'card-small' : '';
+    return `<div class="card card-back ${sizeClass}"></div>`;
+  }
+
+  function renderCardPlaceholder() {
+    return '<div class="card-placeholder"></div>';
+  }
+
+  /* ── Number Formatting ──────────────────────────────── */
+  function formatChips(n) {
+    if (n == null) return '0';
+    return Number(n).toLocaleString();
+  }
+
+  /* ── Render: Waiting Screen ─────────────────────────── */
+  function renderWaiting(state) {
+    $waitingScreen.classList.remove('hidden');
+    $pokerTable.classList.add('hidden');
+    $winnerOverlay.classList.add('hidden');
+
+    const players = state.players || [];
+    $waitingPlayers.innerHTML = players.map(function (p) {
+      return '<div class="waiting-player">' +
+        '<div class="waiting-player-name">' + escapeHtml(p.name) + '</div>' +
+        '<div class="waiting-player-chips">' + formatChips(p.chips) + ' chips</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  /* ── Render: Active Game ────────────────────────────── */
+  function renderGame(state) {
+    $waitingScreen.classList.add('hidden');
+    $pokerTable.classList.remove('hidden');
+
+    /* Header info */
+    $handInfo.textContent = 'Hand #' + (state.hand_number || 1);
+    $phaseInfo.innerHTML = '<span class="phase-badge">' + escapeHtml(state.phase || 'pre-flop') + '</span>';
+
+    /* Commentary banner */
+    if (state.commentary_text) {
+      $commentaryText.textContent = state.commentary_text;
+      $commentaryBanner.classList.remove('hidden');
+      speakCommentary(state.commentary_text);
+    } else {
+      $commentaryBanner.classList.add('hidden');
+    }
+
+    /* Community cards */
+    var cc = state.community_cards || [];
+    var ccHtml = '';
+    for (var i = 0; i < 5; i++) {
+      ccHtml += (i < cc.length) ? renderCard(cc[i], false) : renderCardPlaceholder();
+    }
+    $communityCards.innerHTML = ccHtml;
+
+    /* Pot */
+    $potAmount.textContent = formatChips(state.pot);
+
+    /* Side pots */
+    var sp = state.side_pots || [];
+    if (sp.length > 0) {
+      $sidePots.innerHTML = sp.map(function (pot, idx) {
+        return '<span class="side-pot">Side ' + (idx + 1) + ': ' + formatChips(pot.amount) + '</span>';
+      }).join('');
+    } else {
+      $sidePots.innerHTML = '';
+    }
+
+    /* Players */
+    renderPlayers(state);
+
+    /* Winner overlay */
+    if (state.game_over && state.winner != null) {
+      renderWinner(state);
+    } else {
+      $winnerOverlay.classList.add('hidden');
+    }
+
+    /* Action log */
+    renderActions(state);
+  }
+
+  /* ── Render: Players Around Table ───────────────────── */
+  function renderPlayers(state) {
+    var players = state.players || [];
+    var count = Math.max(2, Math.min(8, players.length));
+    var positions = SEAT_LAYOUTS[count] || SEAT_LAYOUTS[8];
+
+    /* Remove old seats */
+    var oldSeats = $pokerTable.querySelectorAll('.player-seat');
+    for (var i = 0; i < oldSeats.length; i++) {
+      oldSeats[i].remove();
+    }
+
+    players.forEach(function (p, idx) {
+      var pos = positions[idx] || positions[positions.length - 1];
+      var seat = document.createElement('div');
+      seat.className = 'player-seat';
+      if (p.is_folded) seat.classList.add('folded');
+      if (p.is_all_in) seat.classList.add('all-in');
+      if (state.current_turn === p.id) seat.classList.add('current-turn');
+
+      seat.style.top = pos.top + '%';
+      seat.style.left = pos.left + '%';
+      seat.style.transform = 'translate(-50%, -50%)';
+
+      /* Badges */
+      var badges = '';
+      if (state.dealer === p.id)             badges += '<span class="badge badge-dealer">D</span>';
+      if (state.small_blind_player === p.id) badges += '<span class="badge badge-sb">SB</span>';
+      if (state.big_blind_player === p.id)   badges += '<span class="badge badge-bb">BB</span>';
+      if (p.is_all_in)                       badges += '<span class="badge badge-allin">All-In</span>';
+      if (p.is_folded)                       badges += '<span class="badge badge-folded">Folded</span>';
+
+      /* Hole cards */
+      var cardsHtml = '';
+      if (p.cards && p.cards.length > 0 && !p.is_folded) {
+        cardsHtml = p.cards.map(function (c) { return renderCard(c, true); }).join('');
+      } else if (!p.is_folded) {
+        cardsHtml = renderCardBack(true) + renderCardBack(true);
+      }
+
+      /* Bet display */
+      var betHtml = (p.current_bet > 0) ? '<div class="player-bet">Bet: ' + formatChips(p.current_bet) + '</div>' : '';
+
+      /* Build speech bubble if player has a recent comment */
+      var commentHtml = '';
+      var actions = state.recent_actions || [];
+      var latestComment = null;
+      for (var j = actions.length - 1; j >= 0; j--) {
+        if (actions[j].player === p.name && actions[j].comment) {
+          latestComment = actions[j].comment;
+          break;
+        }
+      }
+      if (latestComment) {
+        commentHtml = '<div class="speech-bubble">' + escapeHtml(latestComment) + '</div>';
+      }
+
+      seat.innerHTML =
+        '<div class="player-cards">' + cardsHtml + '</div>' +
+        '<div class="player-info">' +
+          '<div class="player-name">' + escapeHtml(p.name) + '</div>' +
+          '<div class="player-chips">' + formatChips(p.chips) + '</div>' +
+          betHtml +
+          (badges ? '<div class="player-badges">' + badges + '</div>' : '') +
+        '</div>' +
+        commentHtml;
+
+      $pokerTable.appendChild(seat);
+    });
+  }
+
+  /* ── Render: Actions ────────────────────────────────── */
+  function renderActions(state) {
+    var actions = state.recent_actions || [];
+
+    /* On new hand, reset log */
+    if (state.hand_number !== lastHandNumber) {
+      $actionLog.innerHTML = '';
+      seenActionCount = 0;
+      lastHandNumber = state.hand_number;
+    }
+
+    /* Only render new actions */
+    var newActions = actions.slice(seenActionCount);
+    seenActionCount = actions.length;
+
+    /* Speak comments in chronological order */
+    for (var j = 0; j < newActions.length; j++) {
+      if (newActions[j].comment) {
+        speakPlayerComment(newActions[j].player, newActions[j].comment);
+      }
+    }
+
+    for (var i = newActions.length - 1; i >= 0; i--) {
+      var a = newActions[i];
+      var entry = document.createElement('div');
+      entry.className = 'action-entry';
+      var amountStr = (a.amount != null && a.amount > 0) ? ' <span class="action-amount">' + formatChips(a.amount) + '</span>' : '';
+      var commentStr = a.comment ? ' <span class="action-comment">"' + escapeHtml(a.comment) + '"</span>' : '';
+      entry.innerHTML = '<span class="action-player">' + escapeHtml(a.player) + '</span> ' +
+        '<span class="action-type">' + escapeHtml(a.action) + '</span>' + amountStr + commentStr;
+      $actionLog.prepend(entry);
+    }
+  }
+
+  /* ── Render: Winner ─────────────────────────────────── */
+  function renderWinner(state) {
+    $winnerOverlay.classList.remove('hidden');
+    var w = state.winner;
+    if (typeof w === 'object' && w !== null) {
+      $winnerName.textContent = w.name || w.player || 'Unknown';
+      $winnerSub.textContent = w.chips ? ('Won ' + formatChips(w.chips) + ' chips') : '';
+    } else {
+      $winnerName.textContent = String(w);
+      $winnerSub.textContent = '';
+    }
+  }
+
+  /* ── Utilities ──────────────────────────────────────── */
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* ── Polling Loop ───────────────────────────────────── */
+  function setConnection(status, text) {
+    $connDot.className = 'conn-dot ' + status;
+    $connText.textContent = text;
+  }
+
+  function poll() {
+    fetch('/spectator')
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (state) {
+        setConnection('ok', 'Live');
+
+        if (!state.started) {
+          renderWaiting(state);
+        } else {
+          renderGame(state);
+        }
+      })
+      .catch(function (err) {
+        setConnection('err', 'Disconnected');
+        console.warn('Spectator poll error:', err);
+      });
+  }
+
+  /* Initial poll + interval */
+  poll();
+  setInterval(poll, POLL_INTERVAL);
+
+})();
+</script>
+
+</body>
+</html>
