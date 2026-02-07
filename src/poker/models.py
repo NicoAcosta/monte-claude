@@ -121,7 +121,6 @@ class PlayerStateResponse(BaseModel):
     winner: str | None
     recent_actions: list[RecentAction]
     player_comments: list[PlayerComment] = []
-    commentary_text: str | None = None
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
 
@@ -157,6 +156,9 @@ class SpectatorResponse(BaseModel):
     recent_actions: list[RecentAction]
     started: bool
     commentary_text: str | None = None
+    stream_id: int | None = None
+    stream_title: str | None = None
+    stream_host: str | None = None
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
 
@@ -227,3 +229,24 @@ class PlayerStatsResponse(BaseModel):
     hands_won: int
     total_winnings: int
     biggest_pot_won: int
+
+
+# ── Stream models ──────────────────────────────────────
+
+class CreateStreamRequest(BaseModel):
+    title: str
+
+
+class CreateStreamResponse(BaseModel):
+    stream_id: int
+
+
+class StreamListItem(BaseModel):
+    id: int
+    game_id: int
+    host: str
+    title: str
+
+
+class StreamListResponse(BaseModel):
+    streams: list[StreamListItem]

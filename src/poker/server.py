@@ -22,6 +22,8 @@ from poker.models import (
     CommentateRequest,
     CommentateResponse,
     CreateGameResponse,
+    CreateStreamRequest,
+    CreateStreamResponse,
     ExtendResponse,
     GameEventResponse,
     GameHistoryResponse,
@@ -40,9 +42,12 @@ from poker.models import (
     SpectatorPlayerState,
     SpectatorResponse,
     StartResponse,
+    StreamListItem,
+    StreamListResponse,
     TimerInfo,
     WaitingResponse,
 )
+from poker.stream_manager import StreamManager
 
 app = FastAPI(title="Claude Poker", version="0.1.0")
 
@@ -60,6 +65,7 @@ def _make_recorder(game_id: int) -> GameRecorder:
 
 manager = GameManager(recorder_factory=_make_recorder)
 account_store = AccountStore(DATA_DIR / "accounts.csv")
+stream_manager = StreamManager()
 
 require_auth = make_auth_dependency(lambda: account_store)
 
@@ -218,13 +224,6 @@ def start(game_id: int, account: Account = Depends(require_auth)):
     return StartResponse(message="Game started", hand_number=hand_num)
 
 
-@app.post("/game/{game_id}/commentate", response_model=CommentateResponse)
-def commentate(game_id: int, req: CommentateRequest, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
-    game.commentary_text = req.text
-    return CommentateResponse(success=True)
-
-
 @app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)
 def state(game_id: int, player_id: int):
     game = _get_game_or_404(game_id)
@@ -261,7 +260,6 @@ def state(game_id: int, player_id: int):
             winner=game.winner,
             recent_actions=_recent_actions(game),
             player_comments=_player_comments(game),
-            commentary_text=game.commentary_text,
             chat_log=_chat_log(game),
         )
 
@@ -309,7 +307,6 @@ def state(game_id: int, player_id: int):
         winner=game.winner,
         recent_actions=_recent_actions(game),
         player_comments=_player_comments(game),
-        commentary_text=game.commentary_text,
         chat_log=_chat_log(game),
         timer=_timer_info(game, player_id),
     )
@@ -339,15 +336,12 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
         raise HTTPException(status_code=400, detail=result)
 
 
-@app.get("/game/{game_id}/spectator", response_model=SpectatorResponse)
-def spectator(game_id: int):
-    game = _get_game_or_404(game_id)
-    game._check_timeout()
+def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
+    """Build a SpectatorResponse for a game, with optional field overrides."""
     prev = game.previous_hand
 
-    # No previous hand yet (hand 1 in progress or game not started)
     if prev is None:
-        return SpectatorResponse(
+        base = dict(
             hand_number=0,
             phase="waiting",
             community_cards=[],
@@ -368,15 +362,15 @@ def spectator(game_id: int):
             winner=game.winner,
             recent_actions=[],
             started=game.started,
-            commentary_text=game.commentary_text,
             chat_log=_chat_log(game),
             timer=_timer_info(game),
         )
+        base.update(overrides)
+        return SpectatorResponse(**base)
 
-    # Serve the previous hand's complete state
     side_pots = prev.get_side_pots_info()
 
-    return SpectatorResponse(
+    base = dict(
         hand_number=game.hand_number - 1,
         phase=prev.phase,
         community_cards=[str(c) for c in prev.community_cards],
@@ -405,10 +399,18 @@ def spectator(game_id: int):
         winner=game.winner,
         recent_actions=[_action_to_recent(a, include_reason=True) for a in prev.actions],
         started=game.started,
-        commentary_text=game.commentary_text,
         chat_log=_chat_log(game),
         timer=_timer_info(game),
     )
+    base.update(overrides)
+    return SpectatorResponse(**base)
+
+
+@app.get("/game/{game_id}/spectator", response_model=SpectatorResponse)
+def spectator(game_id: int):
+    game = _get_game_or_404(game_id)
+    game._check_timeout()
+    return _build_spectator_response(game)
 
 
 # ── Chat & Timer routes ─────────────────────────────────
@@ -504,4 +506,73 @@ def player_stats(username: str):
         hands_won=stats.hands_won,
         total_winnings=stats.total_winnings,
         biggest_pot_won=stats.biggest_pot_won,
+    )
+
+
+# ── Stream routes ─────────────────────────────────────
+
+@app.post("/game/{game_id}/streams", response_model=CreateStreamResponse)
+def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Depends(require_auth)):
+    _get_game_or_404(game_id)
+    title = req.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    if len(title) > 100:
+        raise HTTPException(status_code=400, detail="Title too long (max 100 chars)")
+    try:
+        stream = stream_manager.create_stream(game_id, account.username, title)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return CreateStreamResponse(stream_id=stream.id)
+
+
+@app.get("/game/{game_id}/streams", response_model=StreamListResponse)
+def list_streams_for_game(game_id: int):
+    _get_game_or_404(game_id)
+    summaries = stream_manager.list_streams_for_game(game_id)
+    return StreamListResponse(
+        streams=[
+            StreamListItem(id=s.id, game_id=s.game_id, host=s.host_username, title=s.title)
+            for s in summaries
+        ]
+    )
+
+
+@app.get("/api/streams", response_model=StreamListResponse)
+def list_all_streams():
+    summaries = stream_manager.list_all_streams()
+    return StreamListResponse(
+        streams=[
+            StreamListItem(id=s.id, game_id=s.game_id, host=s.host_username, title=s.title)
+            for s in summaries
+        ]
+    )
+
+
+@app.post("/stream/{stream_id}/commentate", response_model=CommentateResponse)
+def stream_commentate(stream_id: int, req: CommentateRequest, account: Account = Depends(require_auth)):
+    stream = stream_manager.get_stream(stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    if stream.host_username != account.username:
+        raise HTTPException(status_code=403, detail="Only the stream host can commentate")
+    stream.commentary_text = req.text
+    return CommentateResponse(success=True)
+
+
+@app.get("/stream/{stream_id}", response_model=SpectatorResponse)
+def stream_view(stream_id: int):
+    stream = stream_manager.get_stream(stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    game = manager.get_game(stream.game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    game._check_timeout()
+    return _build_spectator_response(
+        game,
+        commentary_text=stream.commentary_text,
+        stream_id=stream.id,
+        stream_title=stream.title,
+        stream_host=stream.host_username,
     )

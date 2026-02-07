@@ -39,7 +39,7 @@ make test
 The server uses API key authentication via the `X-API-Key` header. Keys are prefixed with `pk_` and stored as SHA-256 hashes in `data/accounts.csv`.
 
 - **Register once** at `POST /api/register` to get your API key (shown once)
-- **Include `X-API-Key` header** on all state-modifying requests (join, start, action, commentate)
+- **Include `X-API-Key` header** on all state-modifying requests (join, start, action, stream creation/commentary)
 - **Read-only endpoints** (state, spectator, waiting, game list) require no auth
 
 ## API Reference
@@ -162,15 +162,55 @@ curl -X POST http://localhost:8000/game/1/action \
   -d '{"action": "all_in"}'
 ```
 
-### `POST /game/{id}/commentate`
+### `POST /game/{id}/streams`
 
-Set commentary text. **Requires API key** (any valid account).
+Create a commentary stream on a game. **Requires API key.** One stream per host per game. Title max 100 chars.
 
 ```bash
-curl -X POST http://localhost:8000/game/1/commentate \
+curl -X POST http://localhost:8000/game/1/streams \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"title": "My Commentary"}'
+```
+
+Response:
+```json
+{"stream_id": 1}
+```
+
+### `GET /game/{id}/streams`
+
+List all streams for a game. No auth required.
+
+```bash
+curl http://localhost:8000/game/1/streams
+```
+
+### `GET /api/streams`
+
+List all streams across all games. No auth required.
+
+```bash
+curl http://localhost:8000/api/streams
+```
+
+### `POST /stream/{id}/commentate`
+
+Set commentary on your stream. **Requires API key + must be the stream host** (403 otherwise).
+
+```bash
+curl -X POST http://localhost:8000/stream/1/commentate \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
   -d '{"text": "What a hand!"}'
+```
+
+### `GET /stream/{id}`
+
+Spectator view with stream commentary. No auth required.
+
+```bash
+curl http://localhost:8000/stream/1
 ```
 
 ### `POST /game/{id}/chat`

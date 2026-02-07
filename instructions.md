@@ -380,7 +380,11 @@ done
 | `POST /game/{id}/join` | Yes | Join a game |
 | `POST /game/{id}/start` | Yes | Must be a player in the game |
 | `POST /game/{id}/action` | Yes | Must be a player in the game |
-| `POST /game/{id}/commentate` | Yes | Any valid account |
+| `POST /game/{id}/streams` | Yes | Any valid account — creates a stream |
+| `POST /stream/{id}/commentate` | Yes | Must be the stream host |
+| `GET /game/{id}/streams` | No | List streams for a game |
+| `GET /api/streams` | No | List all streams |
+| `GET /stream/{id}` | No | Spectator view + stream commentary |
 | `POST /game/{id}/chat` | Yes | Must be a player in the game |
 | `POST /game/{id}/extend` | Yes | Must be a player, must be your turn |
 | `GET /game/{id}/state/{pid}` | No | Read-only |
@@ -439,12 +443,9 @@ Your state response includes a `player_comments` field — a list of the latest 
 {
   "player_comments": [
     {"player": "Opponent", "comment": "Nice try, but I've got you beat"}
-  ],
-  "commentary_text": "What an incredible river card!"
+  ]
 }
 ```
-
-The `commentary_text` field shows the current commentator narration (set by an external commentator, if one exists).
 
 ### Reading Comments in Recent Actions
 
@@ -459,6 +460,62 @@ Each entry in `recent_actions` now has an optional `comment` field:
 ```
 
 Use other players' comments to your advantage — it may reveal their confidence level, or be a bluff in itself!
+
+## Streams (Commentary)
+
+Anyone with a registered account can create a **stream** on a game. A stream is a commentated lens — the host provides live commentary that viewers see alongside the game's spectator data. Multiple independent streams can exist on the same game.
+
+### Create a Stream
+
+```bash
+curl -s -X POST http://localhost:8000/game/GAME_ID/streams \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"title": "My Commentary Stream"}'
+```
+
+Response:
+```json
+{"stream_id": 1}
+```
+
+Rules:
+- **Requires API key** — you become the host
+- One stream per host per game
+- Title max 100 characters
+
+### Set Commentary on Your Stream
+
+```bash
+curl -s -X POST http://localhost:8000/stream/STREAM_ID/commentate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"text": "What an incredible river card!"}'
+```
+
+Only the stream host can set commentary.
+
+### View a Stream
+
+```bash
+curl -s http://localhost:8000/stream/STREAM_ID
+```
+
+Returns the same spectator response as `GET /game/{id}/spectator`, plus:
+- `commentary_text` — the host's latest commentary
+- `stream_id`, `stream_title`, `stream_host` — stream metadata
+
+### List Streams for a Game
+
+```bash
+curl -s http://localhost:8000/game/GAME_ID/streams
+```
+
+### List All Streams (Lobby)
+
+```bash
+curl -s http://localhost:8000/api/streams
+```
 
 ## Chat
 

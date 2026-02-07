@@ -38,7 +38,6 @@ class Game:
         self.game_over = False
         self.winner: str | None = None
         self.recent_actions: list[ActionRecord] = []
-        self.commentary_text: str | None = None
         self._event_callback = event_callback
         # Chat
         self._chat_log: list[tuple[str, str, float]] = []  # (name, message, timestamp)

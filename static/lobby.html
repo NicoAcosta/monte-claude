@@ -287,6 +287,18 @@
     font-weight: 600;
   }
 
+  /* ── Section Heading ─────────────────────────────────── */
+  .section-heading {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+    margin-top: 32px;
+  }
+  .section-heading:first-child { margin-top: 0; }
+
   /* ── Empty State ─────────────────────────────────────── */
   .empty-state {
     grid-column: 1 / -1;
@@ -312,6 +324,53 @@
     opacity: .7;
     max-width: 320px;
     line-height: 1.5;
+  }
+
+  .empty-inline {
+    grid-column: 1 / -1;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-dim);
+    padding: 20px 0;
+    text-align: center;
+  }
+
+  /* ── Stream Card ────────────────────────────────────── */
+  .stream-card {
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+    animation: fadeIn .3s ease both;
+  }
+  .stream-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    border-color: rgba(212,168,67,.25);
+  }
+  .stream-card:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  .stream-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+
+  .stream-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 12px;
   }
 
   /* ── Fade-in animation ───────────────────────────────── */
@@ -349,8 +408,14 @@
         <span class="btn-plus">+</span> Create Game
       </button>
     </div>
+    <div class="section-heading">Games</div>
     <div class="game-grid" id="game-grid">
       <!-- Cards injected by JS -->
+    </div>
+
+    <div class="section-heading" id="streams-heading" style="display:none">Streams</div>
+    <div class="game-grid" id="stream-grid">
+      <!-- Stream cards injected by JS -->
     </div>
   </div>
 
@@ -363,11 +428,13 @@
   var POLL_INTERVAL = 3000;
 
   /* ── DOM refs ────────────────────────────────────────── */
-  var $connDot   = document.getElementById('conn-dot');
-  var $connText  = document.getElementById('conn-text');
-  var $gameCount = document.getElementById('game-count');
-  var $grid      = document.getElementById('game-grid');
-  var $btnCreate = document.getElementById('btn-create');
+  var $connDot        = document.getElementById('conn-dot');
+  var $connText       = document.getElementById('conn-text');
+  var $gameCount      = document.getElementById('game-count');
+  var $grid           = document.getElementById('game-grid');
+  var $btnCreate      = document.getElementById('btn-create');
+  var $streamGrid     = document.getElementById('stream-grid');
+  var $streamsHeading = document.getElementById('streams-heading');
 
   /* ── Helpers ─────────────────────────────────────────── */
   function escapeHtml(str) {
@@ -456,16 +523,40 @@
     $grid.innerHTML = html;
   }
 
+  /* ── Render Streams ──────────────────────────────────── */
+  function renderStreams(streams) {
+    if (streams.length === 0) {
+      $streamsHeading.style.display = 'none';
+      $streamGrid.innerHTML = '';
+      return;
+    }
+
+    $streamsHeading.style.display = '';
+    var html = '';
+    for (var i = 0; i < streams.length; i++) {
+      var s = streams[i];
+      html +=
+        '<a class="stream-card" href="/stream/' + s.id + '" style="animation-delay:' + (i * 0.04) + 's">' +
+          '<div class="stream-title">' + escapeHtml(s.title) + '</div>' +
+          '<div class="stream-meta">' +
+            '<span>Host: ' + escapeHtml(s.host) + '</span>' +
+            '<span>Game #' + s.game_id + '</span>' +
+          '</div>' +
+        '</a>';
+    }
+    $streamGrid.innerHTML = html;
+  }
+
   /* ── Polling ─────────────────────────────────────────── */
   function poll() {
-    fetch('/api/games')
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (data) {
+    Promise.all([
+      fetch('/api/games').then(function (r) { return r.ok ? r.json() : null; }),
+      fetch('/api/streams').then(function (r) { return r.ok ? r.json() : null; })
+    ])
+      .then(function (results) {
         setConnection('ok', 'Connected');
-        renderGames(data.games || []);
+        if (results[0]) renderGames(results[0].games || []);
+        renderStreams(results[1] ? results[1].streams || [] : []);
       })
       .catch(function () {
         setConnection('err', 'Disconnected');

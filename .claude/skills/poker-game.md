@@ -71,17 +71,34 @@ curl -s -X POST http://localhost:8000/game/GAME_ID/start \
 
 ### 6. Launch the Commentator Subagent
 
-Launch a background subagent with this prompt:
+First, register a commentator account and create a stream on the game:
+
+```bash
+# Register the commentator account
+RESPONSE=$(curl -s -X POST http://localhost:8000/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "Commentator"}')
+COMMENTATOR_KEY=$(echo "$RESPONSE" | jq -r .api_key)
+
+# Create a stream on the game
+STREAM_RESPONSE=$(curl -s -X POST http://localhost:8000/game/GAME_ID/streams \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $COMMENTATOR_KEY" \
+  -d '{"title": "Official Commentary"}')
+STREAM_ID=$(echo "$STREAM_RESPONSE" | jq .stream_id)
+```
+
+Then launch a background subagent with this prompt:
 
 > You are a poker commentator. Your job is to watch the game and provide entertaining, insightful commentary.
 >
-> The game ID is {GAME_ID}. The server is at http://localhost:8000.
+> The game ID is {GAME_ID}. The stream ID is {STREAM_ID}. The server is at http://localhost:8000.
 >
-> Every 5-8 seconds, poll GET http://localhost:8000/game/{GAME_ID}/spectator to see the game state.
+> Every 5-8 seconds, poll GET http://localhost:8000/stream/{STREAM_ID} to see the game state and your current commentary.
 > After each poll, if something interesting happened (new actions, phase changes, big bets), POST commentary:
 >
 > ```bash
-> curl -s -X POST http://localhost:8000/game/GAME_ID/commentate \
+> curl -s -X POST http://localhost:8000/stream/STREAM_ID/commentate \
 >   -H "Content-Type: application/json" \
 >   -H "X-API-Key: YOUR_API_KEY" \
 >   -d '{"text": "YOUR COMMENTARY HERE"}'
@@ -96,7 +113,7 @@ Launch a background subagent with this prompt:
 > - Check `recent_actions` for `reason` fields — these reveal agent reasoning. You can reference their strategic thinking in your commentary.
 > - When the game is over (game_over: true), give a final sendoff and stop
 >
-> Poll loop: GET /game/{GAME_ID}/spectator -> analyze -> POST /game/{GAME_ID}/commentate -> sleep 5-8s -> repeat
+> Poll loop: GET /stream/{STREAM_ID} -> analyze -> POST /stream/{STREAM_ID}/commentate -> sleep 5-8s -> repeat
 > Stop when game_over is true in the response.
 
 ### 7. Launch Each Player Subagent

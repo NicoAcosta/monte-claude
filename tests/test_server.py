@@ -6,6 +6,7 @@ from poker.account_store import AccountStore
 from poker.game_manager import GameManager
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
+from poker.stream_manager import StreamManager
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +26,7 @@ def reset_state(tmp_path):
 
     server_module.manager = GameManager(recorder_factory=make_recorder)
     server_module.account_store = AccountStore(tmp_path / "accounts.csv")
+    server_module.stream_manager = StreamManager()
     yield
 
 
@@ -414,9 +416,9 @@ class TestSpectator:
         assert resp.status_code == 200
 
 
-# ── Commentary ───────────────────────────────────────────
+# ── Action Comments ───────────────────────────────────────
 
-class TestCommentary:
+class TestActionComments:
     def _setup_started_game(self, client):
         gid = create_game(client)
         key_a = register_account(client, "Alice")
@@ -425,45 +427,6 @@ class TestCommentary:
         join_game(client, gid, key_b)
         client.post(f"/game/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
-
-    def test_commentate_requires_auth(self, client):
-        gid = create_game(client)
-        resp = client.post(f"/game/{gid}/commentate", json={"text": "Hello"})
-        assert resp.status_code == 401
-
-    def test_commentate_endpoint(self, client):
-        gid = create_game(client)
-        key = register_account(client, "Alice")
-        resp = client.post(
-            f"/game/{gid}/commentate",
-            json={"text": "What a hand!"},
-            headers=auth_header(key),
-        )
-        assert resp.status_code == 200
-        assert resp.json()["success"] is True
-
-    def test_commentary_in_spectator(self, client):
-        gid = create_game(client)
-        key = register_account(client, "Alice")
-        client.post(
-            f"/game/{gid}/commentate",
-            json={"text": "Exciting game!"},
-            headers=auth_header(key),
-        )
-        resp = client.get(f"/game/{gid}/spectator")
-        assert resp.status_code == 200
-        assert resp.json()["commentary_text"] == "Exciting game!"
-
-    def test_commentary_in_state(self, client):
-        gid, key_a, _ = self._setup_started_game(client)
-        client.post(
-            f"/game/{gid}/commentate",
-            json={"text": "Here we go!"},
-            headers=auth_header(key_a),
-        )
-        resp = client.get(f"/game/{gid}/state/1")
-        assert resp.status_code == 200
-        assert resp.json()["commentary_text"] == "Here we go!"
 
     def test_comment_too_long(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
@@ -526,10 +489,16 @@ class TestCommentary:
         assert "player_comments" in state
         assert any(pc["comment"] == "Trash talk!" for pc in state["player_comments"])
 
-    def test_no_commentary_by_default(self, client):
+    def test_no_commentary_in_spectator_by_default(self, client):
         gid = create_game(client)
         resp = client.get(f"/game/{gid}/spectator")
         assert resp.json()["commentary_text"] is None
+
+    def test_no_commentary_in_player_state(self, client):
+        """commentary_text was removed from PlayerStateResponse."""
+        gid, key_a, key_b = self._setup_started_game(client)
+        resp = client.get(f"/game/{gid}/state/1")
+        assert "commentary_text" not in resp.json()
 
 
 # ── Game Isolation ───────────────────────────────────────
@@ -915,3 +884,273 @@ class TestReason:
         # At least one action event should contain the reason in its data
         reason_found = any("Testing history persistence" in e["data"] for e in action_events)
         assert reason_found
+
+
+# ── Streams ────────────────────────────────────────────
+
+class TestStreams:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
+    def test_create_stream(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        resp = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["stream_id"] == 1
+
+    def test_create_stream_requires_auth(self, client):
+        gid = create_game(client)
+        resp = client.post(f"/game/{gid}/streams", json={"title": "No auth"})
+        assert resp.status_code == 401
+
+    def test_create_stream_game_not_found(self, client):
+        key = register_account(client, "Alice")
+        resp = client.post(
+            "/game/999/streams",
+            json={"title": "Test"},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 404
+
+    def test_create_stream_empty_title(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        resp = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "   "},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 400
+
+    def test_create_stream_title_too_long(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        resp = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "x" * 101},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 400
+
+    def test_duplicate_host_per_game_rejected(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        client.post(
+            f"/game/{gid}/streams",
+            json={"title": "First"},
+            headers=auth_header(key),
+        )
+        resp = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Second"},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 400
+
+    def test_list_streams_for_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        client.post(f"/game/{gid}/streams", json={"title": "Stream A"}, headers=auth_header(key_a))
+        client.post(f"/game/{gid}/streams", json={"title": "Stream B"}, headers=auth_header(key_b))
+
+        resp = client.get(f"/game/{gid}/streams")
+        assert resp.status_code == 200
+        streams = resp.json()["streams"]
+        assert len(streams) == 2
+        hosts = {s["host"] for s in streams}
+        assert hosts == {"Alice", "Bob"}
+
+    def test_list_streams_empty(self, client):
+        gid = create_game(client)
+        resp = client.get(f"/game/{gid}/streams")
+        assert resp.status_code == 200
+        assert resp.json()["streams"] == []
+
+    def test_list_all_streams(self, client):
+        g1 = create_game(client)
+        g2 = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        client.post(f"/game/{g1}/streams", json={"title": "G1 Stream"}, headers=auth_header(key_a))
+        client.post(f"/game/{g2}/streams", json={"title": "G2 Stream"}, headers=auth_header(key_b))
+
+        resp = client.get("/api/streams")
+        assert resp.status_code == 200
+        assert len(resp.json()["streams"]) == 2
+
+    def test_list_all_streams_empty(self, client):
+        resp = client.get("/api/streams")
+        assert resp.status_code == 200
+        assert resp.json()["streams"] == []
+
+    def test_stream_commentate(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key),
+        ).json()["stream_id"]
+
+        resp = client.post(
+            f"/stream/{sid}/commentate",
+            json={"text": "What a play!"},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_stream_commentate_requires_auth(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Test"},
+            headers=auth_header(key),
+        ).json()["stream_id"]
+
+        resp = client.post(f"/stream/{sid}/commentate", json={"text": "No auth"})
+        assert resp.status_code == 401
+
+    def test_stream_commentate_only_host(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key_a),
+        ).json()["stream_id"]
+
+        resp = client.post(
+            f"/stream/{sid}/commentate",
+            json={"text": "I'm not the host"},
+            headers=auth_header(key_b),
+        )
+        assert resp.status_code == 403
+
+    def test_stream_commentate_not_found(self, client):
+        key = register_account(client, "Alice")
+        resp = client.post(
+            "/stream/999/commentate",
+            json={"text": "No stream"},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 404
+
+    def test_stream_view(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key),
+        ).json()["stream_id"]
+
+        client.post(
+            f"/stream/{sid}/commentate",
+            json={"text": "Hello viewers!"},
+            headers=auth_header(key),
+        )
+
+        resp = client.get(f"/stream/{sid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["commentary_text"] == "Hello viewers!"
+        assert data["stream_id"] == sid
+        assert data["stream_title"] == "Alice's Stream"
+        assert data["stream_host"] == "Alice"
+
+    def test_stream_view_no_commentary(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Silent Stream"},
+            headers=auth_header(key),
+        ).json()["stream_id"]
+
+        resp = client.get(f"/stream/{sid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["commentary_text"] is None
+        assert data["stream_id"] == sid
+
+    def test_stream_view_not_found(self, client):
+        resp = client.get("/stream/999")
+        assert resp.status_code == 404
+
+    def test_stream_view_includes_game_state(self, client):
+        """Stream view should include the game's spectator data."""
+        gid, key_a, key_b = self._setup_started_game(client)
+
+        # Complete hand 1
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+
+        # Create a stream
+        key_c = register_account(client, "Charlie")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Charlie's Cast"},
+            headers=auth_header(key_c),
+        ).json()["stream_id"]
+
+        resp = client.get(f"/stream/{sid}")
+        data = resp.json()
+        # Should have game data from previous hand
+        assert data["hand_number"] == 1
+        assert data["phase"] == "complete"
+        assert len(data["players"]) == 2
+
+    def test_multiple_streams_independent_commentary(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        sid_a = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key_a),
+        ).json()["stream_id"]
+        sid_b = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Bob's Stream"},
+            headers=auth_header(key_b),
+        ).json()["stream_id"]
+
+        client.post(f"/stream/{sid_a}/commentate", json={"text": "Alice says hi"}, headers=auth_header(key_a))
+        client.post(f"/stream/{sid_b}/commentate", json={"text": "Bob says hey"}, headers=auth_header(key_b))
+
+        resp_a = client.get(f"/stream/{sid_a}")
+        resp_b = client.get(f"/stream/{sid_b}")
+        assert resp_a.json()["commentary_text"] == "Alice says hi"
+        assert resp_b.json()["commentary_text"] == "Bob says hey"
+
+    def test_raw_spectator_has_no_commentary(self, client):
+        """The base spectator endpoint should always have commentary_text=None."""
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key),
+        )
+        sid = 1
+        client.post(f"/stream/{sid}/commentate", json={"text": "Hello!"}, headers=auth_header(key))
+
+        # Raw spectator should have no commentary
+        resp = client.get(f"/game/{gid}/spectator")
+        assert resp.json()["commentary_text"] is None
