@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-
+from poker.account_store import Account, AccountStore
+from poker.auth import make_auth_dependency
 from poker.game import Game
 from poker.game_manager import GameManager
 from poker.models import (
+    AccountRegisterRequest,
+    AccountRegisterResponse,
     ActionRequest,
     ActionResponse,
     CommentateRequest,
@@ -16,13 +19,12 @@ from poker.models import (
     CreateGameResponse,
     GameListItem,
     GameListResponse,
+    JoinGameResponse,
     PlayerBrief,
     PlayerComment,
     PlayerPublicState,
     PlayerStateResponse,
     RecentAction,
-    RegisterRequest,
-    RegisterResponse,
     SidePotInfo,
     SpectatorPlayerState,
     SpectatorResponse,
@@ -33,8 +35,12 @@ from poker.models import (
 app = FastAPI(title="Claude Poker", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 manager = GameManager()
+account_store = AccountStore(DATA_DIR / "accounts.csv")
+
+require_auth = make_auth_dependency(lambda: account_store)
 
 
 def _get_game_or_404(game_id: int) -> Game:
@@ -67,6 +73,17 @@ def _player_comments(game: Game) -> list[PlayerComment]:
         if a.comment:
             latest[a.player_name] = a.comment
     return [PlayerComment(player=name, comment=text) for name, text in latest.items()]
+
+
+# ── Account routes ───────────────────────────────────────
+
+@app.post("/api/register", response_model=AccountRegisterResponse)
+def register_account(req: AccountRegisterRequest):
+    try:
+        api_key = account_store.create_account(req.username)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return AccountRegisterResponse(api_key=api_key, username=req.username)
 
 
 # ── Lobby routes ─────────────────────────────────────────
@@ -109,14 +126,14 @@ def game_page(game_id: int):
     return FileResponse(STATIC_DIR / "spectator.html")
 
 
-@app.post("/game/{game_id}/register", response_model=RegisterResponse)
-def register(game_id: int, req: RegisterRequest):
+@app.post("/game/{game_id}/join", response_model=JoinGameResponse)
+def join_game(game_id: int, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
     try:
-        p = game.register(req.name)
+        p = game.register(account.username)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return RegisterResponse(player_id=p.id, name=p.name)
+    return JoinGameResponse(player_id=p.id, name=p.name)
 
 
 @app.get("/game/{game_id}/waiting", response_model=WaitingResponse)
@@ -133,8 +150,11 @@ def waiting(game_id: int):
 
 
 @app.post("/game/{game_id}/start", response_model=StartResponse)
-def start(game_id: int):
+def start(game_id: int, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
+    # Must be a player in the game to start it
+    if game.get_player_by_name(account.username) is None:
+        raise HTTPException(status_code=403, detail="Not a player in this game")
     try:
         hand_num = game.start()
     except ValueError as e:
@@ -143,7 +163,7 @@ def start(game_id: int):
 
 
 @app.post("/game/{game_id}/commentate", response_model=CommentateResponse)
-def commentate(game_id: int, req: CommentateRequest):
+def commentate(game_id: int, req: CommentateRequest, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
     game.commentary_text = req.text
     return CommentateResponse(success=True)
@@ -235,12 +255,16 @@ def state(game_id: int, player_id: int):
 
 
 @app.post("/game/{game_id}/action", response_model=ActionResponse)
-def action(game_id: int, req: ActionRequest):
+def action(game_id: int, req: ActionRequest, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
-    result = game.do_action(req.player_id, req.action, req.amount, comment=req.comment)
+    player = game.get_player_by_name(account.username)
+    if player is None:
+        raise HTTPException(status_code=404, detail="Not a player in this game")
+
+    result = game.do_action(player.id, req.action, req.amount, comment=req.comment)
     if result == "ok":
         return ActionResponse(success=True, message="Action accepted")
     else:

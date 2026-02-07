@@ -59,6 +59,12 @@ class Game:
                 return p
         return None
 
+    def get_player_by_name(self, name: str) -> RegisteredPlayer | None:
+        for p in self._players:
+            if p.name == name:
+                return p
+        return None
+
     def start(self) -> int:
         if self.started:
             raise ValueError("Game already started")

@@ -1,6 +1,6 @@
 # Claude Poker
 
-No-Limit Texas Hold'em server for AI agents. Players interact via HTTP/curl. Includes a spectator UI for the host.
+No-Limit Texas Hold'em server for AI agents. Players interact via HTTP/curl with API key authentication. Includes a spectator UI for the host.
 
 ## Setup
 
@@ -26,22 +26,67 @@ make test
 
 ## Game Flow
 
-1. Players register
-2. Host starts the game
-3. Players poll their state and submit actions
-4. Host watches via spectator UI at `/`
-5. Tournament continues until one player has all chips
+1. Register an account (`POST /api/register`) — get an API key
+2. Create a game (`POST /api/games`)
+3. Join the game with your API key (`POST /game/{id}/join`)
+4. Host starts the game (`POST /game/{id}/start`)
+5. Players poll their state and submit actions (authenticated)
+6. Host watches via spectator UI at `/game/{id}`
+7. Tournament continues until one player has all chips
+
+## Authentication
+
+The server uses API key authentication via the `X-API-Key` header. Keys are prefixed with `pk_` and stored as SHA-256 hashes in `data/accounts.csv`.
+
+- **Register once** at `POST /api/register` to get your API key (shown once)
+- **Include `X-API-Key` header** on all state-modifying requests (join, start, action, commentate)
+- **Read-only endpoints** (state, spectator, waiting, game list) require no auth
 
 ## API Reference
 
-### `POST /register`
+### `POST /api/register`
 
-Register a player.
+Register an account. No auth required.
 
 ```bash
-curl -X POST http://localhost:8000/register \
+curl -X POST http://localhost:8000/api/register \
   -H "Content-Type: application/json" \
-  -d '{"name": "AlphaBot"}'
+  -d '{"username": "AlphaBot"}'
+```
+
+Response:
+```json
+{"api_key": "pk_abc123...", "username": "AlphaBot"}
+```
+
+### `POST /api/games`
+
+Create a new game. No auth required.
+
+```bash
+curl -X POST http://localhost:8000/api/games
+```
+
+Response:
+```json
+{"game_id": 1}
+```
+
+### `GET /api/games`
+
+List all games. No auth required.
+
+```bash
+curl http://localhost:8000/api/games
+```
+
+### `POST /game/{id}/join`
+
+Join a game. **Requires API key.** Your username from account registration is used as the player name.
+
+```bash
+curl -X POST http://localhost:8000/game/1/join \
+  -H "X-API-Key: YOUR_API_KEY"
 ```
 
 Response:
@@ -49,33 +94,29 @@ Response:
 {"player_id": 1, "name": "AlphaBot"}
 ```
 
-### `GET /waiting`
+### `GET /game/{id}/waiting`
 
-Check lobby status.
-
-```bash
-curl http://localhost:8000/waiting
-```
-
-Response:
-```json
-{"started": false, "players": [{"id": 1, "name": "AlphaBot", "chips": 1000}], "player_count": 1}
-```
-
-### `POST /start`
-
-Start the game (host only, requires 2+ players).
+Check lobby status. No auth required.
 
 ```bash
-curl -X POST http://localhost:8000/start
+curl http://localhost:8000/game/1/waiting
 ```
 
-### `GET /state/{player_id}`
+### `POST /game/{id}/start`
 
-Get your game state (your cards are visible, opponents' are hidden).
+Start the game. **Requires API key + must be a player in the game** (403 otherwise).
 
 ```bash
-curl http://localhost:8000/state/1
+curl -X POST http://localhost:8000/game/1/start \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+### `GET /game/{id}/state/{player_id}`
+
+Get your game state (your cards are visible, opponents' are hidden). No auth required.
+
+```bash
+curl http://localhost:8000/game/1/state/1
 ```
 
 Key fields:
@@ -85,87 +126,98 @@ Key fields:
 - `min_raise` — minimum total bet for a raise
 - `phase` — preflop, flop, turn, river, showdown, complete
 
-### `POST /action`
+### `POST /game/{id}/action`
 
-Submit an action (only works on your turn).
+Submit an action. **Requires API key + must be a player in the game.** The server derives your player_id from the API key — no `player_id` needed in the request body.
 
 **Fold:**
 ```bash
-curl -X POST http://localhost:8000/action \
+curl -X POST http://localhost:8000/game/1/action \
   -H "Content-Type: application/json" \
-  -d '{"player_id": 1, "action": "fold"}'
-```
-
-**Check:**
-```bash
-curl -X POST http://localhost:8000/action \
-  -H "Content-Type: application/json" \
-  -d '{"player_id": 1, "action": "check"}'
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"action": "fold"}'
 ```
 
 **Call:**
 ```bash
-curl -X POST http://localhost:8000/action \
+curl -X POST http://localhost:8000/game/1/action \
   -H "Content-Type: application/json" \
-  -d '{"player_id": 1, "action": "call"}'
-```
-
-**Bet** (when no one has bet this round):
-```bash
-curl -X POST http://localhost:8000/action \
-  -H "Content-Type: application/json" \
-  -d '{"player_id": 1, "action": "bet", "amount": 50}'
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"action": "call"}'
 ```
 
 **Raise** (amount = total bet, not increment):
 ```bash
-curl -X POST http://localhost:8000/action \
+curl -X POST http://localhost:8000/game/1/action \
   -H "Content-Type: application/json" \
-  -d '{"player_id": 1, "action": "raise", "amount": 100}'
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"action": "raise", "amount": 100}'
 ```
 
 **All-in:**
 ```bash
-curl -X POST http://localhost:8000/action \
+curl -X POST http://localhost:8000/game/1/action \
   -H "Content-Type: application/json" \
-  -d '{"player_id": 1, "action": "all_in"}'
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"action": "all_in"}'
 ```
 
-### `GET /spectator`
+### `POST /game/{id}/commentate`
 
-Full game state with all cards visible. Used by the spectator UI.
+Set commentary text. **Requires API key** (any valid account).
 
 ```bash
-curl http://localhost:8000/spectator
+curl -X POST http://localhost:8000/game/1/commentate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"text": "What a hand!"}'
+```
+
+### `GET /game/{id}/spectator`
+
+Full game state with all cards visible (1-hand delay). No auth required.
+
+```bash
+curl http://localhost:8000/game/1/spectator
 ```
 
 ## AI Agent Loop
 
 ```bash
-# 1. Register
-ID=$(curl -s -X POST http://localhost:8000/register \
-  -H "Content-Type: application/json" \
-  -d '{"name": "MyBot"}' | jq .player_id)
+SERVER="http://localhost:8000"
+GAME_ID=1
 
-# 2. Wait for game to start
+# 1. Register an account
+RESPONSE=$(curl -s -X POST "$SERVER/api/register" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "MyBot"}')
+API_KEY=$(echo "$RESPONSE" | jq -r .api_key)
+
+# 2. Join the game
+RESPONSE=$(curl -s -X POST "$SERVER/game/$GAME_ID/join" \
+  -H "X-API-Key: $API_KEY")
+ID=$(echo "$RESPONSE" | jq .player_id)
+
+# 3. Wait for game to start
 while true; do
-  STARTED=$(curl -s http://localhost:8000/waiting | jq .started)
+  STARTED=$(curl -s "$SERVER/game/$GAME_ID/waiting" | jq .started)
   [ "$STARTED" = "true" ] && break
   sleep 1
 done
 
-# 3. Play loop
+# 4. Play loop
 while true; do
-  STATE=$(curl -s http://localhost:8000/state/$ID)
+  STATE=$(curl -s "$SERVER/game/$GAME_ID/state/$ID")
   GAME_OVER=$(echo $STATE | jq .game_over)
   [ "$GAME_OVER" = "true" ] && break
 
   IS_TURN=$(echo $STATE | jq .is_your_turn)
   if [ "$IS_TURN" = "true" ]; then
     # Your decision logic here
-    curl -s -X POST http://localhost:8000/action \
+    curl -s -X POST "$SERVER/game/$GAME_ID/action" \
       -H "Content-Type: application/json" \
-      -d "{\"player_id\": $ID, \"action\": \"call\"}"
+      -H "X-API-Key: $API_KEY" \
+      -d '{"action": "call"}'
   fi
   sleep 0.5
 done
@@ -178,4 +230,3 @@ done
 - **Format:** Tournament — lose all chips and you're out
 - **Side pots:** Fully supported for all-in scenarios
 - **Showdown:** Best 5 of 7 cards wins
-# claude-poker

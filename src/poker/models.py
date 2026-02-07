@@ -3,11 +3,16 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
-class RegisterRequest(BaseModel):
-    name: str
+class AccountRegisterRequest(BaseModel):
+    username: str
 
 
-class RegisterResponse(BaseModel):
+class AccountRegisterResponse(BaseModel):
+    api_key: str
+    username: str
+
+
+class JoinGameResponse(BaseModel):
     player_id: int
     name: str
 
@@ -30,7 +35,6 @@ class StartResponse(BaseModel):
 
 
 class ActionRequest(BaseModel):
-    player_id: int
     action: str
     amount: int | None = None
     comment: str | None = None

@@ -2,13 +2,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 import poker.server as server_module
+from poker.account_store import AccountStore
 from poker.game_manager import GameManager
 
 
 @pytest.fixture(autouse=True)
-def reset_manager():
-    """Reset global game manager before each test."""
+def reset_state(tmp_path):
+    """Reset global game manager and account store before each test."""
     server_module.manager = GameManager()
+    server_module.account_store = AccountStore(tmp_path / "accounts.csv")
     yield
 
 
@@ -17,12 +19,54 @@ def client():
     return TestClient(server_module.app)
 
 
+# ── Helpers ──────────────────────────────────────────────
+
 def create_game(client) -> int:
     """Helper: create a game and return its id."""
     resp = client.post("/api/games")
     assert resp.status_code == 200
     return resp.json()["game_id"]
 
+
+def register_account(client, username: str) -> str:
+    """Helper: register an account and return the API key."""
+    resp = client.post("/api/register", json={"username": username})
+    assert resp.status_code == 200
+    return resp.json()["api_key"]
+
+
+def auth_header(api_key: str) -> dict[str, str]:
+    return {"X-API-Key": api_key}
+
+
+def join_game(client, game_id: int, api_key: str) -> dict:
+    """Helper: join a game with an API key, return response json."""
+    resp = client.post(f"/game/{game_id}/join", headers=auth_header(api_key))
+    assert resp.status_code == 200
+    return resp.json()
+
+
+# ── Account Registration ────────────────────────────────
+
+class TestAccountRegistration:
+    def test_register_account(self, client):
+        resp = client.post("/api/register", json={"username": "Alice"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["username"] == "Alice"
+        assert data["api_key"].startswith("pk_")
+
+    def test_register_duplicate_username(self, client):
+        register_account(client, "Alice")
+        resp = client.post("/api/register", json={"username": "Alice"})
+        assert resp.status_code == 400
+
+    def test_register_empty_username(self, client):
+        resp = client.post("/api/register", json={"username": ""})
+        assert resp.status_code == 400
+
+
+# ── Lobby ────────────────────────────────────────────────
 
 class TestLobby:
     def test_list_games_empty(self, client):
@@ -58,36 +102,49 @@ class TestLobby:
         assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
 
-class TestRegister:
-    def test_register(self, client):
+# ── Join Game ────────────────────────────────────────────
+
+class TestJoinGame:
+    def test_join_game(self, client):
         gid = create_game(client)
-        resp = client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        assert resp.status_code == 200
-        data = resp.json()
+        key = register_account(client, "Alice")
+        data = join_game(client, gid, key)
         assert data["player_id"] == 1
         assert data["name"] == "Alice"
 
-    def test_register_duplicate(self, client):
+    def test_join_requires_auth(self, client):
         gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        resp = client.post(f"/game/{gid}/register", json={"name": "Alice"})
+        resp = client.post(f"/game/{gid}/join")
+        assert resp.status_code == 401
+
+    def test_join_invalid_key(self, client):
+        gid = create_game(client)
+        resp = client.post(f"/game/{gid}/join", headers=auth_header("pk_bogus"))
+        assert resp.status_code == 401
+
+    def test_join_duplicate_name(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        join_game(client, gid, key)
+        # Same user can't join twice (game.register rejects duplicate name)
+        resp = client.post(f"/game/{gid}/join", headers=auth_header(key))
         assert resp.status_code == 400
 
-    def test_register_empty_name(self, client):
-        gid = create_game(client)
-        resp = client.post(f"/game/{gid}/register", json={"name": ""})
-        assert resp.status_code == 400
-
-    def test_register_nonexistent_game(self, client):
-        resp = client.post("/game/999/register", json={"name": "Alice"})
+    def test_join_nonexistent_game(self, client):
+        key = register_account(client, "Alice")
+        resp = client.post("/game/999/join", headers=auth_header(key))
         assert resp.status_code == 404
 
+
+# ── Waiting ──────────────────────────────────────────────
 
 class TestWaiting:
     def test_waiting_room(self, client):
         gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
         resp = client.get(f"/game/{gid}/waiting")
         assert resp.status_code == 200
         data = resp.json()
@@ -96,43 +153,70 @@ class TestWaiting:
         assert len(data["players"]) == 2
 
 
+# ── Start ────────────────────────────────────────────────
+
 class TestStart:
     def test_start_game(self, client):
         gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        resp = client.post(f"/game/{gid}/start")
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        resp = client.post(f"/game/{gid}/start", headers=auth_header(key_a))
         assert resp.status_code == 200
         data = resp.json()
         assert data["hand_number"] == 1
 
     def test_start_not_enough_players(self, client):
         gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        resp = client.post(f"/game/{gid}/start")
+        key = register_account(client, "Alice")
+        join_game(client, gid, key)
+        resp = client.post(f"/game/{gid}/start", headers=auth_header(key))
         assert resp.status_code == 400
 
+    def test_start_requires_auth(self, client):
+        gid = create_game(client)
+        resp = client.post(f"/game/{gid}/start")
+        assert resp.status_code == 401
+
+    def test_start_non_player_forbidden(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        key_c = register_account(client, "Charlie")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        # Charlie has a valid key but isn't in the game
+        resp = client.post(f"/game/{gid}/start", headers=auth_header(key_c))
+        assert resp.status_code == 403
+
+
+# ── State ────────────────────────────────────────────────
 
 class TestState:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
     def test_state_before_start(self, client):
         gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
+        key = register_account(client, "Alice")
+        join_game(client, gid, key)
         resp = client.get(f"/game/{gid}/state/1")
         assert resp.status_code == 400
 
     def test_state_invalid_player(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, _, _ = self._setup_started_game(client)
         resp = client.get(f"/game/{gid}/state/999")
         assert resp.status_code == 404
 
     def test_state_returns_cards(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, _, _ = self._setup_started_game(client)
         resp = client.get(f"/game/{gid}/state/1")
         assert resp.status_code == 200
         data = resp.json()
@@ -141,40 +225,78 @@ class TestState:
         assert data["hand_number"] == 1
         assert len(data["players"]) == 2
 
+    def test_state_no_auth_required(self, client):
+        """State endpoint is read-only, no auth needed."""
+        gid, _, _ = self._setup_started_game(client)
+        resp = client.get(f"/game/{gid}/state/1")
+        assert resp.status_code == 200
+
+
+# ── Action ───────────────────────────────────────────────
 
 class TestAction:
-    def test_action_before_start(self, client):
+    def _setup_started_game(self, client):
         gid = create_game(client)
-        resp = client.post(f"/game/{gid}/action", json={"player_id": 1, "action": "fold"})
-        assert resp.status_code == 400
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
 
-    def test_fold(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
-        # Find who acts first
+    def _who_acts_first(self, client, gid, key_a, key_b):
         s1 = client.get(f"/game/{gid}/state/1").json()
         s2 = client.get(f"/game/{gid}/state/2").json()
-        first = 1 if s1["is_your_turn"] else 2
-        resp = client.post(f"/game/{gid}/action", json={"player_id": first, "action": "fold"})
+        if s1["is_your_turn"]:
+            return key_a, key_b
+        return key_b, key_a
+
+    def test_action_requires_auth(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        resp = client.post(f"/game/{gid}/action", json={"action": "fold"})
+        assert resp.status_code == 401
+
+    def test_action_invalid_key(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "fold"},
+            headers=auth_header("pk_bogus"),
+        )
+        assert resp.status_code == 401
+
+    def test_action_non_player_404(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        key_c = register_account(client, "Charlie")
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "fold"},
+            headers=auth_header(key_c),
+        )
+        assert resp.status_code == 404
+
+    def test_fold(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        first_key, _ = self._who_acts_first(client, gid, key_a, key_b)
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "fold"},
+            headers=auth_header(first_key),
+        )
         assert resp.status_code == 200
 
     def test_wrong_turn(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
-        s1 = client.get(f"/game/{gid}/state/1").json()
-        not_turn = 2 if s1["is_your_turn"] else 1
-        resp = client.post(f"/game/{gid}/action", json={"player_id": not_turn, "action": "fold"})
+        gid, key_a, key_b = self._setup_started_game(client)
+        _, second_key = self._who_acts_first(client, gid, key_a, key_b)
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "fold"},
+            headers=auth_header(second_key),
+        )
         assert resp.status_code == 400
 
     def test_full_hand_via_api(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, key_a, key_b = self._setup_started_game(client)
 
         # Play through a full hand: call preflop, check all streets
         for _ in range(20):  # safety limit
@@ -185,25 +307,36 @@ class TestAction:
                 break
 
             if s1["is_your_turn"]:
-                pid = 1
+                key = key_a
                 to_call = s1["amount_to_call"]
             elif s2["is_your_turn"]:
-                pid = 2
+                key = key_b
                 to_call = s2["amount_to_call"]
             else:
                 break
 
             if to_call > 0:
-                client.post(f"/game/{gid}/action", json={"player_id": pid, "action": "call"})
+                client.post(f"/game/{gid}/action", json={"action": "call"}, headers=auth_header(key))
             else:
-                client.post(f"/game/{gid}/action", json={"player_id": pid, "action": "check"})
+                client.post(f"/game/{gid}/action", json={"action": "check"}, headers=auth_header(key))
 
         # Hand should have completed
         final = client.get(f"/game/{gid}/state/1").json()
         assert final["hand_number"] >= 2 or final["game_over"]
 
 
+# ── Spectator ────────────────────────────────────────────
+
 class TestSpectator:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
     def test_spectator_before_start(self, client):
         gid = create_game(client)
         resp = client.get(f"/game/{gid}/spectator")
@@ -215,10 +348,7 @@ class TestSpectator:
 
     def test_spectator_during_first_hand_sees_waiting(self, client):
         """During hand 1, no previous hand exists — spectator sees waiting state."""
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, _, _ = self._setup_started_game(client)
         resp = client.get(f"/game/{gid}/spectator")
         assert resp.status_code == 200
         data = resp.json()
@@ -229,15 +359,12 @@ class TestSpectator:
 
     def test_spectator_sees_previous_hand_after_completion(self, client):
         """After hand 1 completes, spectator sees hand 1's full state."""
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, key_a, key_b = self._setup_started_game(client)
 
         # Complete hand 1 by folding
         s1 = client.get(f"/game/{gid}/state/1").json()
-        first = 1 if s1["is_your_turn"] else 2
-        client.post(f"/game/{gid}/action", json={"player_id": first, "action": "fold"})
+        first_key = key_a if s1["is_your_turn"] else key_b
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
         # Now on hand 2 — spectator should see hand 1
         resp = client.get(f"/game/{gid}/spectator")
@@ -245,93 +372,120 @@ class TestSpectator:
         assert data["hand_number"] == 1
         assert data["phase"] == "complete"
         assert len(data["recent_actions"]) > 0
-        # Spectator can see all cards from the previous hand
         for p in data["players"]:
             assert len(p["cards"]) == 2
 
     def test_spectator_actions_have_id_and_timestamp(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, key_a, key_b = self._setup_started_game(client)
 
-        # Complete hand 1
         s1 = client.get(f"/game/{gid}/state/1").json()
-        first = 1 if s1["is_your_turn"] else 2
-        client.post(f"/game/{gid}/action", json={"player_id": first, "action": "fold"})
+        first_key = key_a if s1["is_your_turn"] else key_b
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
         resp = client.get(f"/game/{gid}/spectator")
         data = resp.json()
-        for action in data["recent_actions"]:
-            assert "id" in action
-            assert "timestamp" in action
-            assert isinstance(action["id"], int)
-            assert isinstance(action["timestamp"], float)
-        # IDs should be sequential
+        for a in data["recent_actions"]:
+            assert "id" in a
+            assert "timestamp" in a
+            assert isinstance(a["id"], int)
+            assert isinstance(a["timestamp"], float)
         ids = [a["id"] for a in data["recent_actions"]]
         assert ids == sorted(ids)
         assert ids == list(range(ids[0], ids[0] + len(ids)))
 
+    def test_spectator_no_auth_required(self, client):
+        """Spectator endpoint is read-only, no auth needed."""
+        gid, _, _ = self._setup_started_game(client)
+        resp = client.get(f"/game/{gid}/spectator")
+        assert resp.status_code == 200
+
+
+# ── Commentary ───────────────────────────────────────────
 
 class TestCommentary:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
+    def test_commentate_requires_auth(self, client):
+        gid = create_game(client)
+        resp = client.post(f"/game/{gid}/commentate", json={"text": "Hello"})
+        assert resp.status_code == 401
+
     def test_commentate_endpoint(self, client):
         gid = create_game(client)
-        resp = client.post(f"/game/{gid}/commentate", json={"text": "What a hand!"})
+        key = register_account(client, "Alice")
+        resp = client.post(
+            f"/game/{gid}/commentate",
+            json={"text": "What a hand!"},
+            headers=auth_header(key),
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
     def test_commentary_in_spectator(self, client):
         gid = create_game(client)
-        client.post(f"/game/{gid}/commentate", json={"text": "Exciting game!"})
+        key = register_account(client, "Alice")
+        client.post(
+            f"/game/{gid}/commentate",
+            json={"text": "Exciting game!"},
+            headers=auth_header(key),
+        )
         resp = client.get(f"/game/{gid}/spectator")
         assert resp.status_code == 200
         assert resp.json()["commentary_text"] == "Exciting game!"
 
     def test_commentary_in_state(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
-        client.post(f"/game/{gid}/commentate", json={"text": "Here we go!"})
+        gid, key_a, _ = self._setup_started_game(client)
+        client.post(
+            f"/game/{gid}/commentate",
+            json={"text": "Here we go!"},
+            headers=auth_header(key_a),
+        )
         resp = client.get(f"/game/{gid}/state/1")
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["commentary_text"] == "Here we go!"
+        assert resp.json()["commentary_text"] == "Here we go!"
 
     def test_comment_in_action(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
-        # Find who acts first
+        gid, key_a, key_b = self._setup_started_game(client)
         s1 = client.get(f"/game/{gid}/state/1").json()
-        first = 1 if s1["is_your_turn"] else 2
-        second = 2 if first == 1 else 1
-        resp = client.post(f"/game/{gid}/action", json={
-            "player_id": first, "action": "call", "comment": "I'm feeling lucky!"
-        })
+        first_key = key_a if s1["is_your_turn"] else key_b
+        second_key = key_b if first_key == key_a else key_a
+        first_pid = 1 if s1["is_your_turn"] else 2
+
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "comment": "I'm feeling lucky!"},
+            headers=auth_header(first_key),
+        )
         assert resp.status_code == 200
-        # Comment should be visible in player state (current hand)
-        state = client.get(f"/game/{gid}/state/{first}").json()
+        # Comment should be visible in player state
+        state = client.get(f"/game/{gid}/state/{first_pid}").json()
         comments = [a["comment"] for a in state["recent_actions"] if a.get("comment")]
         assert "I'm feeling lucky!" in comments
-        # Complete the hand so spectator can see it
-        client.post(f"/game/{gid}/action", json={"player_id": second, "action": "fold"})
+        # Complete hand
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(second_key))
         spec = client.get(f"/game/{gid}/spectator").json()
         spec_comments = [a["comment"] for a in spec["recent_actions"] if a.get("comment")]
         assert "I'm feeling lucky!" in spec_comments
 
     def test_player_comments_in_state(self, client):
-        gid = create_game(client)
-        client.post(f"/game/{gid}/register", json={"name": "Alice"})
-        client.post(f"/game/{gid}/register", json={"name": "Bob"})
-        client.post(f"/game/{gid}/start")
+        gid, key_a, key_b = self._setup_started_game(client)
         s1 = client.get(f"/game/{gid}/state/1").json()
-        first = 1 if s1["is_your_turn"] else 2
-        client.post(f"/game/{gid}/action", json={
-            "player_id": first, "action": "call", "comment": "Trash talk!"
-        })
-        state = client.get(f"/game/{gid}/state/{first}").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        first_pid = 1 if s1["is_your_turn"] else 2
+
+        client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "comment": "Trash talk!"},
+            headers=auth_header(first_key),
+        )
+        state = client.get(f"/game/{gid}/state/{first_pid}").json()
         assert "player_comments" in state
         assert any(pc["comment"] == "Trash talk!" for pc in state["player_comments"])
 
@@ -341,14 +495,18 @@ class TestCommentary:
         assert resp.json()["commentary_text"] is None
 
 
+# ── Game Isolation ───────────────────────────────────────
+
 class TestGameIsolation:
     def test_games_are_isolated(self, client):
         """Players registered in one game don't appear in another."""
         g1 = create_game(client)
         g2 = create_game(client)
 
-        client.post(f"/game/{g1}/register", json={"name": "Alice"})
-        client.post(f"/game/{g2}/register", json={"name": "Bob"})
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, g1, key_a)
+        join_game(client, g2, key_b)
 
         w1 = client.get(f"/game/{g1}/waiting").json()
         w2 = client.get(f"/game/{g2}/waiting").json()
@@ -363,21 +521,24 @@ class TestGameIsolation:
         g1 = create_game(client)
         g2 = create_game(client)
 
-        # Set up and start game 1
-        client.post(f"/game/{g1}/register", json={"name": "Alice"})
-        client.post(f"/game/{g1}/register", json={"name": "Bob"})
-        client.post(f"/game/{g1}/start")
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, g1, key_a)
+        join_game(client, g1, key_b)
+        client.post(f"/game/{g1}/start", headers=auth_header(key_a))
 
-        # Game 2 should still be unstarted
         w2 = client.get(f"/game/{g2}/waiting").json()
         assert w2["started"] is False
 
     def test_lobby_reflects_multiple_games(self, client):
         g1 = create_game(client)
         g2 = create_game(client)
-        client.post(f"/game/{g1}/register", json={"name": "Alice"})
-        client.post(f"/game/{g1}/register", json={"name": "Bob"})
-        client.post(f"/game/{g1}/start")
+
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, g1, key_a)
+        join_game(client, g1, key_b)
+        client.post(f"/game/{g1}/start", headers=auth_header(key_a))
 
         games = client.get("/api/games").json()["games"]
         assert len(games) == 2
