@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Poker</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --felt:        #1a472a;
+    --felt-dark:   #0f2d1a;
+    --felt-light:  #236b3e;
+    --gold:        #d4a843;
+    --gold-dim:    #a17e2f;
+    --chip-green:  #27ae60;
+    --text:        #e8e0d0;
+    --text-dim:    #8a9a7c;
+    --text-bright: #ffffff;
+    --radius:      8px;
+    --transition:  .35s cubic-bezier(.4,0,.2,1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--felt-dark);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Layout Shell ────────────────────────────────────── */
+  .app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* ── Header ──────────────────────────────────────────── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: rgba(0,0,0,.3);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    flex-shrink: 0;
+  }
+
+  .header-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  /* ── Connection Indicator ────────────────────────────── */
+  .conn-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .conn-dot.ok      { background: #27ae60; box-shadow: 0 0 6px rgba(39,174,96,.5); }
+  .conn-dot.err     { background: #e74c3c; box-shadow: 0 0 6px rgba(231,76,60,.5); }
+  .conn-dot.loading { background: #f39c12; animation: dotPulse 1s infinite; }
+
+  @keyframes dotPulse {
+    0%, 100% { opacity: .3; transform: scale(1); }
+    50%      { opacity: 1; transform: scale(1.3); }
+  }
+
+  /* ── Main Content ────────────────────────────────────── */
+  .main {
+    flex: 1;
+    padding: 32px 24px 48px;
+    max-width: 960px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* ── Toolbar ─────────────────────────────────────────── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .game-count {
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: .5px;
+  }
+
+  /* ── Create Game Button ──────────────────────────────── */
+  .btn-create {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    background: transparent;
+    color: var(--gold);
+    border: 2px solid var(--gold);
+    border-radius: var(--radius);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), box-shadow var(--transition);
+  }
+  .btn-create:hover {
+    background: var(--gold);
+    color: #1a1a1a;
+    box-shadow: 0 0 20px rgba(212,168,67,.3);
+  }
+  .btn-create:active {
+    transform: scale(.97);
+  }
+  .btn-create:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 3px;
+  }
+  .btn-create:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+  .btn-create:disabled:hover {
+    background: transparent;
+    color: var(--gold);
+    box-shadow: none;
+  }
+
+  .btn-plus {
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 400;
+  }
+
+  /* ── Game Grid ───────────────────────────────────────── */
+  .game-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  @media (max-width: 768px) {
+    .game-grid { grid-template-columns: repeat(2, 1fr); }
+    .main { padding: 24px 16px 40px; }
+  }
+
+  @media (max-width: 480px) {
+    .game-grid { grid-template-columns: 1fr; }
+    .header { padding: 12px 16px; }
+    .main { padding: 20px 12px 32px; }
+  }
+
+  /* ── Game Card ───────────────────────────────────────── */
+  .game-card {
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--radius);
+    padding: 20px;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+  }
+  .game-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    border-color: rgba(212,168,67,.25);
+  }
+  .game-card:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  .card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+
+  /* ── Status Badge ────────────────────────────────────── */
+  .status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .status-waiting {
+    background: rgba(39,174,96,.15);
+    color: var(--chip-green);
+    border: 1px solid rgba(39,174,96,.3);
+  }
+  .status-in-progress {
+    background: rgba(212,168,67,.15);
+    color: var(--gold);
+    border: 1px solid rgba(212,168,67,.3);
+  }
+  .status-finished {
+    background: rgba(255,255,255,.06);
+    color: var(--text-dim);
+    border: 1px solid rgba(255,255,255,.08);
+  }
+
+  /* ── Card Body ───────────────────────────────────────── */
+  .card-players {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  .card-players-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .player-list {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .player-tag {
+    background: rgba(255,255,255,.07);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .no-players {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--text-dim);
+  }
+
+  /* ── Card Footer ─────────────────────────────────────── */
+  .card-footer {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .card-winner {
+    color: var(--gold);
+    font-weight: 600;
+  }
+
+  /* ── Empty State ─────────────────────────────────────── */
+  .empty-state {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 20px;
+    gap: 16px;
+  }
+
+  .empty-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  .empty-sub {
+    font-size: 14px;
+    color: var(--text-dim);
+    opacity: .7;
+    max-width: 320px;
+    line-height: 1.5;
+  }
+
+  /* ── Fade-in animation ───────────────────────────────── */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .game-card {
+    animation: fadeIn .3s ease both;
+  }
+
+  /* ── Utilities ───────────────────────────────────────── */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-title">Claude Poker</div>
+    <div class="header-status">
+      <span class="conn-dot loading" id="conn-dot"></span>
+      <span id="conn-text">Connecting</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <div class="toolbar">
+      <span class="game-count" id="game-count"></span>
+      <button class="btn-create" id="btn-create" type="button">
+        <span class="btn-plus">+</span> Create Game
+      </button>
+    </div>
+    <div class="game-grid" id="game-grid">
+      <!-- Cards injected by JS -->
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var POLL_INTERVAL = 3000;
+
+  /* ── DOM refs ────────────────────────────────────────── */
+  var $connDot   = document.getElementById('conn-dot');
+  var $connText  = document.getElementById('conn-text');
+  var $gameCount = document.getElementById('game-count');
+  var $grid      = document.getElementById('game-grid');
+  var $btnCreate = document.getElementById('btn-create');
+
+  /* ── Helpers ─────────────────────────────────────────── */
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function setConnection(status, text) {
+    $connDot.className = 'conn-dot ' + status;
+    $connText.textContent = text;
+  }
+
+  function getStatus(game) {
+    if (game.game_over) return 'finished';
+    if (game.started)   return 'in-progress';
+    return 'waiting';
+  }
+
+  function statusLabel(status) {
+    if (status === 'finished')    return 'Finished';
+    if (status === 'in-progress') return 'In Progress';
+    return 'Waiting';
+  }
+
+  /* ── Render ──────────────────────────────────────────── */
+  function renderGames(games) {
+    var count = games.length;
+    $gameCount.textContent = count === 0
+      ? 'No active games'
+      : count + ' game' + (count !== 1 ? 's' : '');
+
+    if (count === 0) {
+      $grid.innerHTML =
+        '<div class="empty-state">' +
+          '<div class="empty-title">No games yet</div>' +
+          '<div class="empty-sub">Create a new game to get the table started. Invite your friends and let the cards fly.</div>' +
+        '</div>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < games.length; i++) {
+      var g = games[i];
+      var status = getStatus(g);
+      var badgeClass = 'status-' + status;
+
+      /* Player tags */
+      var playersHtml = '';
+      if (g.player_names && g.player_names.length > 0) {
+        var tags = '';
+        for (var j = 0; j < g.player_names.length; j++) {
+          tags += '<li class="player-tag">' + escapeHtml(g.player_names[j]) + '</li>';
+        }
+        playersHtml =
+          '<div class="card-players">' +
+            '<div class="card-players-label">Players</div>' +
+            '<ul class="player-list">' + tags + '</ul>' +
+          '</div>';
+      } else {
+        playersHtml = '<div class="card-players"><span class="no-players">No players yet</span></div>';
+      }
+
+      /* Footer details */
+      var footerParts = '';
+      if (g.started && g.hand_number > 0) {
+        footerParts += '<span>Hand #' + g.hand_number + '</span>';
+      }
+      if (g.player_count > 0) {
+        footerParts += '<span>' + g.player_count + ' player' + (g.player_count !== 1 ? 's' : '') + '</span>';
+      }
+      if (g.game_over && g.winner) {
+        footerParts += '<span class="card-winner">Winner: ' + escapeHtml(g.winner) + '</span>';
+      }
+
+      html +=
+        '<a class="game-card" href="/game/' + g.id + '" style="animation-delay:' + (i * 0.04) + 's">' +
+          '<div class="card-top">' +
+            '<span class="card-title">Game #' + g.id + '</span>' +
+            '<span class="status-badge ' + badgeClass + '">' + statusLabel(status) + '</span>' +
+          '</div>' +
+          playersHtml +
+          (footerParts ? '<div class="card-footer">' + footerParts + '</div>' : '') +
+        '</a>';
+    }
+
+    $grid.innerHTML = html;
+  }
+
+  /* ── Polling ─────────────────────────────────────────── */
+  function poll() {
+    fetch('/api/games')
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        setConnection('ok', 'Connected');
+        renderGames(data.games || []);
+      })
+      .catch(function () {
+        setConnection('err', 'Disconnected');
+      });
+  }
+
+  poll();
+  setInterval(poll, POLL_INTERVAL);
+
+  /* ── Create Game ─────────────────────────────────────── */
+  $btnCreate.addEventListener('click', function () {
+    $btnCreate.disabled = true;
+
+    fetch('/api/games', { method: 'POST' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        window.location.href = '/game/' + data.game_id;
+      })
+      .catch(function () {
+        $btnCreate.disabled = false;
+        setConnection('err', 'Failed to create game');
+      });
+  });
+
+})();
+</script>
+
+</body>
+</html>

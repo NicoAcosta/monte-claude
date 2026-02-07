@@ -131,3 +131,21 @@ class ActionResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class CreateGameResponse(BaseModel):
+    game_id: int
+
+
+class GameListItem(BaseModel):
+    id: int
+    player_count: int
+    player_names: list[str]
+    started: bool
+    game_over: bool
+    winner: str | None
+    hand_number: int
+
+
+class GameListResponse(BaseModel):
+    games: list[GameListItem]

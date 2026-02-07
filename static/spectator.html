@@ -573,6 +573,7 @@
 
   <!-- Header -->
   <div class="header">
+    <a href="/" style="text-decoration:none;color:var(--text-dim);font-size:13px;margin-right:12px;">&larr; Lobby</a>
     <div class="header-title">Poker Spectator</div>
     <div class="header-meta">
       <span id="hand-info"></span>
@@ -633,6 +634,11 @@
 <script>
 (function () {
   'use strict';
+
+  /* ── Game ID from URL ───────────────────────────────── */
+  const gameIdMatch = window.location.pathname.match(/\/game\/(\d+)/);
+  const GAME_ID = gameIdMatch ? gameIdMatch[1] : '1';
+  const BASE = '/game/' + GAME_ID;
 
   /* ── Constants ──────────────────────────────────────── */
   const POLL_INTERVAL = 2000;
@@ -1005,7 +1011,7 @@
   }
 
   function poll() {
-    fetch('/spectator')
+    fetch(BASE + '/spectator')
       .then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();

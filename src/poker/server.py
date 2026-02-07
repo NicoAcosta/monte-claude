@@ -7,11 +7,15 @@ from fastapi.responses import FileResponse
 
 
 from poker.game import Game
+from poker.game_manager import GameManager
 from poker.models import (
     ActionRequest,
     ActionResponse,
     CommentateRequest,
     CommentateResponse,
+    CreateGameResponse,
+    GameListItem,
+    GameListResponse,
     PlayerBrief,
     PlayerComment,
     PlayerPublicState,
@@ -30,10 +34,17 @@ app = FastAPI(title="Claude Poker", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 
-game = Game()
+manager = GameManager()
 
 
-def _recent_actions() -> list[RecentAction]:
+def _get_game_or_404(game_id: int) -> Game:
+    game = manager.get_game(game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game
+
+
+def _recent_actions(game: Game) -> list[RecentAction]:
     actions = game.recent_actions
     if game.current_hand:
         actions = game.current_hand.actions
@@ -48,7 +59,7 @@ def _action_to_recent(a) -> RecentAction:
     )
 
 
-def _player_comments() -> list[PlayerComment]:
+def _player_comments(game: Game) -> list[PlayerComment]:
     """Extract the latest comment per player from current hand actions."""
     actions = game.current_hand.actions if game.current_hand else game.recent_actions
     latest: dict[str, str] = {}
@@ -58,13 +69,49 @@ def _player_comments() -> list[PlayerComment]:
     return [PlayerComment(player=name, comment=text) for name, text in latest.items()]
 
 
+# ── Lobby routes ─────────────────────────────────────────
+
 @app.get("/")
-def index():
-    return FileResponse(STATIC_DIR / "index.html")
+def lobby_page():
+    return FileResponse(STATIC_DIR / "lobby.html")
 
 
-@app.post("/register", response_model=RegisterResponse)
-def register(req: RegisterRequest):
+@app.get("/api/games", response_model=GameListResponse)
+def list_games():
+    summaries = manager.list_games()
+    return GameListResponse(
+        games=[
+            GameListItem(
+                id=s.id,
+                player_count=s.player_count,
+                player_names=list(s.player_names),
+                started=s.started,
+                game_over=s.game_over,
+                winner=s.winner,
+                hand_number=s.hand_number,
+            )
+            for s in summaries
+        ]
+    )
+
+
+@app.post("/api/games", response_model=CreateGameResponse)
+def create_game():
+    game_id, _ = manager.create_game()
+    return CreateGameResponse(game_id=game_id)
+
+
+# ── Game-specific routes ─────────────────────────────────
+
+@app.get("/game/{game_id}")
+def game_page(game_id: int):
+    _get_game_or_404(game_id)
+    return FileResponse(STATIC_DIR / "spectator.html")
+
+
+@app.post("/game/{game_id}/register", response_model=RegisterResponse)
+def register(game_id: int, req: RegisterRequest):
+    game = _get_game_or_404(game_id)
     try:
         p = game.register(req.name)
     except ValueError as e:
@@ -72,8 +119,9 @@ def register(req: RegisterRequest):
     return RegisterResponse(player_id=p.id, name=p.name)
 
 
-@app.get("/waiting", response_model=WaitingResponse)
-def waiting():
+@app.get("/game/{game_id}/waiting", response_model=WaitingResponse)
+def waiting(game_id: int):
+    game = _get_game_or_404(game_id)
     return WaitingResponse(
         started=game.started,
         players=[
@@ -84,8 +132,9 @@ def waiting():
     )
 
 
-@app.post("/start", response_model=StartResponse)
-def start():
+@app.post("/game/{game_id}/start", response_model=StartResponse)
+def start(game_id: int):
+    game = _get_game_or_404(game_id)
     try:
         hand_num = game.start()
     except ValueError as e:
@@ -93,14 +142,16 @@ def start():
     return StartResponse(message="Game started", hand_number=hand_num)
 
 
-@app.post("/commentate", response_model=CommentateResponse)
-def commentate(req: CommentateRequest):
+@app.post("/game/{game_id}/commentate", response_model=CommentateResponse)
+def commentate(game_id: int, req: CommentateRequest):
+    game = _get_game_or_404(game_id)
     game.commentary_text = req.text
     return CommentateResponse(success=True)
 
 
-@app.get("/state/{player_id}", response_model=PlayerStateResponse)
-def state(player_id: int):
+@app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)
+def state(game_id: int, player_id: int):
+    game = _get_game_or_404(game_id)
     rp = game.get_player(player_id)
     if rp is None:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -130,8 +181,8 @@ def state(player_id: int):
             players=[],
             game_over=game.game_over,
             winner=game.winner,
-            recent_actions=_recent_actions(),
-            player_comments=_player_comments(),
+            recent_actions=_recent_actions(game),
+            player_comments=_player_comments(game),
             commentary_text=game.commentary_text,
         )
 
@@ -177,14 +228,15 @@ def state(player_id: int):
         ],
         game_over=game.game_over,
         winner=game.winner,
-        recent_actions=_recent_actions(),
-        player_comments=_player_comments(),
+        recent_actions=_recent_actions(game),
+        player_comments=_player_comments(game),
         commentary_text=game.commentary_text,
     )
 
 
-@app.post("/action", response_model=ActionResponse)
-def action(req: ActionRequest):
+@app.post("/game/{game_id}/action", response_model=ActionResponse)
+def action(game_id: int, req: ActionRequest):
+    game = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
@@ -195,8 +247,9 @@ def action(req: ActionRequest):
         raise HTTPException(status_code=400, detail=result)
 
 
-@app.get("/spectator", response_model=SpectatorResponse)
-def spectator():
+@app.get("/game/{game_id}/spectator", response_model=SpectatorResponse)
+def spectator(game_id: int):
+    game = _get_game_or_404(game_id)
     prev = game.previous_hand
 
     # No previous hand yet (hand 1 in progress or game not started)
