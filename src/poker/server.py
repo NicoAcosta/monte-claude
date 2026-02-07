@@ -37,10 +37,15 @@ def _recent_actions() -> list[RecentAction]:
     actions = game.recent_actions
     if game.current_hand:
         actions = game.current_hand.actions
-    return [
-        RecentAction(player=a.player_name, action=a.action, amount=a.amount, comment=a.comment)
-        for a in actions[-20:]
-    ]
+    return [_action_to_recent(a) for a in actions[-20:]]
+
+
+def _action_to_recent(a) -> RecentAction:
+    return RecentAction(
+        id=a.id, timestamp=a.timestamp,
+        player=a.player_name, action=a.action,
+        amount=a.amount, comment=a.comment,
+    )
 
 
 def _player_comments() -> list[PlayerComment]:
@@ -192,12 +197,13 @@ def action(req: ActionRequest):
 
 @app.get("/spectator", response_model=SpectatorResponse)
 def spectator():
-    hand = game.current_hand
+    prev = game.previous_hand
 
-    if hand is None:
+    # No previous hand yet (hand 1 in progress or game not started)
+    if prev is None:
         return SpectatorResponse(
-            hand_number=game.hand_number,
-            phase="complete" if game.game_over else "waiting",
+            hand_number=0,
+            phase="waiting",
             community_cards=[],
             pot=0,
             side_pots=[],
@@ -214,27 +220,27 @@ def spectator():
             ],
             game_over=game.game_over,
             winner=game.winner,
-            recent_actions=_recent_actions(),
+            recent_actions=[],
             started=game.started,
             commentary_text=game.commentary_text,
         )
 
-    side_pots = hand.get_side_pots_info()
-    current_turn_id = hand.current_player.id if hand.current_player else None
+    # Serve the previous hand's complete state
+    side_pots = prev.get_side_pots_info()
 
     return SpectatorResponse(
-        hand_number=game.hand_number,
-        phase=hand.phase,
-        community_cards=[str(c) for c in hand.community_cards],
-        pot=hand.pot,
+        hand_number=game.hand_number - 1,
+        phase=prev.phase,
+        community_cards=[str(c) for c in prev.community_cards],
+        pot=prev.pot,
         side_pots=[
             SidePotInfo(amount=sp.amount, eligible_players=list(sp.eligible_player_ids))
             for sp in side_pots
         ],
-        current_turn=current_turn_id,
-        dealer=game.get_dealer_player_id(),
-        small_blind_player=game.get_sb_player_id(),
-        big_blind_player=game.get_bb_player_id(),
+        current_turn=None,
+        dealer=prev.players[prev.dealer_index].id,
+        small_blind_player=prev.players[prev._sb_index()].id,
+        big_blind_player=prev.players[prev._bb_index()].id,
         players=[
             SpectatorPlayerState(
                 id=p.id,
@@ -245,11 +251,11 @@ def spectator():
                 is_all_in=p.is_all_in,
                 cards=[str(c) for c in p.hole_cards],
             )
-            for p in hand.players
+            for p in prev.players
         ],
         game_over=game.game_over,
         winner=game.winner,
-        recent_actions=_recent_actions(),
+        recent_actions=[_action_to_recent(a) for a in prev.actions],
         started=game.started,
         commentary_text=game.commentary_text,
     )
