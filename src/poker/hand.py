@@ -71,6 +71,7 @@ class Hand:
         self.current_bet = 0  # highest bet this round
         self.min_raise_size = big_blind  # minimum raise increment
         self.current_turn_index: int | None = None
+        self.turn_started_at: float | None = None
         self.winners_by_pot: list[tuple[int, list[int]]] = []  # (amount, [player_ids])
         self._acted_this_round: set[int] = set()  # player indices who acted since last raise
 
@@ -192,7 +193,10 @@ class Hand:
             self.min_raise_size = self.big_blind
 
         self.current_turn_index = self._find_next_actor(start)
-        if self.current_turn_index is None:
+        if self.current_turn_index is not None:
+            self.turn_started_at = time.time()
+        else:
+            self.turn_started_at = None
             self._end_betting_round()
 
     def _should_skip_to_showdown(self) -> bool:
@@ -260,6 +264,7 @@ class Hand:
             return
 
         self.current_turn_index = next_idx
+        self.turn_started_at = time.time()
 
     def _end_betting_round(self) -> None:
         self.current_turn_index = None
