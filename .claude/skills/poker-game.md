@@ -15,7 +15,7 @@ Check if the server is already running on port 8000. If not, start it:
 
 ```bash
 # Check if server is up
-curl -s http://localhost:8000/spectator > /dev/null 2>&1
+curl -s http://localhost:8000/api/games > /dev/null 2>&1
 
 # If not running, start it in the background
 cd claude-poker && .venv/bin/uvicorn poker.server:app --host 0.0.0.0 --port 8000 &
@@ -34,36 +34,56 @@ If the user doesn't specify, use these defaults (3 players):
 - "The Professor" — Calculated, analytical, rarely bluffs, speaks in probabilities
 - "Lady Luck" — Superstitious risk-taker who follows gut feelings
 
-### 3. Register All Players
-
-For each player, POST to `/register`:
+### 3. Create a Game
 
 ```bash
-curl -s -X POST http://localhost:8000/register \
+curl -s -X POST http://localhost:8000/api/games
+```
+
+Save the `game_id` from the response.
+
+### 4. Register and Join All Players
+
+For each player, register an account and join the game:
+
+```bash
+# Register account (save the API key!)
+RESPONSE=$(curl -s -X POST http://localhost:8000/api/register \
   -H "Content-Type: application/json" \
-  -d '{"name": "PLAYER_NAME"}'
+  -d '{"username": "PLAYER_NAME"}')
+API_KEY=$(echo "$RESPONSE" | jq -r .api_key)
+
+# Join the game
+curl -s -X POST http://localhost:8000/game/GAME_ID/join \
+  -H "X-API-Key: $API_KEY"
 ```
 
-Save each player's `player_id`.
+Save each player's `api_key` and `player_id`.
 
-### 4. Start the Game
+### 5. Start the Game
+
+Any registered player can start the game (requires their API key):
 
 ```bash
-curl -s -X POST http://localhost:8000/start
+curl -s -X POST http://localhost:8000/game/GAME_ID/start \
+  -H "X-API-Key: $API_KEY"
 ```
 
-### 5. Launch the Commentator Subagent
+### 6. Launch the Commentator Subagent
 
 Launch a background subagent with this prompt:
 
 > You are a poker commentator. Your job is to watch the game and provide entertaining, insightful commentary.
 >
-> Every 5-8 seconds, poll GET http://localhost:8000/spectator to see the game state.
+> The game ID is {GAME_ID}. The server is at http://localhost:8000.
+>
+> Every 5-8 seconds, poll GET http://localhost:8000/game/{GAME_ID}/spectator to see the game state.
 > After each poll, if something interesting happened (new actions, phase changes, big bets), POST commentary:
 >
 > ```bash
-> curl -s -X POST http://localhost:8000/commentate \
+> curl -s -X POST http://localhost:8000/game/GAME_ID/commentate \
 >   -H "Content-Type: application/json" \
+>   -H "X-API-Key: YOUR_API_KEY" \
 >   -d '{"text": "YOUR COMMENTARY HERE"}'
 > ```
 >
@@ -73,52 +93,57 @@ Launch a background subagent with this prompt:
 > - Reference players by name
 > - Keep each comment under 100 characters
 > - NEVER repeat or narrate what players said in their comments — they speak for themselves. Focus on the ACTION and STRATEGY, not their words.
+> - Check `recent_actions` for `reason` fields — these reveal agent reasoning. You can reference their strategic thinking in your commentary.
 > - When the game is over (game_over: true), give a final sendoff and stop
 >
-> Poll loop: GET /spectator -> analyze -> POST /commentate -> sleep 5-8s -> repeat
+> Poll loop: GET /game/{GAME_ID}/spectator -> analyze -> POST /game/{GAME_ID}/commentate -> sleep 5-8s -> repeat
 > Stop when game_over is true in the response.
 
-### 6. Launch Each Player Subagent
+### 7. Launch Each Player Subagent
 
 For each registered player, launch a background subagent with this prompt template:
 
 > You are {NAME}, a poker player. {PERSONALITY_DESCRIPTION}
 >
-> Your player_id is {ID}. The server is at http://localhost:8000.
+> Your player_id is {ID}. Your API key is {API_KEY}. The game ID is {GAME_ID}. The server is at http://localhost:8000.
 >
 > Read the game instructions from: claude-poker/instructions.md
 >
 > Your game loop:
-> 1. GET http://localhost:8000/state/{ID}
+> 1. GET http://localhost:8000/game/{GAME_ID}/state/{ID}
 > 2. If game_over is true, stop
 > 3. If is_your_turn is false, wait 1 second and poll again
 > 4. If is_your_turn is true:
 >    a. Analyze your cards, the community cards, pot, opponents' bets/actions
 >    b. Decide your action based on your personality
->    c. Include a short trash-talk comment (stay in character!)
->    d. POST your action to /action with comment field
+>    c. Include a short trash-talk comment (stay in character!) — max 140 chars
+>    d. Include a `reason` explaining your strategic thinking (spectators can see this but opponents cannot) — max 500 chars
+>    e. POST your action to /game/{GAME_ID}/action with comment and reason fields
 > 5. Repeat from step 1
 >
 > IMPORTANT:
+> - All actions require the X-API-Key header — no player_id in the request body
 > - Only act when is_your_turn is true
 > - If you get an error, read it and adjust (don't retry the same action)
 > - Use check/call conservatively, raise/bet when strong, fold weak hands
 > - Your personality should influence your decisions: {PERSONALITY_HINT}
 > - Always include a comment that fits your character
+> - You can also send chat messages at any time (not just your turn): POST /game/{GAME_ID}/chat
 >
-> Example action with comment:
+> Example action with comment and reason:
 > ```bash
-> curl -s -X POST http://localhost:8000/action \
+> curl -s -X POST http://localhost:8000/game/GAME_ID/action \
 >   -H "Content-Type: application/json" \
->   -d '{"player_id": {ID}, "action": "call", "comment": "YOUR TRASH TALK"}'
+>   -H "X-API-Key: API_KEY" \
+>   -d '{"action": "call", "comment": "YOUR TRASH TALK", "reason": "Strategic reasoning here"}'
 > ```
 
-### 7. Monitor the Game
+### 8. Monitor the Game
 
 After launching all agents, periodically poll the spectator endpoint to track progress:
 
 ```bash
-curl -s http://localhost:8000/spectator | jq '{hand: .hand_number, phase: .phase, game_over: .game_over, winner: .winner}'
+curl -s http://localhost:8000/game/GAME_ID/spectator | jq '{hand: .hand_number, phase: .phase, game_over: .game_over, winner: .winner}'
 ```
 
 Report to the user:
@@ -126,7 +151,7 @@ Report to the user:
 - When players go all-in or get eliminated
 - When the game ends and who won
 
-### 8. Report Results
+### 9. Report Results
 
 When the game is over:
 1. Announce the winner
@@ -137,6 +162,8 @@ When the game is over:
 ## Notes
 
 - The spectator UI is available at http://localhost:8000/ for visual viewing
+- The lobby page lists all games at http://localhost:8000/api/games
 - All agents use curl via bash to interact with the server
-- The commentator sees all cards (spectator view), players only see their own
+- The commentator sees all cards and reasons (spectator view), players only see their own cards and cannot see opponents' reasons
 - Player agents should poll every ~1 second, commentator every ~5-8 seconds
+- Chat messages are max 140 chars, action reasons are max 500 chars

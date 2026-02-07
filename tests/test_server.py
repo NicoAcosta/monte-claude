@@ -682,10 +682,19 @@ class TestChat:
         gid, key_a, _ = self._setup_started_game(client)
         resp = client.post(
             f"/game/{gid}/chat",
-            json={"message": "x" * 501},
+            json={"message": "x" * 141},
             headers=auth_header(key_a),
         )
         assert resp.status_code == 400
+
+    def test_chat_at_max_length(self, client):
+        gid, key_a, _ = self._setup_started_game(client)
+        resp = client.post(
+            f"/game/{gid}/chat",
+            json={"message": "x" * 140},
+            headers=auth_header(key_a),
+        )
+        assert resp.status_code == 200
 
     def test_chat_success(self, client):
         gid, key_a, _ = self._setup_started_game(client)
@@ -786,3 +795,100 @@ class TestTimer:
         assert data["success"] is True
         assert data["extensions_remaining"] == 2
         assert data["new_deadline"] > 0
+
+
+# ── Reason ─────────────────────────────────────────────
+
+class TestReason:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
+    def _who_acts_first(self, client, gid, key_a, key_b):
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        if s1["is_your_turn"]:
+            return key_a, key_b, 1, 2
+        return key_b, key_a, 2, 1
+
+    def test_reason_too_long(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        first_key, _, _, _ = self._who_acts_first(client, gid, key_a, key_b)
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "reason": "x" * 501},
+            headers=auth_header(first_key),
+        )
+        assert resp.status_code == 400
+        assert "500" in resp.json()["detail"]
+
+    def test_reason_at_max_length(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        first_key, _, _, _ = self._who_acts_first(client, gid, key_a, key_b)
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "reason": "x" * 500},
+            headers=auth_header(first_key),
+        )
+        assert resp.status_code == 200
+
+    def test_reason_hidden_from_player_state(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        first_key, _, first_pid, second_pid = self._who_acts_first(client, gid, key_a, key_b)
+
+        client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "reason": "I have pocket aces"},
+            headers=auth_header(first_key),
+        )
+        # Both players should NOT see reason in state
+        for pid in (first_pid, second_pid):
+            state = client.get(f"/game/{gid}/state/{pid}").json()
+            for a in state["recent_actions"]:
+                assert a.get("reason") is None
+
+    def test_reason_visible_in_spectator(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        first_key, second_key, _, _ = self._who_acts_first(client, gid, key_a, key_b)
+
+        # Act with reason, then fold to complete hand (spectator sees previous hand)
+        client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "reason": "I think they're bluffing"},
+            headers=auth_header(first_key),
+        )
+        client.post(
+            f"/game/{gid}/action",
+            json={"action": "fold"},
+            headers=auth_header(second_key),
+        )
+        # Spectator should see hand 1 with reason visible
+        spec = client.get(f"/game/{gid}/spectator").json()
+        reasons = [a["reason"] for a in spec["recent_actions"] if a.get("reason")]
+        assert "I think they're bluffing" in reasons
+
+    def test_reason_persisted_in_history(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        first_key, second_key, _, _ = self._who_acts_first(client, gid, key_a, key_b)
+
+        client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "reason": "Testing history persistence"},
+            headers=auth_header(first_key),
+        )
+        client.post(
+            f"/game/{gid}/action",
+            json={"action": "fold"},
+            headers=auth_header(second_key),
+        )
+        resp = client.get(f"/api/games/{gid}/history")
+        assert resp.status_code == 200
+        events = resp.json()["events"]
+        action_events = [e for e in events if e["event_type"] == "action"]
+        # At least one action event should contain the reason in its data
+        reason_found = any("Testing history persistence" in e["data"] for e in action_events)
+        assert reason_found

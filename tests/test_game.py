@@ -174,6 +174,31 @@ class TestChat:
         assert chat_events[0][1]["message"] == "Hi"
 
 
+class TestActionReason:
+    def test_reason_threaded_to_hand(self):
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        cp = game.current_hand.current_player
+        game.do_action(cp.id, "call", reason="Pot odds are good")
+        reason_actions = [a for a in game.current_hand.actions if a.reason is not None]
+        assert len(reason_actions) == 1
+        assert reason_actions[0].reason == "Pot odds are good"
+
+    def test_reason_in_event_callback(self):
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        cp = game.current_hand.current_player
+        game.do_action(cp.id, "call", reason="My reasoning")
+        action_events = [(t, d) for t, d in events if t == "action" and d.get("reason")]
+        assert len(action_events) == 1
+        assert action_events[0][1]["reason"] == "My reasoning"
+
+
 class TestActionTimer:
     def _make_started_game(self, action_timeout=15.0, extensions_per_player=3):
         game = Game(action_timeout=action_timeout, extensions_per_player=extensions_per_player)

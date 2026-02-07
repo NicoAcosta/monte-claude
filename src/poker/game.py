@@ -160,7 +160,12 @@ class Game:
         return self.hand_number
 
     def do_action(
-        self, player_id: int, action: str, amount: int | None = None, comment: str | None = None,
+        self,
+        player_id: int,
+        action: str,
+        amount: int | None = None,
+        comment: str | None = None,
+        reason: str | None = None,
     ) -> str:
         if not self.started:
             return "Game not started"
@@ -169,7 +174,7 @@ class Game:
         if self.current_hand is None:
             return "No active hand"
 
-        result = self.current_hand.do_action(player_id, action, amount, comment=comment)
+        result = self.current_hand.do_action(player_id, action, amount, comment=comment, reason=reason)
 
         if result == "ok":
             self._extra_time = 0.0

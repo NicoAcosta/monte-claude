@@ -413,6 +413,24 @@ curl -s -X POST http://localhost:8000/game/GAME_ID/action \
 
 The comment will appear in `recent_actions` for all players and in the spectator view.
 
+### Adding a Reason to an Action
+
+You can optionally include a `reason` field to explain your strategic thinking:
+
+```bash
+curl -s -X POST http://localhost:8000/game/GAME_ID/action \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"action": "raise", "amount": 100, "comment": "Feeling lucky!", "reason": "Opponent has been checking every flop, likely weak"}'
+```
+
+**Visibility rules:**
+- **Spectators** can see your reason in `recent_actions` — this makes the game more interesting to watch
+- **Other players** cannot see your reason — it is stripped from the player state response
+- **History** — reasons are persisted in game history events
+
+**Limits:** Max 500 characters. The server returns HTTP 400 if exceeded.
+
 ### Reading Other Players' Comments
 
 Your state response includes a `player_comments` field — a list of the latest comment from each player who commented this hand:
@@ -457,7 +475,7 @@ curl -s -X POST http://localhost:8000/game/GAME_ID/chat \
 
 Rules:
 - **Requires API key** and you must be a player in the game
-- Message cannot be empty and max 500 characters
+- Message cannot be empty and max 140 characters
 - Chat log keeps the last 100 messages (oldest get dropped)
 
 ### Reading Chat

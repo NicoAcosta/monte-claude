@@ -211,6 +211,45 @@ class TestActionRecordComment:
         assert fold_action.comment is None
 
 
+class TestActionRecordReason:
+    def test_reason_none_by_default(self):
+        rec = ActionRecord(id=1, timestamp=0.0, player_name="P1", action="fold")
+        assert rec.reason is None
+
+    def test_reason_stored_on_record(self):
+        rec = ActionRecord(id=1, timestamp=0.0, player_name="P1", action="call", reason="Pot odds are good")
+        assert rec.reason == "Pot odds are good"
+
+    def test_reason_stored_in_hand_actions(self):
+        players = make_players(3)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        current = hand.current_player
+        assert current is not None
+        hand.do_action(current.id, "call", reason="Implied odds justify this call")
+        reason_actions = [a for a in hand.actions if a.reason is not None]
+        assert len(reason_actions) == 1
+        assert reason_actions[0].reason == "Implied odds justify this call"
+
+    def test_reason_and_comment_coexist(self):
+        players = make_players(3)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        current = hand.current_player
+        assert current is not None
+        hand.do_action(current.id, "call", comment="Let's go!", reason="Strong hand")
+        action = [a for a in hand.actions if a.action == "call"][0]
+        assert action.comment == "Let's go!"
+        assert action.reason == "Strong hand"
+
+    def test_reason_none_when_not_provided(self):
+        players = make_players(3)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        current = hand.current_player
+        assert current is not None
+        hand.do_action(current.id, "fold")
+        fold_action = [a for a in hand.actions if a.action == "fold"][0]
+        assert fold_action.reason is None
+
+
 class TestActionIdAndTimestamp:
     def test_actions_have_incrementing_ids(self):
         players = make_players(3)

@@ -38,6 +38,7 @@ class ActionRequest(BaseModel):
     action: str
     amount: int | None = None
     comment: str | None = None
+    reason: str | None = None
 
 
 class PlayerPublicState(BaseModel):
@@ -56,6 +57,7 @@ class RecentAction(BaseModel):
     action: str
     amount: int | None = None
     comment: str | None = None
+    reason: str | None = None
 
 
 class PlayerComment(BaseModel):

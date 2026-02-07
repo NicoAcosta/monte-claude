@@ -38,6 +38,7 @@ class ActionRecord:
     action: str
     amount: int | None = None
     comment: str | None = None
+    reason: str | None = None
 
 
 PHASES = ("preflop", "flop", "turn", "river", "showdown", "complete")
@@ -85,6 +86,7 @@ class Hand:
         action: str,
         amount: int | None = None,
         comment: str | None = None,
+        reason: str | None = None,
     ) -> None:
         record = ActionRecord(
             id=self._action_id_counter,
@@ -93,6 +95,7 @@ class Hand:
             action=action,
             amount=amount,
             comment=comment,
+            reason=reason,
         )
         self._action_id_counter += 1
         self.actions.append(record)
@@ -101,6 +104,7 @@ class Hand:
             "action": action,
             "amount": amount,
             "comment": comment,
+            "reason": reason,
             "action_id": record.id,
         })
 
@@ -306,7 +310,12 @@ class Hand:
         self._start_betting_round()
 
     def do_action(
-        self, player_id: int, action: str, amount: int | None = None, comment: str | None = None,
+        self,
+        player_id: int,
+        action: str,
+        amount: int | None = None,
+        comment: str | None = None,
+        reason: str | None = None,
     ) -> str:
         if self.is_complete:
             return "Hand is complete"
@@ -319,17 +328,17 @@ class Hand:
             return "Not your turn"
 
         if action == "fold":
-            return self._do_fold(player, comment)
+            return self._do_fold(player, comment, reason)
         elif action == "check":
-            return self._do_check(player, comment)
+            return self._do_check(player, comment, reason)
         elif action == "call":
-            return self._do_call(player, comment)
+            return self._do_call(player, comment, reason)
         elif action == "bet":
-            return self._do_bet(player, amount, comment)
+            return self._do_bet(player, amount, comment, reason)
         elif action == "raise":
-            return self._do_raise(player, amount, comment)
+            return self._do_raise(player, amount, comment, reason)
         elif action == "all_in":
-            return self._do_all_in(player, comment)
+            return self._do_all_in(player, comment, reason)
         else:
             return f"Unknown action: {action}"
 
@@ -346,10 +355,10 @@ class Hand:
         """When someone raises, everyone else needs to act again."""
         self._acted_this_round = {raiser_index}
 
-    def _do_fold(self, player: PlayerInHand, comment: str | None = None) -> str:
+    def _do_fold(self, player: PlayerInHand, comment: str | None = None, reason: str | None = None) -> str:
         player.is_folded = True
         self._mark_acted(self.current_turn_index)
-        self._record_action(player.name, "fold", comment=comment)
+        self._record_action(player.name, "fold", comment=comment, reason=reason)
 
         active = self.active_players
         if len(active) == 1:
@@ -362,16 +371,16 @@ class Hand:
         self._advance_turn()
         return "ok"
 
-    def _do_check(self, player: PlayerInHand, comment: str | None = None) -> str:
+    def _do_check(self, player: PlayerInHand, comment: str | None = None, reason: str | None = None) -> str:
         if player.current_bet < self.current_bet:
             return "Cannot check, there is a bet to match"
 
         self._mark_acted(self.current_turn_index)
-        self._record_action(player.name, "check", comment=comment)
+        self._record_action(player.name, "check", comment=comment, reason=reason)
         self._advance_turn()
         return "ok"
 
-    def _do_call(self, player: PlayerInHand, comment: str | None = None) -> str:
+    def _do_call(self, player: PlayerInHand, comment: str | None = None, reason: str | None = None) -> str:
         to_call = self.current_bet - player.current_bet
         if to_call <= 0:
             return "Nothing to call, use check"
@@ -379,11 +388,11 @@ class Hand:
         actual = min(to_call, player.chips)
         self._place_bet(player, actual)
         self._mark_acted(self.current_turn_index)
-        self._record_action(player.name, "call", player.current_bet, comment=comment)
+        self._record_action(player.name, "call", player.current_bet, comment=comment, reason=reason)
         self._advance_turn()
         return "ok"
 
-    def _do_bet(self, player: PlayerInHand, amount: int | None, comment: str | None = None) -> str:
+    def _do_bet(self, player: PlayerInHand, amount: int | None, comment: str | None = None, reason: str | None = None) -> str:
         if self.current_bet > 0:
             return "Cannot bet, someone already bet. Use raise."
 
@@ -400,11 +409,11 @@ class Hand:
         self.current_bet = player.current_bet
         self.min_raise_size = amount
         self._reset_acted_for_raise(self.current_turn_index)
-        self._record_action(player.name, "bet", player.current_bet, comment=comment)
+        self._record_action(player.name, "bet", player.current_bet, comment=comment, reason=reason)
         self._advance_turn()
         return "ok"
 
-    def _do_raise(self, player: PlayerInHand, amount: int | None, comment: str | None = None) -> str:
+    def _do_raise(self, player: PlayerInHand, amount: int | None, comment: str | None = None, reason: str | None = None) -> str:
         if self.current_bet == 0:
             return "No bet to raise. Use bet."
 
@@ -426,11 +435,11 @@ class Hand:
         self.min_raise_size = max(self.min_raise_size, raise_increment)
         self.current_bet = player.current_bet
         self._reset_acted_for_raise(self.current_turn_index)
-        self._record_action(player.name, "raise", player.current_bet, comment=comment)
+        self._record_action(player.name, "raise", player.current_bet, comment=comment, reason=reason)
         self._advance_turn()
         return "ok"
 
-    def _do_all_in(self, player: PlayerInHand, comment: str | None = None) -> str:
+    def _do_all_in(self, player: PlayerInHand, comment: str | None = None, reason: str | None = None) -> str:
         amount = player.chips
         self._place_bet(player, amount)
 
@@ -442,7 +451,7 @@ class Hand:
         else:
             self._mark_acted(self.current_turn_index)
 
-        self._record_action(player.name, "all_in", player.current_bet, comment=comment)
+        self._record_action(player.name, "all_in", player.current_bet, comment=comment, reason=reason)
         self._advance_turn()
         return "ok"
 

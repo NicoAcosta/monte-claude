@@ -71,18 +71,19 @@ def _get_game_or_404(game_id: int) -> Game:
     return game
 
 
-def _recent_actions(game: Game) -> list[RecentAction]:
+def _recent_actions(game: Game, include_reason: bool = False) -> list[RecentAction]:
     actions = game.recent_actions
     if game.current_hand:
         actions = game.current_hand.actions
-    return [_action_to_recent(a) for a in actions[-20:]]
+    return [_action_to_recent(a, include_reason) for a in actions[-20:]]
 
 
-def _action_to_recent(a) -> RecentAction:
+def _action_to_recent(a, include_reason: bool = False) -> RecentAction:
     return RecentAction(
         id=a.id, timestamp=a.timestamp,
         player=a.player_name, action=a.action,
         amount=a.amount, comment=a.comment,
+        reason=a.reason if include_reason else None,
     )
 
 
@@ -326,7 +327,10 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
     if player is None:
         raise HTTPException(status_code=404, detail="Not a player in this game")
 
-    result = game.do_action(player.id, req.action, req.amount, comment=req.comment)
+    if req.reason is not None and len(req.reason) > 500:
+        raise HTTPException(status_code=400, detail="Reason too long (max 500 chars)")
+
+    result = game.do_action(player.id, req.action, req.amount, comment=req.comment, reason=req.reason)
     if result == "ok":
         return ActionResponse(success=True, message="Action accepted")
     else:
@@ -397,7 +401,7 @@ def spectator(game_id: int):
         ],
         game_over=game.game_over,
         winner=game.winner,
-        recent_actions=[_action_to_recent(a) for a in prev.actions],
+        recent_actions=[_action_to_recent(a, include_reason=True) for a in prev.actions],
         started=game.started,
         commentary_text=game.commentary_text,
         chat_log=_chat_log(game),
@@ -416,8 +420,8 @@ def chat(game_id: int, req: ChatRequest, account: Account = Depends(require_auth
     msg = req.message.strip()
     if not msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    if len(msg) > 500:
-        raise HTTPException(status_code=400, detail="Message too long (max 500 chars)")
+    if len(msg) > 140:
+        raise HTTPException(status_code=400, detail="Message too long (max 140 chars)")
     game.add_chat(player.name, msg)
     return ChatResponse(success=True)
 

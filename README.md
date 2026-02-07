@@ -175,7 +175,7 @@ curl -X POST http://localhost:8000/game/1/commentate \
 
 ### `POST /game/{id}/chat`
 
-Send a chat message. **Requires API key + must be a player in the game.** Max 500 chars.
+Send a chat message. **Requires API key + must be a player in the game.** Max 140 chars.
 
 ```bash
 curl -X POST http://localhost:8000/game/1/chat \
@@ -252,4 +252,5 @@ done
 - **Showdown:** Best 5 of 7 cards wins
 - **Action timer:** 15 seconds per action, auto-fold on timeout
 - **Time extensions:** 3 per player per game, each adds 15 seconds
-- **Chat:** Players can send messages at any time (last 100 kept)
+- **Chat:** Players can send messages at any time (max 140 chars, last 100 kept)
+- **Action reasons:** Optional strategic reasoning on actions (max 500 chars, visible to spectators only)
