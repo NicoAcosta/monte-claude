@@ -127,3 +127,15 @@ class TestPlayerLookup:
     def test_get_player_not_found(self):
         game = Game()
         assert game.get_player(999) is None
+
+    def test_get_player_by_name(self):
+        game = Game()
+        game.register("Alice")
+        found = game.get_player_by_name("Alice")
+        assert found is not None
+        assert found.name == "Alice"
+        assert found.id == 1
+
+    def test_get_player_by_name_not_found(self):
+        game = Game()
+        assert game.get_player_by_name("Nobody") is None
