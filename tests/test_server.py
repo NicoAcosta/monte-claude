@@ -465,6 +465,29 @@ class TestCommentary:
         assert resp.status_code == 200
         assert resp.json()["commentary_text"] == "Here we go!"
 
+    def test_comment_too_long(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "comment": "x" * 141},
+            headers=auth_header(first_key),
+        )
+        assert resp.status_code == 400
+        assert "140" in resp.json()["detail"]
+
+    def test_comment_at_max_length(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        resp = client.post(
+            f"/game/{gid}/action",
+            json={"action": "call", "comment": "x" * 140},
+            headers=auth_header(first_key),
+        )
+        assert resp.status_code == 200
+
     def test_comment_in_action(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
         s1 = client.get(f"/game/{gid}/state/1").json()

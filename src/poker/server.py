@@ -327,6 +327,8 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
     if player is None:
         raise HTTPException(status_code=404, detail="Not a player in this game")
 
+    if req.comment is not None and len(req.comment) > 140:
+        raise HTTPException(status_code=400, detail="Comment too long (max 140 chars)")
     if req.reason is not None and len(req.reason) > 500:
         raise HTTPException(status_code=400, detail="Reason too long (max 500 chars)")
 

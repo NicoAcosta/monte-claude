@@ -398,7 +398,7 @@ done
 
 ## Trash Talk & Commentary
 
-You can attach a comment (trash talk, banter, strategy narration) to any action. Other players and spectators will see it.
+You can attach a comment (trash talk, banter, strategy narration) to any action. Other players and spectators will see it. **Max 140 characters.**
 
 ### Adding a Comment to an Action
 
