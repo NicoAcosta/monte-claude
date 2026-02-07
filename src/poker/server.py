@@ -16,9 +16,13 @@ from poker.models import (
     AccountRegisterResponse,
     ActionRequest,
     ActionResponse,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
     CommentateRequest,
     CommentateResponse,
     CreateGameResponse,
+    ExtendResponse,
     GameEventResponse,
     GameHistoryResponse,
     GameListItem,
@@ -36,6 +40,7 @@ from poker.models import (
     SpectatorPlayerState,
     SpectatorResponse,
     StartResponse,
+    TimerInfo,
     WaitingResponse,
 )
 
@@ -89,6 +94,24 @@ def _player_comments(game: Game) -> list[PlayerComment]:
         if a.comment:
             latest[a.player_name] = a.comment
     return [PlayerComment(player=name, comment=text) for name, text in latest.items()]
+
+
+def _chat_log(game: Game) -> list[ChatMessage]:
+    return [
+        ChatMessage(player=name, message=msg, timestamp=ts)
+        for name, msg, ts in game.chat_log
+    ]
+
+
+def _timer_info(game: Game, player_id: int = 0) -> TimerInfo | None:
+    if not game.started or game.game_over:
+        return None
+    return TimerInfo(
+        action_timeout=game.action_timeout,
+        turn_started_at=game.current_hand.turn_started_at if game.current_hand else None,
+        deadline=game.turn_deadline,
+        extensions_remaining=game.get_extensions_remaining(player_id),
+    )
 
 
 # ── Account routes ───────────────────────────────────────
@@ -210,6 +233,8 @@ def state(game_id: int, player_id: int):
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
+    game._check_timeout()
+
     hand = game.current_hand
 
     if hand is None:
@@ -236,6 +261,7 @@ def state(game_id: int, player_id: int):
             recent_actions=_recent_actions(game),
             player_comments=_player_comments(game),
             commentary_text=game.commentary_text,
+            chat_log=_chat_log(game),
         )
 
     # Find this player in the hand
@@ -283,6 +309,8 @@ def state(game_id: int, player_id: int):
         recent_actions=_recent_actions(game),
         player_comments=_player_comments(game),
         commentary_text=game.commentary_text,
+        chat_log=_chat_log(game),
+        timer=_timer_info(game, player_id),
     )
 
 
@@ -291,6 +319,8 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
     game = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
+
+    game._check_timeout()
 
     player = game.get_player_by_name(account.username)
     if player is None:
@@ -306,6 +336,7 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
 @app.get("/game/{game_id}/spectator", response_model=SpectatorResponse)
 def spectator(game_id: int):
     game = _get_game_or_404(game_id)
+    game._check_timeout()
     prev = game.previous_hand
 
     # No previous hand yet (hand 1 in progress or game not started)
@@ -332,6 +363,8 @@ def spectator(game_id: int):
             recent_actions=[],
             started=game.started,
             commentary_text=game.commentary_text,
+            chat_log=_chat_log(game),
+            timer=_timer_info(game),
         )
 
     # Serve the previous hand's complete state
@@ -367,7 +400,46 @@ def spectator(game_id: int):
         recent_actions=[_action_to_recent(a) for a in prev.actions],
         started=game.started,
         commentary_text=game.commentary_text,
+        chat_log=_chat_log(game),
+        timer=_timer_info(game),
     )
+
+
+# ── Chat & Timer routes ─────────────────────────────────
+
+@app.post("/game/{game_id}/chat", response_model=ChatResponse)
+def chat(game_id: int, req: ChatRequest, account: Account = Depends(require_auth)):
+    game = _get_game_or_404(game_id)
+    player = game.get_player_by_name(account.username)
+    if player is None:
+        raise HTTPException(status_code=403, detail="Not a player in this game")
+    msg = req.message.strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(msg) > 500:
+        raise HTTPException(status_code=400, detail="Message too long (max 500 chars)")
+    game.add_chat(player.name, msg)
+    return ChatResponse(success=True)
+
+
+@app.post("/game/{game_id}/extend", response_model=ExtendResponse)
+def extend(game_id: int, account: Account = Depends(require_auth)):
+    game = _get_game_or_404(game_id)
+    if not game.started:
+        raise HTTPException(status_code=400, detail="Game not started")
+
+    player = game.get_player_by_name(account.username)
+    if player is None:
+        raise HTTPException(status_code=403, detail="Not a player in this game")
+
+    game._check_timeout()
+
+    result = game.use_extension(player.id)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Cannot extend (not your turn or no extensions left)")
+
+    new_deadline, remaining = result
+    return ExtendResponse(success=True, new_deadline=new_deadline, extensions_remaining=remaining)
 
 
 # ── History routes ──────────────────────────────────────

@@ -640,3 +640,149 @@ class TestHistory:
     def test_player_stats_404(self, client):
         resp = client.get("/api/stats/Nobody")
         assert resp.status_code == 404
+
+
+# ── Chat ────────────────────────────────────────────────
+
+class TestChat:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
+    def test_chat_requires_auth(self, client):
+        gid = create_game(client)
+        resp = client.post(f"/game/{gid}/chat", json={"message": "Hello"})
+        assert resp.status_code == 401
+
+    def test_chat_requires_player(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        key_c = register_account(client, "Charlie")
+        resp = client.post(
+            f"/game/{gid}/chat",
+            json={"message": "Hello"},
+            headers=auth_header(key_c),
+        )
+        assert resp.status_code == 403
+
+    def test_chat_empty_message(self, client):
+        gid, key_a, _ = self._setup_started_game(client)
+        resp = client.post(
+            f"/game/{gid}/chat",
+            json={"message": "   "},
+            headers=auth_header(key_a),
+        )
+        assert resp.status_code == 400
+
+    def test_chat_too_long(self, client):
+        gid, key_a, _ = self._setup_started_game(client)
+        resp = client.post(
+            f"/game/{gid}/chat",
+            json={"message": "x" * 501},
+            headers=auth_header(key_a),
+        )
+        assert resp.status_code == 400
+
+    def test_chat_success(self, client):
+        gid, key_a, _ = self._setup_started_game(client)
+        resp = client.post(
+            f"/game/{gid}/chat",
+            json={"message": "Hello everyone!"},
+            headers=auth_header(key_a),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_chat_in_state_response(self, client):
+        gid, key_a, _ = self._setup_started_game(client)
+        client.post(
+            f"/game/{gid}/chat",
+            json={"message": "Good luck!"},
+            headers=auth_header(key_a),
+        )
+        state = client.get(f"/game/{gid}/state/1").json()
+        assert "chat_log" in state
+        assert len(state["chat_log"]) == 1
+        assert state["chat_log"][0]["player"] == "Alice"
+        assert state["chat_log"][0]["message"] == "Good luck!"
+
+    def test_chat_in_spectator_response(self, client):
+        gid, key_a, _ = self._setup_started_game(client)
+        client.post(
+            f"/game/{gid}/chat",
+            json={"message": "GL HF"},
+            headers=auth_header(key_a),
+        )
+        spec = client.get(f"/game/{gid}/spectator").json()
+        assert "chat_log" in spec
+        assert len(spec["chat_log"]) == 1
+        assert spec["chat_log"][0]["message"] == "GL HF"
+
+
+# ── Timer ───────────────────────────────────────────────
+
+class TestTimer:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
+    def test_timer_in_state_response(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        state = client.get(f"/game/{gid}/state/1").json()
+        assert "timer" in state
+        timer = state["timer"]
+        assert timer is not None
+        assert timer["action_timeout"] == 15.0
+        assert timer["deadline"] is not None
+        assert timer["extensions_remaining"] == 3
+
+    def test_timer_in_spectator_response(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        spec = client.get(f"/game/{gid}/spectator").json()
+        assert "timer" in spec
+        # During hand 1 with no previous hand, spectator sees timer for live game
+        timer = spec["timer"]
+        assert timer is not None
+
+    def test_extend_requires_auth(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        resp = client.post(f"/game/{gid}/extend")
+        assert resp.status_code == 401
+
+    def test_extend_requires_player(self, client):
+        gid, _, _ = self._setup_started_game(client)
+        key_c = register_account(client, "Charlie")
+        resp = client.post(f"/game/{gid}/extend", headers=auth_header(key_c))
+        assert resp.status_code == 403
+
+    def test_extend_wrong_turn(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        # Find who does NOT have the turn
+        if s1["is_your_turn"]:
+            wrong_key = key_b
+        else:
+            wrong_key = key_a
+        resp = client.post(f"/game/{gid}/extend", headers=auth_header(wrong_key))
+        assert resp.status_code == 400
+
+    def test_extend_success(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        right_key = key_a if s1["is_your_turn"] else key_b
+
+        resp = client.post(f"/game/{gid}/extend", headers=auth_header(right_key))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["extensions_remaining"] == 2
+        assert data["new_deadline"] > 0

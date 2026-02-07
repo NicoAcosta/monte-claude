@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -8,6 +9,8 @@ from poker.hand import ActionRecord, Hand, PlayerInHand
 STARTING_CHIPS = 1000
 SMALL_BLIND = 10
 BIG_BLIND = 20
+ACTION_TIMEOUT = 15.0
+EXTENSIONS_PER_PLAYER = 3
 
 
 @dataclass
@@ -21,6 +24,8 @@ class Game:
     def __init__(
         self,
         event_callback: Callable[[str, dict], None] | None = None,
+        action_timeout: float = ACTION_TIMEOUT,
+        extensions_per_player: int = EXTENSIONS_PER_PLAYER,
     ) -> None:
         self._players: list[RegisteredPlayer] = []
         self._next_id = 1
@@ -35,10 +40,78 @@ class Game:
         self.recent_actions: list[ActionRecord] = []
         self.commentary_text: str | None = None
         self._event_callback = event_callback
+        # Chat
+        self._chat_log: list[tuple[str, str, float]] = []  # (name, message, timestamp)
+        self._chat_max: int = 100
+        # Timer
+        self.action_timeout = action_timeout
+        self.extensions_per_player = extensions_per_player
+        self._time_extensions: dict[int, int] = {}  # player_id → remaining
+        self._extra_time: float = 0.0  # extensions used on current turn
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
             self._event_callback(event_type, data)
+
+    # ── Chat ─────────────────────────────────────────────
+
+    def add_chat(self, player_name: str, message: str) -> None:
+        self._chat_log.append((player_name, message, time.time()))
+        if len(self._chat_log) > self._chat_max:
+            self._chat_log = self._chat_log[-self._chat_max:]
+        self._notify("chat", {"player_name": player_name, "message": message})
+
+    @property
+    def chat_log(self) -> list[tuple[str, str, float]]:
+        return list(self._chat_log)
+
+    # ── Timer ────────────────────────────────────────────
+
+    @property
+    def turn_deadline(self) -> float | None:
+        if self.current_hand is None or self.current_hand.turn_started_at is None:
+            return None
+        return self.current_hand.turn_started_at + self.action_timeout + self._extra_time
+
+    def _check_timeout(self) -> str | None:
+        """Auto-fold current player if time expired. Returns player name or None."""
+        if self.action_timeout <= 0:
+            return None
+        if self.current_hand is None or self.current_hand.current_player is None:
+            return None
+        deadline = self.turn_deadline
+        if deadline is None or time.time() <= deadline:
+            return None
+
+        player = self.current_hand.current_player
+        player_name = player.name
+        self.do_action(player.id, "fold", comment="[timeout]")
+        self._notify("timeout_fold", {"player_name": player_name})
+        return player_name
+
+    def use_extension(self, player_id: int) -> tuple[float, int] | None:
+        """Use a time extension. Returns (new_deadline, remaining) or None."""
+        if self.current_hand is None or self.current_hand.current_player is None:
+            return None
+        if self.current_hand.current_player.id != player_id:
+            return None
+        remaining = self._time_extensions.get(player_id, 0)
+        if remaining <= 0:
+            return None
+
+        self._time_extensions[player_id] = remaining - 1
+        self._extra_time += self.action_timeout
+        new_deadline = self.turn_deadline
+        assert new_deadline is not None
+        self._notify("time_extension", {
+            "player_id": player_id,
+            "new_deadline": new_deadline,
+            "extensions_remaining": remaining - 1,
+        })
+        return (new_deadline, remaining - 1)
+
+    def get_extensions_remaining(self, player_id: int) -> int:
+        return self._time_extensions.get(player_id, 0)
 
     @property
     def player_count(self) -> int:
@@ -81,6 +154,8 @@ class Game:
             raise ValueError("Need at least 2 players")
 
         self.started = True
+        for p in self._players:
+            self._time_extensions[p.id] = self.extensions_per_player
         self._start_new_hand()
         return self.hand_number
 
@@ -96,8 +171,10 @@ class Game:
 
         result = self.current_hand.do_action(player_id, action, amount, comment=comment)
 
-        if result == "ok" and self.current_hand.is_complete:
-            self._finish_hand()
+        if result == "ok":
+            self._extra_time = 0.0
+            if self.current_hand.is_complete:
+                self._finish_hand()
 
         return result
 

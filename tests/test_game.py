@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from poker.game import Game, STARTING_CHIPS
 
@@ -139,3 +141,122 @@ class TestPlayerLookup:
     def test_get_player_by_name_not_found(self):
         game = Game()
         assert game.get_player_by_name("Nobody") is None
+
+
+class TestChat:
+    def test_add_chat(self):
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        game.add_chat("Alice", "Hello!")
+        assert len(game.chat_log) == 1
+        name, msg, ts = game.chat_log[0]
+        assert name == "Alice"
+        assert msg == "Hello!"
+        assert ts > 0
+
+    def test_chat_log_bounded(self):
+        game = Game()
+        game._chat_max = 5
+        for i in range(10):
+            game.add_chat("P", f"msg{i}")
+        assert len(game.chat_log) == 5
+        assert game.chat_log[0][1] == "msg5"
+        assert game.chat_log[-1][1] == "msg9"
+
+    def test_chat_event_emitted(self):
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.add_chat("Alice", "Hi")
+        chat_events = [(t, d) for t, d in events if t == "chat"]
+        assert len(chat_events) == 1
+        assert chat_events[0][1]["player_name"] == "Alice"
+        assert chat_events[0][1]["message"] == "Hi"
+
+
+class TestActionTimer:
+    def _make_started_game(self, action_timeout=15.0, extensions_per_player=3):
+        game = Game(action_timeout=action_timeout, extensions_per_player=extensions_per_player)
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        return game
+
+    def test_turn_deadline_set(self):
+        game = self._make_started_game()
+        assert game.turn_deadline is not None
+        assert game.turn_deadline > 0
+
+    def test_extensions_initialized(self):
+        game = self._make_started_game(extensions_per_player=5)
+        assert game.get_extensions_remaining(1) == 5
+        assert game.get_extensions_remaining(2) == 5
+
+    def test_no_timeout_when_time_remaining(self):
+        game = self._make_started_game(action_timeout=15.0)
+        assert game._check_timeout() is None
+
+    def test_timeout_auto_folds(self):
+        game = self._make_started_game(action_timeout=15.0)
+        cp = game.current_hand.current_player
+        player_name = cp.name
+
+        # Simulate time passing beyond deadline
+        with patch("poker.game.time.time", return_value=game.turn_deadline + 1):
+            result = game._check_timeout()
+
+        assert result == player_name
+
+    def test_timeout_disabled_when_zero(self):
+        game = self._make_started_game(action_timeout=0)
+        assert game._check_timeout() is None
+
+    def test_use_extension_adds_time(self):
+        game = self._make_started_game(action_timeout=10.0, extensions_per_player=2)
+        cp = game.current_hand.current_player
+        old_deadline = game.turn_deadline
+
+        result = game.use_extension(cp.id)
+        assert result is not None
+        new_deadline, remaining = result
+        assert new_deadline == old_deadline + 10.0
+        assert remaining == 1
+
+    def test_use_extension_decrements(self):
+        game = self._make_started_game(extensions_per_player=1)
+        cp = game.current_hand.current_player
+
+        result = game.use_extension(cp.id)
+        assert result is not None
+        assert result[1] == 0
+
+        # No more extensions
+        result2 = game.use_extension(cp.id)
+        assert result2 is None
+
+    def test_cannot_extend_not_your_turn(self):
+        game = self._make_started_game()
+        cp = game.current_hand.current_player
+        other_id = 1 if cp.id == 2 else 2
+        assert game.use_extension(other_id) is None
+
+    def test_extra_time_resets_on_action(self):
+        game = self._make_started_game(action_timeout=10.0, extensions_per_player=2)
+        cp = game.current_hand.current_player
+        game.use_extension(cp.id)
+        assert game._extra_time == 10.0
+
+        game.do_action(cp.id, "call")
+        assert game._extra_time == 0.0
+
+    def test_timeout_cascades_hands(self):
+        """Timeout fold that completes a hand should start next hand correctly."""
+        game = self._make_started_game(action_timeout=5.0)
+        hand_before = game.hand_number
+
+        cp = game.current_hand.current_player
+        with patch("poker.game.time.time", return_value=game.turn_deadline + 1):
+            game._check_timeout()
+
+        # Hand should have advanced
+        assert game.hand_number > hand_before

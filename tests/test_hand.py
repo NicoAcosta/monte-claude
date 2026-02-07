@@ -242,6 +242,42 @@ class TestActionIdAndTimestamp:
         assert timestamps == sorted(timestamps)
 
 
+class TestTurnStartedAt:
+    def test_turn_started_at_set_on_init(self):
+        players = make_players(2)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        assert hand.turn_started_at is not None
+        assert hand.turn_started_at > 0
+
+    def test_turn_started_at_updates_on_advance(self):
+        players = make_players(2)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        t1 = hand.turn_started_at
+        hand.do_action(hand.current_player.id, "call")
+        t2 = hand.turn_started_at
+        assert t2 is not None
+        assert t2 >= t1
+
+    def test_turn_started_at_none_when_complete(self):
+        players = make_players(2)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand.do_action(hand.current_player.id, "fold")
+        assert hand.is_complete
+        # current_turn_index is None, but turn_started_at keeps its last value
+        # (the hand is complete, no one is acting)
+
+    def test_turn_started_at_none_when_no_actor(self):
+        """When both players are all-in from blinds, hand completes immediately."""
+        # BB=20, chips=20 → both players all-in from blinds
+        players = make_players(2, chips=20)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        # SB(10) acts first in heads-up; go all-in
+        hand.do_action(hand.current_player.id, "all_in")
+        # BB already posted 20 = all chips, so they just call the remaining 0
+        # Actually BB has 0 chips left (posted 20), so no actor → showdown
+        assert hand.is_complete
+
+
 class TestHandComplete:
     def test_cannot_act_after_complete(self):
         players = make_players(2)

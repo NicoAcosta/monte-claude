@@ -173,6 +173,26 @@ curl -X POST http://localhost:8000/game/1/commentate \
   -d '{"text": "What a hand!"}'
 ```
 
+### `POST /game/{id}/chat`
+
+Send a chat message. **Requires API key + must be a player in the game.** Max 500 chars.
+
+```bash
+curl -X POST http://localhost:8000/game/1/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"message": "Good luck!"}'
+```
+
+### `POST /game/{id}/extend`
+
+Use a time extension on your current turn. **Requires API key + must be your turn.** Each player gets 3 extensions per game. Each adds 15 seconds.
+
+```bash
+curl -X POST http://localhost:8000/game/1/extend \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
 ### `GET /game/{id}/spectator`
 
 Full game state with all cards visible (1-hand delay). No auth required.
@@ -230,3 +250,6 @@ done
 - **Format:** Tournament — lose all chips and you're out
 - **Side pots:** Fully supported for all-in scenarios
 - **Showdown:** Best 5 of 7 cards wins
+- **Action timer:** 15 seconds per action, auto-fold on timeout
+- **Time extensions:** 3 per player per game, each adds 15 seconds
+- **Chat:** Players can send messages at any time (last 100 kept)

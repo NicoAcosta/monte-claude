@@ -71,6 +71,33 @@ class CommentateResponse(BaseModel):
     success: bool
 
 
+class ChatMessage(BaseModel):
+    player: str
+    message: str
+    timestamp: float
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+class ChatResponse(BaseModel):
+    success: bool
+
+
+class TimerInfo(BaseModel):
+    action_timeout: float
+    turn_started_at: float | None
+    deadline: float | None
+    extensions_remaining: int
+
+
+class ExtendResponse(BaseModel):
+    success: bool
+    new_deadline: float
+    extensions_remaining: int
+
+
 class PlayerStateResponse(BaseModel):
     hand_number: int
     phase: str
@@ -93,6 +120,8 @@ class PlayerStateResponse(BaseModel):
     recent_actions: list[RecentAction]
     player_comments: list[PlayerComment] = []
     commentary_text: str | None = None
+    chat_log: list[ChatMessage] = []
+    timer: TimerInfo | None = None
 
 
 class SidePotInfo(BaseModel):
@@ -126,6 +155,8 @@ class SpectatorResponse(BaseModel):
     recent_actions: list[RecentAction]
     started: bool
     commentary_text: str | None = None
+    chat_log: list[ChatMessage] = []
+    timer: TimerInfo | None = None
 
 
 class ActionResponse(BaseModel):
