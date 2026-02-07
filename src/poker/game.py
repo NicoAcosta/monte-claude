@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from poker.hand import ActionRecord, Hand, PlayerInHand
@@ -17,7 +18,10 @@ class RegisteredPlayer:
 
 
 class Game:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        event_callback: Callable[[str, dict], None] | None = None,
+    ) -> None:
         self._players: list[RegisteredPlayer] = []
         self._next_id = 1
         self._next_action_id = 1
@@ -30,6 +34,11 @@ class Game:
         self.winner: str | None = None
         self.recent_actions: list[ActionRecord] = []
         self.commentary_text: str | None = None
+        self._event_callback = event_callback
+
+    def _notify(self, event_type: str, data: dict) -> None:
+        if self._event_callback:
+            self._event_callback(event_type, data)
 
     @property
     def player_count(self) -> int:
@@ -111,12 +120,25 @@ class Game:
         # Wrap dealer_index
         self.dealer_index = self.dealer_index % len(hand_players)
 
+        # Emit hand_started BEFORE Hand construction (Hand.__init__ posts blinds + deals)
+        self._notify("hand_started", {
+            "hand_number": self.hand_number,
+            "dealer_id": hand_players[self.dealer_index].id,
+            "players": [
+                {"id": p.id, "name": p.name, "chips": p.chips}
+                for p in hand_players
+            ],
+            "small_blind": SMALL_BLIND,
+            "big_blind": BIG_BLIND,
+        })
+
         self.current_hand = Hand(
             players=hand_players,
             dealer_index=self.dealer_index,
             small_blind=SMALL_BLIND,
             big_blind=BIG_BLIND,
             starting_action_id=self._next_action_id,
+            event_callback=self._event_callback,
         )
 
         self.recent_actions = []
@@ -129,25 +151,78 @@ class Game:
         if self.current_hand is None:
             return
 
+        hand = self.current_hand
+
         # Store completed hand for spectator delay
-        self.previous_hand = self.current_hand
-        self._next_action_id = self.current_hand._action_id_counter
+        self.previous_hand = hand
+        self._next_action_id = hand._action_id_counter
 
         # Copy recent actions
-        self.recent_actions = list(self.current_hand.actions)
+        self.recent_actions = list(hand.actions)
+
+        # Compute chip deltas before updating registered player chips
+        chips_before: dict[str, int] = {}
+        for rp in self._players:
+            chips_before[rp.name] = rp.chips
 
         # Update registered player chips from hand results
-        for hp in self.current_hand.players:
+        for hp in hand.players:
             rp = self.get_player(hp.id)
             if rp is not None:
                 rp.chips = hp.chips
 
+        chip_deltas = {
+            rp.name: rp.chips - chips_before[rp.name]
+            for rp in self._players
+            if rp.name in chips_before
+        }
+
+        # Collect winner info
+        all_winner_ids: list[int] = []
+        for _, ids in hand.winners_by_pot:
+            for wid in ids:
+                if wid not in all_winner_ids:
+                    all_winner_ids.append(wid)
+        winner_names = [
+            hp.name for hp in hand.players if hp.id in all_winner_ids
+        ]
+
+        # Emit hand_completed event
+        self._notify("hand_completed", {
+            "hand_number": self.hand_number,
+            "dealer_id": hand.players[hand.dealer_index].id,
+            "player_ids": [p.id for p in hand.players],
+            "player_names": [p.name for p in hand.players],
+            "winner_ids": all_winner_ids,
+            "winner_names": winner_names,
+            "winners_by_pot": list(hand.winners_by_pot),
+            "pot": hand.pot,
+            "community_cards": [str(c) for c in hand.community_cards],
+            "chip_deltas": chip_deltas,
+            "showdown_cards": {
+                p.name: [str(c) for c in p.hole_cards]
+                for p in hand.players if not p.is_folded
+            },
+        })
+
         # Eliminate busted players (chips == 0 means they're out)
+        eliminated = [rp for rp in self._players if rp.chips == 0]
+        for rp in eliminated:
+            self._notify("player_eliminated", {
+                "hand_number": self.hand_number,
+                "player_name": rp.name,
+                "player_id": rp.id,
+            })
+
         alive = self.alive_players
         if len(alive) <= 1:
             self.game_over = True
             if alive:
                 self.winner = alive[0].name
+            self._notify("game_over", {
+                "hand_number": self.hand_number,
+                "winner_name": self.winner,
+            })
             self.current_hand = None
             return
 

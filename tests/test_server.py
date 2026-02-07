@@ -4,12 +4,26 @@ from fastapi.testclient import TestClient
 import poker.server as server_module
 from poker.account_store import AccountStore
 from poker.game_manager import GameManager
+from poker.game_recorder import GameRecorder
+from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 
 
 @pytest.fixture(autouse=True)
 def reset_state(tmp_path):
-    """Reset global game manager and account store before each test."""
-    server_module.manager = GameManager()
+    """Reset global game manager, account store, and history stores before each test."""
+    server_module.event_store = GameEventStore(tmp_path / "events.csv")
+    server_module.summary_store = HandSummaryStore(tmp_path / "summaries.csv")
+    server_module.stats_store = PlayerStatsStore(tmp_path / "stats.csv")
+
+    def make_recorder(game_id: int) -> GameRecorder:
+        return GameRecorder(
+            game_id,
+            server_module.event_store,
+            server_module.summary_store,
+            server_module.stats_store,
+        )
+
+    server_module.manager = GameManager(recorder_factory=make_recorder)
     server_module.account_store = AccountStore(tmp_path / "accounts.csv")
     yield
 
@@ -547,3 +561,82 @@ class TestGameIsolation:
         waiting_game = next(g for g in games if g["id"] == g2)
         assert started_game["started"] is True
         assert waiting_game["started"] is False
+
+
+# ── History Endpoints ───────────────────────────────────
+
+class TestHistory:
+    def _setup_started_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b
+
+    def test_game_history_endpoint(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+
+        # Fold to complete a hand
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+
+        resp = client.get(f"/api/games/{gid}/history")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["game_id"] == gid
+        assert len(data["events"]) > 0
+
+        event_types = [e["event_type"] for e in data["events"]]
+        assert "player_joined" in event_types
+        assert "game_started" in event_types
+        assert "hand_started" in event_types
+        assert "action" in event_types
+        assert "hand_completed" in event_types
+
+    def test_game_history_404(self, client):
+        resp = client.get("/api/games/999/history")
+        assert resp.status_code == 404
+
+    def test_hand_summaries_endpoint(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+
+        resp = client.get(f"/api/games/{gid}/hands")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["game_id"] == gid
+        assert len(data["hands"]) >= 1
+        hand = data["hands"][0]
+        assert hand["hand_number"] == 1
+        assert hand["pot"] > 0
+        assert len(hand["winner_ids"]) >= 1
+
+    def test_player_stats_endpoint(self, client):
+        gid, key_a, key_b = self._setup_started_game(client)
+
+        s1 = client.get(f"/game/{gid}/state/1").json()
+        first_key = key_a if s1["is_your_turn"] else key_b
+        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+
+        resp_alice = client.get("/api/stats/Alice")
+        assert resp_alice.status_code == 200
+        alice = resp_alice.json()
+        assert alice["username"] == "Alice"
+        assert alice["games_played"] == 1
+        assert alice["hands_played"] >= 1
+
+        resp_bob = client.get("/api/stats/Bob")
+        assert resp_bob.status_code == 200
+        bob = resp_bob.json()
+        assert bob["username"] == "Bob"
+        assert bob["games_played"] == 1
+
+    def test_player_stats_404(self, client):
+        resp = client.get("/api/stats/Nobody")
+        assert resp.status_code == 404

@@ -9,6 +9,8 @@ from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
 from poker.game import Game
 from poker.game_manager import GameManager
+from poker.game_recorder import GameRecorder
+from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.models import (
     AccountRegisterRequest,
     AccountRegisterResponse,
@@ -17,13 +19,18 @@ from poker.models import (
     CommentateRequest,
     CommentateResponse,
     CreateGameResponse,
+    GameEventResponse,
+    GameHistoryResponse,
     GameListItem,
     GameListResponse,
+    HandSummariesResponse,
+    HandSummaryResponse,
     JoinGameResponse,
     PlayerBrief,
     PlayerComment,
     PlayerPublicState,
     PlayerStateResponse,
+    PlayerStatsResponse,
     RecentAction,
     SidePotInfo,
     SpectatorPlayerState,
@@ -37,7 +44,16 @@ app = FastAPI(title="Claude Poker", version="0.1.0")
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
-manager = GameManager()
+event_store = GameEventStore(DATA_DIR / "events.csv")
+summary_store = HandSummaryStore(DATA_DIR / "hand_summaries.csv")
+stats_store = PlayerStatsStore(DATA_DIR / "player_stats.csv")
+
+
+def _make_recorder(game_id: int) -> GameRecorder:
+    return GameRecorder(game_id, event_store, summary_store, stats_store)
+
+
+manager = GameManager(recorder_factory=_make_recorder)
 account_store = AccountStore(DATA_DIR / "accounts.csv")
 
 require_auth = make_auth_dependency(lambda: account_store)
@@ -133,6 +149,14 @@ def join_game(game_id: int, account: Account = Depends(require_auth)):
         p = game.register(account.username)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    recorder = manager.get_recorder(game_id)
+    if recorder:
+        recorder.on_event("player_joined", {
+            "player_name": p.name,
+            "player_id": p.id,
+        })
+
     return JoinGameResponse(player_id=p.id, name=p.name)
 
 
@@ -159,6 +183,14 @@ def start(game_id: int, account: Account = Depends(require_auth)):
         hand_num = game.start()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    recorder = manager.get_recorder(game_id)
+    if recorder:
+        recorder.on_event("game_started", {
+            "player_count": game.player_count,
+            "player_names": [p.name for p in game._players],
+        })
+
     return StartResponse(message="Game started", hand_number=hand_num)
 
 
@@ -335,4 +367,63 @@ def spectator(game_id: int):
         recent_actions=[_action_to_recent(a) for a in prev.actions],
         started=game.started,
         commentary_text=game.commentary_text,
+    )
+
+
+# ── History routes ──────────────────────────────────────
+
+@app.get("/api/games/{game_id}/history", response_model=GameHistoryResponse)
+def game_history(game_id: int):
+    _get_game_or_404(game_id)
+    events = event_store.get_by_game(game_id)
+    return GameHistoryResponse(
+        game_id=game_id,
+        events=[
+            GameEventResponse(
+                game_id=e.game_id,
+                event_type=e.event_type,
+                timestamp=e.timestamp,
+                hand_number=e.hand_number,
+                data=e.data,
+                sequence=e.sequence,
+            )
+            for e in events
+        ],
+    )
+
+
+@app.get("/api/games/{game_id}/hands", response_model=HandSummariesResponse)
+def hand_summaries(game_id: int):
+    _get_game_or_404(game_id)
+    summaries = summary_store.get_by_game(game_id)
+    return HandSummariesResponse(
+        game_id=game_id,
+        hands=[
+            HandSummaryResponse(
+                game_id=s.game_id,
+                hand_number=s.hand_number,
+                dealer_id=s.dealer_id,
+                player_ids=list(s.player_ids),
+                winner_ids=list(s.winner_ids),
+                pot=s.pot,
+                community_cards=s.community_cards,
+                timestamp=s.timestamp,
+            )
+            for s in summaries
+        ],
+    )
+
+
+@app.get("/api/stats/{username}", response_model=PlayerStatsResponse)
+def player_stats(username: str):
+    stats = stats_store.get(username)
+    if stats is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return PlayerStatsResponse(
+        username=stats.username,
+        games_played=stats.games_played,
+        hands_played=stats.hands_played,
+        hands_won=stats.hands_won,
+        total_winnings=stats.total_winnings,
+        biggest_pot_won=stats.biggest_pot_won,
     )

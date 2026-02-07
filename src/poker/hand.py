@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from poker.deck import Card, Deck
@@ -51,6 +52,7 @@ class Hand:
         big_blind: int = 20,
         deck_seed: int | None = None,
         starting_action_id: int = 1,
+        event_callback: Callable[[str, dict], None] | None = None,
     ) -> None:
         if len(players) < 2:
             raise ValueError("Need at least 2 players")
@@ -59,6 +61,7 @@ class Hand:
         self.dealer_index = dealer_index
         self.small_blind = small_blind
         self.big_blind = big_blind
+        self._event_callback = event_callback
         self.deck = Deck(seed=deck_seed)
         self.community_cards: list[Card] = []
         self.phase = "preflop"
@@ -92,6 +95,17 @@ class Hand:
         )
         self._action_id_counter += 1
         self.actions.append(record)
+        self._notify("action", {
+            "player_name": player_name,
+            "action": action,
+            "amount": amount,
+            "comment": comment,
+            "action_id": record.id,
+        })
+
+    def _notify(self, event_type: str, data: dict) -> None:
+        if self._event_callback:
+            self._event_callback(event_type, data)
 
     @property
     def active_players(self) -> list[PlayerInHand]:
@@ -150,6 +164,11 @@ class Hand:
     def _deal_hole_cards(self) -> None:
         for p in self.players:
             p.hole_cards = self.deck.deal(2)
+            self._notify("cards_dealt", {
+                "player_id": p.id,
+                "player_name": p.name,
+                "cards": [str(c) for c in p.hole_cards],
+            })
 
     def _start_betting_round(self) -> None:
         if self._should_skip_to_showdown():
@@ -187,9 +206,20 @@ class Hand:
         # Deal remaining community cards
         while len(self.community_cards) < 5:
             if len(self.community_cards) == 0:
-                self.community_cards.extend(self.deck.deal(3))
+                cards = self.deck.deal(3)
+                self.community_cards.extend(cards)
+                self._notify("community_dealt", {
+                    "cards": [str(c) for c in cards],
+                    "phase": "flop",
+                })
             else:
-                self.community_cards.extend(self.deck.deal(1))
+                cards = self.deck.deal(1)
+                phase = "turn" if len(self.community_cards) == 3 else "river"
+                self.community_cards.extend(cards)
+                self._notify("community_dealt", {
+                    "cards": [str(c) for c in cards],
+                    "phase": phase,
+                })
 
         active = self.active_players
         if len(active) == 1:
@@ -240,14 +270,29 @@ class Hand:
             return
 
         if self.phase == "preflop":
-            self.community_cards.extend(self.deck.deal(3))
+            cards = self.deck.deal(3)
+            self.community_cards.extend(cards)
             self.phase = "flop"
+            self._notify("community_dealt", {
+                "cards": [str(c) for c in cards],
+                "phase": "flop",
+            })
         elif self.phase == "flop":
-            self.community_cards.extend(self.deck.deal(1))
+            cards = self.deck.deal(1)
+            self.community_cards.extend(cards)
             self.phase = "turn"
+            self._notify("community_dealt", {
+                "cards": [str(c) for c in cards],
+                "phase": "turn",
+            })
         elif self.phase == "turn":
-            self.community_cards.extend(self.deck.deal(1))
+            cards = self.deck.deal(1)
+            self.community_cards.extend(cards)
             self.phase = "river"
+            self._notify("community_dealt", {
+                "cards": [str(c) for c in cards],
+                "phase": "river",
+            })
         elif self.phase == "river":
             self.phase = "showdown"
             self._resolve_showdown()

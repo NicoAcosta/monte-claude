@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from poker.game import Game
+from poker.game_recorder import GameRecorder
 
 
 @dataclass(frozen=True)
@@ -17,16 +19,31 @@ class GameSummary:
 
 
 class GameManager:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        recorder_factory: Callable[[int], GameRecorder] | None = None,
+    ) -> None:
         self._games: dict[int, Game] = {}
+        self._recorders: dict[int, GameRecorder] = {}
         self._next_id = 1
+        self._recorder_factory = recorder_factory
 
     def create_game(self) -> tuple[int, Game]:
         game_id = self._next_id
         self._next_id += 1
-        game = Game()
+
+        if self._recorder_factory:
+            recorder = self._recorder_factory(game_id)
+            self._recorders[game_id] = recorder
+            game = Game(event_callback=recorder.on_event)
+        else:
+            game = Game()
+
         self._games[game_id] = game
         return game_id, game
+
+    def get_recorder(self, game_id: int) -> GameRecorder | None:
+        return self._recorders.get(game_id)
 
     def get_game(self, game_id: int) -> Game | None:
         return self._games.get(game_id)

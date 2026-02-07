@@ -153,3 +153,44 @@ class GameListItem(BaseModel):
 
 class GameListResponse(BaseModel):
     games: list[GameListItem]
+
+
+# ── History models ──────────────────────────────────────
+
+class GameEventResponse(BaseModel):
+    game_id: int
+    event_type: str
+    timestamp: float
+    hand_number: int
+    data: str
+    sequence: int
+
+
+class GameHistoryResponse(BaseModel):
+    game_id: int
+    events: list[GameEventResponse]
+
+
+class HandSummaryResponse(BaseModel):
+    game_id: int
+    hand_number: int
+    dealer_id: int
+    player_ids: list[int]
+    winner_ids: list[int]
+    pot: int
+    community_cards: str
+    timestamp: float
+
+
+class HandSummariesResponse(BaseModel):
+    game_id: int
+    hands: list[HandSummaryResponse]
+
+
+class PlayerStatsResponse(BaseModel):
+    username: str
+    games_played: int
+    hands_played: int
+    hands_won: int
+    total_winnings: int
+    biggest_pot_won: int
