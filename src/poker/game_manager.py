@@ -16,6 +16,10 @@ class GameSummary:
     game_over: bool
     winner: str | None
     hand_number: int
+    max_players: int = 0
+    token: str | None = None
+    buy_in: int = 0
+    funded: bool = False
 
 
 class GameManager:
@@ -28,16 +32,24 @@ class GameManager:
         self._next_id = 1
         self._recorder_factory = recorder_factory
 
-    def create_game(self) -> tuple[int, Game]:
+    def create_game(
+        self,
+        max_players: int = 0,
+        token: str | None = None,
+        buy_in: int = 0,
+    ) -> tuple[int, Game]:
         game_id = self._next_id
         self._next_id += 1
 
         if self._recorder_factory:
             recorder = self._recorder_factory(game_id)
             self._recorders[game_id] = recorder
-            game = Game(event_callback=recorder.on_event)
+            game = Game(
+                event_callback=recorder.on_event,
+                max_players=max_players, token=token, buy_in=buy_in,
+            )
         else:
-            game = Game()
+            game = Game(max_players=max_players, token=token, buy_in=buy_in)
 
         self._games[game_id] = game
         return game_id, game
@@ -58,6 +70,10 @@ class GameManager:
                 game_over=game.game_over,
                 winner=game.winner,
                 hand_number=game.hand_number,
+                max_players=game.max_players,
+                token=game.token,
+                buy_in=game.buy_in,
+                funded=game.funded,
             )
             for gid, game in self._games.items()
         ]

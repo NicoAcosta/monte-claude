@@ -37,9 +37,10 @@ def client():
 
 # ── Helpers ──────────────────────────────────────────────
 
-def create_game(client) -> int:
+def create_game(client, **kwargs) -> int:
     """Helper: create a game and return its id."""
-    resp = client.post("/api/games")
+    body = {"max_players": 0, "buy_in": 0, **kwargs}
+    resp = client.post("/api/games", json=body)
     assert resp.status_code == 200
     return resp.json()["game_id"]
 
@@ -55,9 +56,10 @@ def auth_header(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
-def join_game(client, game_id: int, api_key: str) -> dict:
+def join_game(client, game_id: int, api_key: str, wallet_address: str | None = None) -> dict:
     """Helper: join a game with an API key, return response json."""
-    resp = client.post(f"/game/{game_id}/join", headers=auth_header(api_key))
+    body = {"wallet_address": wallet_address}
+    resp = client.post(f"/game/{game_id}/join", json=body, headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()
 
@@ -91,7 +93,7 @@ class TestLobby:
         assert resp.json()["games"] == []
 
     def test_create_game(self, client):
-        resp = client.post("/api/games")
+        resp = client.post("/api/games", json={"max_players": 2})
         assert resp.status_code == 200
         data = resp.json()
         assert data["game_id"] == 1
@@ -130,12 +132,12 @@ class TestJoinGame:
 
     def test_join_requires_auth(self, client):
         gid = create_game(client)
-        resp = client.post(f"/game/{gid}/join")
+        resp = client.post(f"/game/{gid}/join", json={"wallet_address": None})
         assert resp.status_code == 401
 
     def test_join_invalid_key(self, client):
         gid = create_game(client)
-        resp = client.post(f"/game/{gid}/join", headers=auth_header("pk_bogus"))
+        resp = client.post(f"/game/{gid}/join", json={"wallet_address": None}, headers=auth_header("pk_bogus"))
         assert resp.status_code == 401
 
     def test_join_duplicate_name(self, client):
@@ -143,12 +145,12 @@ class TestJoinGame:
         key = register_account(client, "Alice")
         join_game(client, gid, key)
         # Same user can't join twice (game.register rejects duplicate name)
-        resp = client.post(f"/game/{gid}/join", headers=auth_header(key))
+        resp = client.post(f"/game/{gid}/join", json={"wallet_address": None}, headers=auth_header(key))
         assert resp.status_code == 400
 
     def test_join_nonexistent_game(self, client):
         key = register_account(client, "Alice")
-        resp = client.post("/game/999/join", headers=auth_header(key))
+        resp = client.post("/game/999/join", json={"wallet_address": None}, headers=auth_header(key))
         assert resp.status_code == 404
 
 
@@ -1154,3 +1156,223 @@ class TestStreams:
         # Raw spectator should have no commentary
         resp = client.get(f"/game/{gid}/spectator")
         assert resp.json()["commentary_text"] is None
+
+
+# ── Escrow Integration ──────────────────────────────────
+
+class TestEscrowGameCreation:
+    """Test funded game creation, joining, and lifecycle."""
+
+    def test_create_funded_game(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "buy_in": 100_000_000,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["max_players"] == 2
+        assert data["token"] == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        assert data["buy_in"] == 100_000_000
+
+    def test_create_free_game_defaults(self, client):
+        """Creating a game with default values (no token, buy_in=0)."""
+        resp = client.post("/api/games", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["max_players"] == 0
+        assert data["token"] is None
+        assert data["buy_in"] == 0
+
+    def test_funded_game_in_list(self, client):
+        client.post("/api/games", json={
+            "max_players": 3,
+            "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "buy_in": 50_000_000,
+        })
+        resp = client.get("/api/games")
+        games = resp.json()["games"]
+        assert len(games) == 1
+        g = games[0]
+        assert g["max_players"] == 3
+        assert g["buy_in"] == 50_000_000
+        assert g["funded"] is False
+
+    def test_join_funded_game_requires_wallet(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        key = register_account(client, "Alice")
+        # No wallet_address provided
+        resp = client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": None},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 400
+        assert "Wallet address required" in resp.json()["detail"]
+
+    def test_join_funded_game_with_wallet(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        key = register_account(client, "Alice")
+        resp = client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Alice"
+
+    def test_join_free_game_no_wallet_needed(self, client):
+        """Free games (buy_in=0) don't require wallet."""
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        resp = client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": None},
+            headers=auth_header(key),
+        )
+        assert resp.status_code == 200
+
+    def test_join_full_game_rejected(self, client):
+        resp = client.post("/api/games", json={"max_players": 2})
+        gid = resp.json()["game_id"]
+
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        key_c = register_account(client, "Charlie")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+
+        resp = client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": None},
+            headers=auth_header(key_c),
+        )
+        assert resp.status_code == 400
+        assert "full" in resp.json()["detail"].lower()
+
+    def test_start_funded_game_before_funding_rejected(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
+            headers=auth_header(key_a),
+        )
+        client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"},
+            headers=auth_header(key_b),
+        )
+
+        resp = client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        assert resp.status_code == 400
+        assert "Deposits not confirmed" in resp.json()["detail"]
+
+    def test_start_free_game_works(self, client):
+        """Free games can be started without funding."""
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        resp = client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        assert resp.status_code == 200
+
+
+class TestEscrowEndpoints:
+    """Test escrow, funding, and settlement endpoints."""
+
+    def test_escrow_not_funded_game(self, client):
+        gid = create_game(client)
+        resp = client.get(f"/game/{gid}/escrow")
+        assert resp.status_code == 400
+        assert "Not a funded game" in resp.json()["detail"]
+
+    def test_escrow_not_full(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        key = register_account(client, "Alice")
+        client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
+            headers=auth_header(key),
+        )
+
+        resp = client.get(f"/game/{gid}/escrow")
+        assert resp.status_code == 400
+        assert "not full" in resp.json()["detail"].lower()
+
+    def test_funding_not_funded_game(self, client):
+        gid = create_game(client)
+        resp = client.get(f"/game/{gid}/funding")
+        assert resp.status_code == 400
+
+    def test_funding_no_escrow_configured(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        resp = client.get(f"/game/{gid}/funding")
+        assert resp.status_code == 400
+        assert "Escrow not yet configured" in resp.json()["detail"]
+
+    def test_settlement_not_funded_game(self, client):
+        gid = create_game(client)
+        resp = client.get(f"/game/{gid}/settlement")
+        assert resp.status_code == 400
+
+    def test_settlement_game_not_over(self, client):
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        resp = client.get(f"/game/{gid}/settlement")
+        assert resp.status_code == 400
+        assert "not over" in resp.json()["detail"].lower()
+
+    def test_settlement_no_escrow(self, client):
+        """Settlement with game over but no escrow configured."""
+        resp = client.post("/api/games", json={
+            "max_players": 2,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        # Manually set game_over to bypass normal flow for this edge case
+        game = server_module.manager.get_game(gid)
+        game.game_over = True
+
+        resp = client.get(f"/game/{gid}/settlement")
+        assert resp.status_code == 400
+        assert "Escrow not configured" in resp.json()["detail"]
