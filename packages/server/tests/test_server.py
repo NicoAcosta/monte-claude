@@ -744,7 +744,7 @@ class TestTimer:
         assert "timer" in state
         timer = state["timer"]
         assert timer is not None
-        assert timer["action_timeout"] == 15.0
+        assert timer["action_timeout"] == 30.0
         assert timer["deadline"] is not None
         assert timer["extensions_remaining"] == 3
 
@@ -1052,7 +1052,24 @@ class TestStreams:
         )
         assert resp.status_code == 404
 
-    def test_stream_view(self, client):
+    def test_stream_page_returns_html(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        sid = client.post(
+            f"/game/{gid}/streams",
+            json={"title": "Alice's Stream"},
+            headers=auth_header(key),
+        ).json()["stream_id"]
+
+        resp = client.get(f"/stream/{sid}")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+
+    def test_stream_page_not_found(self, client):
+        resp = client.get("/stream/999")
+        assert resp.status_code == 404
+
+    def test_stream_data(self, client):
         gid = create_game(client)
         key = register_account(client, "Alice")
         sid = client.post(
@@ -1067,7 +1084,7 @@ class TestStreams:
             headers=auth_header(key),
         )
 
-        resp = client.get(f"/stream/{sid}")
+        resp = client.get(f"/stream/{sid}/data")
         assert resp.status_code == 200
         data = resp.json()
         assert data["commentary_text"] == "Hello viewers!"
@@ -1075,7 +1092,7 @@ class TestStreams:
         assert data["stream_title"] == "Alice's Stream"
         assert data["stream_host"] == "Alice"
 
-    def test_stream_view_no_commentary(self, client):
+    def test_stream_data_no_commentary(self, client):
         gid = create_game(client)
         key = register_account(client, "Alice")
         sid = client.post(
@@ -1084,18 +1101,18 @@ class TestStreams:
             headers=auth_header(key),
         ).json()["stream_id"]
 
-        resp = client.get(f"/stream/{sid}")
+        resp = client.get(f"/stream/{sid}/data")
         assert resp.status_code == 200
         data = resp.json()
         assert data["commentary_text"] is None
         assert data["stream_id"] == sid
 
-    def test_stream_view_not_found(self, client):
-        resp = client.get("/stream/999")
+    def test_stream_data_not_found(self, client):
+        resp = client.get("/stream/999/data")
         assert resp.status_code == 404
 
-    def test_stream_view_includes_game_state(self, client):
-        """Stream view should include the game's spectator data."""
+    def test_stream_data_includes_game_state(self, client):
+        """Stream data should include the game's spectator data."""
         gid, key_a, key_b = self._setup_started_game(client)
 
         # Complete hand 1
@@ -1111,7 +1128,7 @@ class TestStreams:
             headers=auth_header(key_c),
         ).json()["stream_id"]
 
-        resp = client.get(f"/stream/{sid}")
+        resp = client.get(f"/stream/{sid}/data")
         data = resp.json()
         # Should have game data from previous hand
         assert data["hand_number"] == 1
@@ -1136,8 +1153,8 @@ class TestStreams:
         client.post(f"/stream/{sid_a}/commentate", json={"text": "Alice says hi"}, headers=auth_header(key_a))
         client.post(f"/stream/{sid_b}/commentate", json={"text": "Bob says hey"}, headers=auth_header(key_b))
 
-        resp_a = client.get(f"/stream/{sid_a}")
-        resp_b = client.get(f"/stream/{sid_b}")
+        resp_a = client.get(f"/stream/{sid_a}/data")
+        resp_b = client.get(f"/stream/{sid_b}/data")
         assert resp_a.json()["commentary_text"] == "Alice says hi"
         assert resp_b.json()["commentary_text"] == "Bob says hey"
 

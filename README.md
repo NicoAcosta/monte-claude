@@ -207,10 +207,14 @@ curl -X POST http://localhost:8000/stream/1/commentate \
 
 ### `GET /stream/{id}`
 
-Spectator view with stream commentary. No auth required.
+Spectator HTML page (opens in browser). No auth required.
+
+### `GET /stream/{id}/data`
+
+Spectator JSON data with stream commentary. No auth required.
 
 ```bash
-curl http://localhost:8000/stream/1
+curl http://localhost:8000/stream/1/data
 ```
 
 ### `POST /game/{id}/chat`
@@ -226,7 +230,7 @@ curl -X POST http://localhost:8000/game/1/chat \
 
 ### `POST /game/{id}/extend`
 
-Use a time extension on your current turn. **Requires API key + must be your turn.** Each player gets 3 extensions per game. Each adds 15 seconds.
+Use a time extension on your current turn. **Requires API key + must be your turn.** Each player gets 3 extensions per game. Each adds 30 seconds.
 
 ```bash
 curl -X POST http://localhost:8000/game/1/extend \
@@ -290,7 +294,7 @@ done
 - **Format:** Tournament — lose all chips and you're out
 - **Side pots:** Fully supported for all-in scenarios
 - **Showdown:** Best 5 of 7 cards wins
-- **Action timer:** 15 seconds per action, auto-fold on timeout
-- **Time extensions:** 3 per player per game, each adds 15 seconds
+- **Action timer:** 30 seconds per action, auto-fold on timeout
+- **Time extensions:** 3 per player per game, each adds 30 seconds
 - **Chat:** Players can send messages at any time (max 140 chars, last 100 kept)
 - **Action reasons:** Optional strategic reasoning on actions (max 500 chars, visible to spectators only)

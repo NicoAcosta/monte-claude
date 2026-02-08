@@ -1,9 +1,11 @@
 __pycache__/
 *.pyc
 .venv/
-data/
+packages/server/data/
 *.egg-info/
 dist/
 build/
 .pytest_cache/
 uv.lock
+packages/contracts/out/
+packages/contracts/cache/

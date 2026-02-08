@@ -100,6 +100,26 @@ class TestGameplay:
         # (outcome depends on cards dealt - non-deterministic without seed)
 
 
+class TestChipConservation:
+    def test_chips_conserved_across_fold_hands(self):
+        """Total chips must remain constant when hands end by fold."""
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        total = sum(p.chips for p in game._players)
+        for _ in range(20):
+            if game.game_over:
+                break
+            if game.current_hand and game.current_hand.current_player:
+                game.do_action(game.current_hand.current_player.id, "fold")
+            current_total = sum(p.chips for p in game._players)
+            assert current_total == total, (
+                f"Chip leak detected: expected {total}, got {current_total} "
+                f"(hand {game.hand_number})"
+            )
+
+
 class TestGameOver:
     def test_game_over_detection(self):
         game = Game()

@@ -233,6 +233,7 @@ class Hand:
         if len(active) == 1:
             # Everyone else folded
             winner = active[0]
+            winner.chips += self.pot
             self.winners_by_pot = [(self.pot, [winner.id])]
             self.phase = "complete"
         else:
@@ -363,6 +364,7 @@ class Hand:
         active = self.active_players
         if len(active) == 1:
             winner = active[0]
+            winner.chips += self.pot
             self.winners_by_pot = [(self.pot, [winner.id])]
             self.phase = "complete"
             self.current_turn_index = None

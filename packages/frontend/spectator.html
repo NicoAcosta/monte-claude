@@ -635,10 +635,16 @@
 (function () {
   'use strict';
 
-  /* ── Game ID from URL ───────────────────────────────── */
+  /* ── Game/Stream ID from URL ──────────────────────────── */
+  const streamIdMatch = window.location.pathname.match(/\/stream\/(\d+)/);
   const gameIdMatch = window.location.pathname.match(/\/game\/(\d+)/);
-  const GAME_ID = gameIdMatch ? gameIdMatch[1] : '1';
-  const BASE = '/game/' + GAME_ID;
+  var POLL_URL;
+  if (streamIdMatch) {
+    POLL_URL = '/stream/' + streamIdMatch[1] + '/data';
+  } else {
+    var GAME_ID = gameIdMatch ? gameIdMatch[1] : '1';
+    POLL_URL = '/game/' + GAME_ID + '/spectator';
+  }
 
   /* ── Constants ──────────────────────────────────────── */
   const POLL_INTERVAL = 2000;
@@ -1011,7 +1017,7 @@
   }
 
   function poll() {
-    fetch(BASE + '/spectator')
+    fetch(POLL_URL)
       .then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();

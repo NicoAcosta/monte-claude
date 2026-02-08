@@ -59,7 +59,7 @@ from poker.stream_manager import StreamManager
 
 app = FastAPI(title="Claude Poker", version="0.1.0")
 
-STATIC_DIR = Path(__file__).parent.parent.parent / "static"
+STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 event_store = GameEventStore(DATA_DIR / "events.csv")
@@ -736,7 +736,15 @@ def stream_commentate(stream_id: int, req: CommentateRequest, account: Account =
     return CommentateResponse(success=True)
 
 
-@app.get("/stream/{stream_id}", response_model=SpectatorResponse)
+@app.get("/stream/{stream_id}")
+def stream_page(stream_id: int):
+    stream = stream_manager.get_stream(stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    return FileResponse(STATIC_DIR / "spectator.html")
+
+
+@app.get("/stream/{stream_id}/data", response_model=SpectatorResponse)
 def stream_view(stream_id: int):
     stream = stream_manager.get_stream(stream_id)
     if stream is None:

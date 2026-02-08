@@ -26,17 +26,17 @@ make test      # Run test suite (uv run pytest -v)
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Server | `src/poker/server.py` | FastAPI endpoints, request/response wiring |
-| Game | `src/poker/game.py` | Game lifecycle, chat, timer, player management |
-| Hand | `src/poker/hand.py` | Single hand logic (betting rounds, actions, showdown) |
-| Models | `src/poker/models.py` | Pydantic request/response models |
-| Auth | `src/poker/auth.py` | API key authentication dependency |
-| Accounts | `src/poker/account_store.py` | Account registration and key storage |
-| History | `src/poker/history_store.py`, `game_recorder.py` | Event recording, hand summaries, player stats |
-| Evaluator | `src/poker/evaluator.py` | Hand ranking and comparison |
-| Deck | `src/poker/deck.py` | Card and deck types |
-| Escrow | `src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
-| Contracts | `contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
+| Server | `packages/server/src/poker/server.py` | FastAPI endpoints, request/response wiring |
+| Game | `packages/server/src/poker/game.py` | Game lifecycle, chat, timer, player management |
+| Hand | `packages/server/src/poker/hand.py` | Single hand logic (betting rounds, actions, showdown) |
+| Models | `packages/server/src/poker/models.py` | Pydantic request/response models |
+| Auth | `packages/server/src/poker/auth.py` | API key authentication dependency |
+| Accounts | `packages/server/src/poker/account_store.py` | Account registration and key storage |
+| History | `packages/server/src/poker/history_store.py`, `game_recorder.py` | Event recording, hand summaries, player stats |
+| Evaluator | `packages/server/src/poker/evaluator.py` | Hand ranking and comparison |
+| Deck | `packages/server/src/poker/deck.py` | Card and deck types |
+| Escrow | `packages/server/src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
+| Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
 
 ### On-Chain Escrow
 
@@ -47,7 +47,7 @@ The escrow system enables funded games with real ERC-20 token deposits on Base c
 **Contracts:**
 - `Escrow.sol` — Implementation behind minimal proxy (EIP-1167). Handles deposits, EIP-712 settlement, expiry, withdrawal.
 - `EscrowFactory.sol` — Deploys deterministic proxies via CREATE2. Batches deploy + first deposit atomically.
-- Tests: `contracts/test/` — Unit, fuzz, and Base fork E2E tests. Shared base at `BaseEscrowTest.sol`.
+- Tests: `packages/contracts/test/` — Unit, fuzz, and Base fork E2E tests. Shared base at `BaseEscrowTest.sol`.
 
 **Off-chain flow:**
 1. Server generates escrow config when game is full (`GET /game/{id}/escrow`)
@@ -71,13 +71,13 @@ The escrow system enables funded games with real ERC-20 token deposits on Base c
 
 **Foundry commands:**
 ```bash
-cd contracts && forge test -vvv                    # unit + fuzz tests
-cd contracts && forge test --fork-url <RPC> -vvv --match-contract E2E  # Base fork E2E
+cd packages/contracts && forge test -vvv                    # unit + fuzz tests
+cd packages/contracts && forge test --fork-url <RPC> -vvv --match-contract E2E  # Base fork E2E
 ```
 
 ### Testing
 
-Tests mirror source structure: `tests/test_hand.py`, `tests/test_game.py`, `tests/test_server.py`, `tests/test_escrow.py`, etc.
+Tests mirror source structure: `packages/server/tests/test_hand.py`, `test_game.py`, `test_server.py`, `test_escrow.py`, etc.
 
 - Module globals (`manager`, `account_store`) are swapped in test fixtures
 - Use `unittest.mock.patch("poker.game.time.time")` to control timer in tests
@@ -86,5 +86,5 @@ Tests mirror source structure: `tests/test_hand.py`, `tests/test_game.py`, `test
 
 ### Data
 
-- Account data in `data/accounts.csv` (gitignored)
-- Game events, hand summaries, player stats in `data/` CSV files
+- Account data in `packages/server/data/accounts.csv` (gitignored)
+- Game events, hand summaries, player stats in `packages/server/data/` CSV files

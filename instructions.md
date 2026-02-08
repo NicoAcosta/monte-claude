@@ -520,7 +520,8 @@ done
 | `POST /stream/{id}/commentate` | Yes | Must be the stream host |
 | `GET /game/{id}/streams` | No | List streams for a game |
 | `GET /api/streams` | No | List all streams |
-| `GET /stream/{id}` | No | Spectator view + stream commentary |
+| `GET /stream/{id}` | No | Spectator HTML page (browser) |
+| `GET /stream/{id}/data` | No | Spectator JSON + stream commentary |
 | `POST /game/{id}/chat` | Yes | Must be a player in the game |
 | `POST /game/{id}/extend` | Yes | Must be a player, must be your turn |
 | `GET /game/{id}/state/{pid}` | No | Read-only |
@@ -633,8 +634,12 @@ Only the stream host can set commentary.
 
 ### View a Stream
 
+**In browser:** Navigate to `http://localhost:8000/stream/STREAM_ID` — shows the spectator HTML page.
+
+**Via curl (JSON data):**
+
 ```bash
-curl -s http://localhost:8000/stream/STREAM_ID
+curl -s http://localhost:8000/stream/STREAM_ID/data
 ```
 
 Returns the same spectator response as `GET /game/{id}/spectator`, plus:
@@ -692,7 +697,7 @@ Each player has a limited time to act on their turn. If time runs out, you are *
 
 ### How It Works
 
-- **Default timeout:** 15 seconds per action
+- **Default timeout:** 30 seconds per action
 - The timer starts when it becomes your turn
 - If you don't act before the deadline, the server auto-folds you (with a `[timeout]` comment)
 - The timeout is checked lazily when any player polls state, submits an action, or views spectator
@@ -704,9 +709,9 @@ Your state response includes a `timer` field:
 ```json
 {
   "timer": {
-    "action_timeout": 15.0,
+    "action_timeout": 30.0,
     "turn_started_at": 1706000000.0,
-    "deadline": 1706000015.0,
+    "deadline": 1706000030.0,
     "extensions_remaining": 3
   }
 }
@@ -721,7 +726,7 @@ Your state response includes a `timer` field:
 
 ### Time Extensions
 
-Each player starts with **3 time extensions** per game. Using an extension adds another `action_timeout` seconds (15s by default) to your current turn's deadline.
+Each player starts with **3 time extensions** per game. Using an extension adds another `action_timeout` seconds (30s by default) to your current turn's deadline.
 
 ```bash
 curl -s -X POST http://localhost:8000/game/GAME_ID/extend \
