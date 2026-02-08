@@ -96,6 +96,7 @@ class EscrowConfig:
     __slots__ = (
         "token", "admin", "rake_beneficiary", "deposit_amount",
         "rake_bps", "funding_deadline", "settlement_deadline", "participants",
+        "_frozen",
     )
 
     def __init__(
@@ -109,16 +110,20 @@ class EscrowConfig:
         settlement_deadline: int,
         participants: tuple[str, ...],
     ) -> None:
-        self.token = Web3.to_checksum_address(token)
-        self.admin = Web3.to_checksum_address(admin)
-        self.rake_beneficiary = Web3.to_checksum_address(rake_beneficiary)
-        self.deposit_amount = deposit_amount
-        self.rake_bps = rake_bps
-        self.funding_deadline = funding_deadline
-        self.settlement_deadline = settlement_deadline
+        object.__setattr__(self, "token", Web3.to_checksum_address(token))
+        object.__setattr__(self, "admin", Web3.to_checksum_address(admin))
+        object.__setattr__(self, "rake_beneficiary", Web3.to_checksum_address(rake_beneficiary))
+        object.__setattr__(self, "deposit_amount", deposit_amount)
+        object.__setattr__(self, "rake_bps", rake_bps)
+        object.__setattr__(self, "funding_deadline", funding_deadline)
+        object.__setattr__(self, "settlement_deadline", settlement_deadline)
         # Contract requires participants sorted ascending by address
         checksummed = [Web3.to_checksum_address(p) for p in participants]
-        self.participants = tuple(sorted(checksummed, key=lambda a: int(a, 16)))
+        object.__setattr__(self, "participants", tuple(sorted(checksummed, key=lambda a: int(a, 16))))
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"EscrowConfig is immutable, cannot set '{name}'")
 
     def as_tuple(self) -> tuple:
         """For ABI encoding."""
@@ -156,32 +161,14 @@ def compute_escrow_address(
     """
     factory_addr = Web3.to_checksum_address(factory_address)
 
-    if rpc_url:
-        w3 = Web3(Web3.HTTPProvider(rpc_url))
-        factory = w3.eth.contract(address=factory_addr, abi=FACTORY_MINIMAL_ABI)
-        return factory.functions.getEscrowAddress(config.as_tuple(), salt).call()
+    if not rpc_url:
+        raise ValueError(
+            "rpc_url is required to compute escrow address (local computation not supported)"
+        )
 
-    # Local computation: match EscrowFactory._computeSalt
-    final_salt = Web3.solidity_keccak(
-        ["bytes"],
-        [abi_encode(
-            ["address", "address", "address", "uint256", "uint16", "uint256", "uint256", "bytes32", "bytes32"],
-            [
-                config.token,
-                config.admin,
-                config.rake_beneficiary,
-                config.deposit_amount,
-                config.rake_bps,
-                config.funding_deadline,
-                config.settlement_deadline,
-                Web3.solidity_keccak(["address[]"], [list(config.participants)]),
-                salt,
-            ],
-        )],
-    )
-    # Note: for full local CREATE2, we'd also need the implementation address
-    # and initCodeHash. Prefer the RPC call for accuracy.
-    return final_salt.hex()  # placeholder — use RPC in practice
+    w3 = Web3(Web3.HTTPProvider(rpc_url))
+    factory = w3.eth.contract(address=factory_addr, abi=FACTORY_MINIMAL_ABI)
+    return factory.functions.getEscrowAddress(config.as_tuple(), salt).call()
 
 
 # ── Calldata builders ─────────────────────────────────────

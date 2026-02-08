@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {EscrowFactory} from "../src/EscrowFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {BaseEscrowTest} from "./BaseEscrowTest.sol";
 
 /// @title E2E tests on Base fork with real USDC
 /// @dev Run with: forge test --fork-url <base_rpc> -vvv --match-contract E2E
-contract E2ETest is Test {
+contract E2ETest is BaseEscrowTest {
     // Base USDC
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     // A USDC whale on Base (Circle's address has lots of USDC)
@@ -29,17 +29,6 @@ contract E2ETest is Test {
 
     uint256 constant BUY_IN = 100e6; // 100 USDC (6 decimals)
     uint16 constant RAKE_BPS = 250;  // 2.5%
-
-    /// @dev Sort addresses ascending (contract requires sorted participants)
-    function _sorted2(address a, address b) internal pure returns (address[] memory) {
-        address[] memory arr = new address[](2);
-        if (uint160(a) < uint160(b)) {
-            arr[0] = a; arr[1] = b;
-        } else {
-            arr[0] = b; arr[1] = a;
-        }
-        return arr;
-    }
 
     function setUp() public {
         (admin, adminPk) = makeAddrAndKey("admin");
@@ -78,43 +67,6 @@ contract E2ETest is Test {
         });
     }
 
-    function _signSettlement(Escrow escrow, Escrow.Payout[] memory payouts)
-        internal
-        view
-        returns (bytes memory)
-    {
-        bytes32 domainSeparator = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("TimeBasedEscrow"),
-                keccak256("1"),
-                block.chainid,
-                address(escrow)
-            )
-        );
-
-        bytes32[] memory payoutHashes = new bytes32[](payouts.length);
-        for (uint256 i = 0; i < payouts.length; i++) {
-            payoutHashes[i] = keccak256(
-                abi.encode(
-                    keccak256("Payout(address recipient,uint256 amount)"),
-                    payouts[i].recipient,
-                    payouts[i].amount
-                )
-            );
-        }
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)"),
-                keccak256(abi.encodePacked(payoutHashes))
-            )
-        );
-
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminPk, digest);
-        return abi.encodePacked(r, s, v);
-    }
-
     // ══════════════════════════════════════════════════════════════════════
     // Happy path: full lifecycle
     // ══════════════════════════════════════════════════════════════════════
@@ -149,7 +101,7 @@ contract E2ETest is Test {
         payouts[0] = Escrow.Payout(player1, 150e6);
         payouts[1] = Escrow.Payout(player2, 50e6);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));

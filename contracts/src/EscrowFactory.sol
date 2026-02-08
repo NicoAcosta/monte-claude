@@ -11,6 +11,8 @@ import {Escrow} from "./Escrow.sol";
 contract EscrowFactory {
     address public immutable IMPLEMENTATION;
 
+    error DepositTransferMismatch(uint256 expected, uint256 actual);
+
     event EscrowCreated(address indexed escrow, bytes32 indexed salt);
 
     constructor(address implementation_) {
@@ -35,8 +37,13 @@ contract EscrowFactory {
 
         emit EscrowCreated(escrow, salt);
 
-        // Transfer tokens from caller to escrow and record deposit
+        // Transfer tokens from caller to escrow and verify received amount
+        uint256 balBefore = SafeTransferLib.balanceOf(config.token, escrow);
         SafeTransferLib.safeTransferFrom(config.token, msg.sender, escrow, config.depositAmount);
+        uint256 balAfter = SafeTransferLib.balanceOf(config.token, escrow);
+        if (balAfter - balBefore != config.depositAmount) {
+            revert DepositTransferMismatch(config.depositAmount, balAfter - balBefore);
+        }
         Escrow(escrow).recordDeposit(msg.sender);
     }
 

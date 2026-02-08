@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {EscrowFactory} from "../src/EscrowFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
-/// @dev Simple ERC20 for testing
-contract MockERC20 is ERC20 {
-    constructor() ERC20("Mock", "MCK") {}
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
-}
+import {BaseEscrowTest, MockERC20} from "./BaseEscrowTest.sol";
 
 /// @dev Token that returns false on transfer for blocklisted recipients
 contract FalseReturnToken is ERC20 {
@@ -25,7 +19,7 @@ contract FalseReturnToken is ERC20 {
     }
 }
 
-contract EscrowTest is Test {
+contract EscrowTest is BaseEscrowTest {
     MockERC20 token;
     Escrow impl;
     EscrowFactory factory;
@@ -81,27 +75,6 @@ contract EscrowTest is Test {
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    /// @dev Sort addresses ascending (contract requires sorted participants)
-    function _sorted2(address a, address b) internal pure returns (address[] memory) {
-        address[] memory arr = new address[](2);
-        if (uint160(a) < uint160(b)) {
-            arr[0] = a; arr[1] = b;
-        } else {
-            arr[0] = b; arr[1] = a;
-        }
-        return arr;
-    }
-
-    function _sorted3(address a, address b, address c) internal pure returns (address[] memory) {
-        address[] memory arr = new address[](3);
-        arr[0] = a; arr[1] = b; arr[2] = c;
-        // Bubble sort 3 elements
-        if (uint160(arr[0]) > uint160(arr[1])) (arr[0], arr[1]) = (arr[1], arr[0]);
-        if (uint160(arr[1]) > uint160(arr[2])) (arr[1], arr[2]) = (arr[2], arr[1]);
-        if (uint160(arr[0]) > uint160(arr[1])) (arr[0], arr[1]) = (arr[1], arr[0]);
-        return arr;
-    }
-
     function _defaultConfig() internal view returns (Escrow.Config memory) {
         return Escrow.Config({
             token: address(token),
@@ -136,43 +109,6 @@ contract EscrowTest is Test {
         vm.prank(firstParticipant);
         address addr = factory.createAndDeposit(cfg, bytes32(uint256(1)));
         escrow = Escrow(addr);
-    }
-
-    function _signSettlement(Escrow escrow, Escrow.Payout[] memory payouts)
-        internal
-        view
-        returns (bytes memory)
-    {
-        bytes32 domainSeparator = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("TimeBasedEscrow"),
-                keccak256("1"),
-                block.chainid,
-                address(escrow)
-            )
-        );
-
-        bytes32[] memory payoutHashes = new bytes32[](payouts.length);
-        for (uint256 i = 0; i < payouts.length; i++) {
-            payoutHashes[i] = keccak256(
-                abi.encode(
-                    keccak256("Payout(address recipient,uint256 amount)"),
-                    payouts[i].recipient,
-                    payouts[i].amount
-                )
-            );
-        }
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)"),
-                keccak256(abi.encodePacked(payoutHashes))
-            )
-        );
-
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminPk, digest);
-        return abi.encodePacked(r, s, v);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -374,7 +310,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
@@ -436,7 +372,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, DEPOSIT);
         payouts[1] = Escrow.Payout(player2, DEPOSIT + 1); // off by 1
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         vm.expectRevert(abi.encodeWithSelector(
             Escrow.PayoutSumMismatch.selector, DEPOSIT * 2, DEPOSIT * 2 + 1
         ));
@@ -455,7 +391,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(charlie, 0); // charlie is not a participant
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         vm.expectRevert(abi.encodeWithSelector(Escrow.NotParticipant.selector, charlie));
         escrow.settle(payouts, sig);
     }
@@ -473,7 +409,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance / 2);
         payouts[1] = Escrow.Payout(player2, balance / 2);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         uint256 expectedRakePerPlayer = (DEPOSIT * RAKE_BPS) / 10_000;
@@ -496,7 +432,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
@@ -511,7 +447,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, 0);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         vm.expectRevert(
             abi.encodeWithSelector(Escrow.InvalidStatus.selector, Escrow.Status.EXPIRED, Escrow.Status.ACTIVE)
         );
@@ -530,7 +466,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         // Second settle should fail
@@ -556,7 +492,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         vm.prank(player2);
@@ -613,7 +549,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         // player1's payout should be in failedClaims
@@ -717,7 +653,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, p1Share);
         payouts[1] = Escrow.Payout(player2, p2Share);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
@@ -753,7 +689,7 @@ contract EscrowTest is Test {
         payouts[0] = Escrow.Payout(player1, balance);
         payouts[1] = Escrow.Payout(player2, 0);
 
-        bytes memory sig = _signSettlement(escrow, payouts);
+        bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         escrow.settle(payouts, sig);
 
         uint256 expectedRake = (balance * bps) / 10_000;

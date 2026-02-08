@@ -272,33 +272,35 @@ def escrow_info(game_id: int):
     if not env["factory_address"]:
         raise HTTPException(status_code=500, detail="Factory address not configured")
 
-    import time as _time
+    # Generate escrow config on first call, cache on game for subsequent calls
+    if game.escrow_config is None:
+        import time as _time
 
-    # Generate escrow config on first call, cache on game
-    if game.escrow_salt is None:
-        game.escrow_salt = generate_salt()
+        if game.escrow_salt is None:
+            game.escrow_salt = generate_salt()
 
-    wallets = tuple(
-        p.wallet_address for p in game._players
-        if p.wallet_address is not None
-    )
+        wallets = tuple(
+            p.wallet_address for p in game._players
+            if p.wallet_address is not None
+        )
 
-    now = int(_time.time())
-    cfg = EscrowConfig(
-        token=game.token or "",
-        admin=server_addr,
-        rake_beneficiary=env["rake_beneficiary"] or server_addr,
-        deposit_amount=game.buy_in,
-        rake_bps=env["rake_bps"],
-        funding_deadline=now + env["funding_timeout"],
-        settlement_deadline=now + env["funding_timeout"] + env["settlement_timeout"],
-        participants=wallets,
-    )
+        now = int(_time.time())
+        cfg = EscrowConfig(
+            token=game.token or "",
+            admin=server_addr,
+            rake_beneficiary=env["rake_beneficiary"] or server_addr,
+            deposit_amount=game.buy_in,
+            rake_bps=env["rake_bps"],
+            funding_deadline=now + env["funding_timeout"],
+            settlement_deadline=now + env["funding_timeout"] + env["settlement_timeout"],
+            participants=wallets,
+        )
+        game.escrow_config = cfg
+        game.escrow_address = compute_escrow_address(
+            env["factory_address"], cfg, game.escrow_salt, rpc_url=env["base_rpc_url"],
+        )
 
-    escrow_addr = compute_escrow_address(
-        env["factory_address"], cfg, game.escrow_salt, rpc_url=env["base_rpc_url"],
-    )
-    game.escrow_address = escrow_addr
+    cfg = game.escrow_config
 
     calldata_create = build_create_and_deposit_calldata(cfg, game.escrow_salt)
     calldata_deposits = {
@@ -307,7 +309,7 @@ def escrow_info(game_id: int):
     }
 
     return EscrowInfoResponse(
-        escrow_address=escrow_addr,
+        escrow_address=game.escrow_address,
         factory_address=env["factory_address"],
         salt="0x" + game.escrow_salt.hex(),
         config=EscrowConfigResponse(

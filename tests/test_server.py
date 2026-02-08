@@ -1297,6 +1297,56 @@ class TestEscrowGameCreation:
         resp = client.post(f"/game/{gid}/start", headers=auth_header(key_a))
         assert resp.status_code == 200
 
+    def test_duplicate_wallet_rejected(self, client):
+        """Two players cannot join with the same wallet address."""
+        resp = client.post("/api/games", json={
+            "max_players": 3,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        wallet = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+
+        client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": wallet},
+            headers=auth_header(key_a),
+        )
+        resp = client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": wallet},
+            headers=auth_header(key_b),
+        )
+        assert resp.status_code == 400
+        assert "already registered" in resp.json()["detail"].lower()
+
+    def test_duplicate_wallet_case_insensitive(self, client):
+        """Wallet address duplicate check is case-insensitive."""
+        resp = client.post("/api/games", json={
+            "max_players": 3,
+            "token": "0xtoken",
+            "buy_in": 100,
+        })
+        gid = resp.json()["game_id"]
+
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+
+        client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"},
+            headers=auth_header(key_a),
+        )
+        resp = client.post(
+            f"/game/{gid}/join",
+            json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
+            headers=auth_header(key_b),
+        )
+        assert resp.status_code == 400
+
 
 class TestEscrowEndpoints:
     """Test escrow, funding, and settlement endpoints."""

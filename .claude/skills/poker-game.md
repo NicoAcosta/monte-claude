@@ -36,11 +36,21 @@ If the user doesn't specify, use these defaults (3 players):
 
 ### 3. Create a Game
 
+**Free game** (virtual chips only):
 ```bash
-curl -s -X POST http://localhost:8000/api/games
+curl -s -X POST http://localhost:8000/api/games \
+  -H "Content-Type: application/json" \
+  -d '{"max_players": 0, "buy_in": 0}'
 ```
 
-Save the `game_id` from the response.
+**Funded game** (on-chain token buy-in):
+```bash
+curl -s -X POST http://localhost:8000/api/games \
+  -H "Content-Type: application/json" \
+  -d '{"max_players": 4, "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "buy_in": 100000000}'
+```
+
+Save the `game_id` from the response. For funded games, also note `max_players`, `token`, and `buy_in`.
 
 ### 4. Register and Join All Players
 
@@ -53,14 +63,49 @@ RESPONSE=$(curl -s -X POST http://localhost:8000/api/register \
   -d '{"username": "PLAYER_NAME"}')
 API_KEY=$(echo "$RESPONSE" | jq -r .api_key)
 
-# Join the game
+# Join the game (free game — wallet_address is null)
 curl -s -X POST http://localhost:8000/game/GAME_ID/join \
-  -H "X-API-Key: $API_KEY"
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"wallet_address": null}'
+
+# For funded games — each player needs a unique wallet address:
+curl -s -X POST http://localhost:8000/game/GAME_ID/join \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"wallet_address": "0xPLAYER_WALLET"}'
 ```
 
 Save each player's `api_key` and `player_id`.
 
-### 5. Start the Game
+> **Funded games**: Each player must provide a unique wallet address. The same wallet cannot be used by two players.
+
+### 5. Fund the Escrow (Funded Games Only)
+
+Skip this step for free games (buy_in = 0).
+
+Once all seats are filled, get the escrow configuration:
+
+```bash
+curl -s http://localhost:8000/game/GAME_ID/escrow
+```
+
+This returns the escrow address, calldata for depositing, and deadlines. Each player must:
+
+1. **Approve** the token for the escrow/factory contract
+2. **Deposit** using the provided calldata (first depositor uses `calldata_create_and_deposit`, others use `calldata_deposit`)
+
+Poll funding status until all deposits are confirmed:
+
+```bash
+curl -s http://localhost:8000/game/GAME_ID/funding
+```
+
+The game cannot start until `all_deposited` is `true`. The server auto-checks when polled.
+
+> **Note**: On-chain transactions are performed by the players' wallets directly. The server never submits transactions — it only provides calldata and monitors deposit status via RPC.
+
+### 6. Start the Game
 
 Any registered player can start the game (requires their API key):
 
@@ -69,7 +114,9 @@ curl -s -X POST http://localhost:8000/game/GAME_ID/start \
   -H "X-API-Key: $API_KEY"
 ```
 
-### 6. Launch the Commentator Subagent
+For funded games, this will return an error if not all deposits have been confirmed yet.
+
+### 7. Launch the Commentator Subagent
 
 First, register a commentator account and create a stream on the game:
 
@@ -116,7 +163,7 @@ Then launch a background subagent with this prompt:
 > Poll loop: GET /stream/{STREAM_ID} -> analyze -> POST /stream/{STREAM_ID}/commentate -> sleep 5-8s -> repeat
 > Stop when game_over is true in the response.
 
-### 7. Launch Each Player Subagent
+### 8. Launch Each Player Subagent
 
 For each registered player, launch a background subagent with this prompt template:
 
@@ -155,7 +202,7 @@ For each registered player, launch a background subagent with this prompt templa
 >   -d '{"action": "call", "comment": "YOUR TRASH TALK", "reason": "Strategic reasoning here"}'
 > ```
 
-### 8. Monitor the Game
+### 9. Monitor the Game
 
 After launching all agents, periodically poll the spectator endpoint to track progress:
 
@@ -168,7 +215,19 @@ Report to the user:
 - When players go all-in or get eliminated
 - When the game ends and who won
 
-### 9. Report Results
+### 10. Settle On-Chain (Funded Games Only)
+
+Skip this step for free games.
+
+Once the game is over, get the settlement data:
+
+```bash
+curl -s http://localhost:8000/game/GAME_ID/settlement
+```
+
+This returns the EIP-712 signed payout distribution. Any player can submit the settlement transaction on-chain using the provided signature. The escrow contract deducts rake and distributes tokens to winners.
+
+### 11. Report Results
 
 When the game is over:
 1. Announce the winner

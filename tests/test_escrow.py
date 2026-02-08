@@ -6,10 +6,13 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from web3 import Web3
 
+import pytest
+
 from poker.escrow import (
     EscrowConfig,
     build_create_and_deposit_calldata,
     build_deposit_calldata,
+    compute_escrow_address,
     compute_payouts,
     generate_salt,
     sign_settlement,
@@ -191,10 +194,28 @@ class TestEscrowConfig:
         assert t[3] == 100_000_000
         assert isinstance(t[7], list)  # participants as list for ABI
 
+    def test_immutable(self):
+        config = _make_config()
+        with pytest.raises(AttributeError, match="immutable"):
+            config.token = "0x0000000000000000000000000000000000000000"
+
+    def test_participants_sorted(self):
+        config = _make_config()
+        addrs = list(config.participants)
+        assert addrs == sorted(addrs, key=lambda a: int(a, 16))
+
 
 # ══════════════════════════════════════════════════════════
 # generate_salt
 # ══════════════════════════════════════════════════════════
+
+class TestComputeEscrowAddress:
+    def test_raises_without_rpc_url(self):
+        config = _make_config()
+        salt = generate_salt()
+        with pytest.raises(ValueError, match="rpc_url is required"):
+            compute_escrow_address("0x" + "00" * 20, config, salt)
+
 
 class TestGenerateSalt:
     def test_correct_length(self):

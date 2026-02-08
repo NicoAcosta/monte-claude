@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from poker.hand import ActionRecord, Hand, PlayerInHand
 
@@ -58,6 +59,7 @@ class Game:
         self.funded = False
         self.escrow_salt: bytes | None = None
         self.escrow_address: str | None = None
+        self.escrow_config: Any | None = None  # cached EscrowConfig
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
@@ -147,6 +149,8 @@ class Game:
         for p in self._players:
             if p.name == name:
                 raise ValueError(f"Name '{name}' already taken")
+            if wallet_address and p.wallet_address and p.wallet_address.lower() == wallet_address.lower():
+                raise ValueError("Wallet address already registered in this game")
 
         player = RegisteredPlayer(id=self._next_id, name=name, wallet_address=wallet_address)
         self._next_id += 1

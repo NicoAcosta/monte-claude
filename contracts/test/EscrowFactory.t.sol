@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {EscrowFactory} from "../src/EscrowFactory.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {BaseEscrowTest, MockERC20} from "./BaseEscrowTest.sol";
 
-contract MockERC20 is ERC20 {
-    constructor() ERC20("Mock", "MCK") {}
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
-}
-
-contract EscrowFactoryTest is Test {
+contract EscrowFactoryTest is BaseEscrowTest {
     MockERC20 token;
     Escrow impl;
     EscrowFactory factory;
@@ -26,17 +20,6 @@ contract EscrowFactoryTest is Test {
     address player2;
 
     uint256 constant DEPOSIT = 100e6;
-
-    /// @dev Sort addresses ascending (contract requires sorted participants)
-    function _sorted2(address a, address b) internal pure returns (address[] memory) {
-        address[] memory arr = new address[](2);
-        if (uint160(a) < uint160(b)) {
-            arr[0] = a; arr[1] = b;
-        } else {
-            arr[0] = b; arr[1] = a;
-        }
-        return arr;
-    }
 
     function setUp() public {
         token = new MockERC20();

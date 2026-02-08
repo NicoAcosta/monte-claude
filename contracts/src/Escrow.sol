@@ -124,6 +124,9 @@ contract Escrow is ReentrancyGuard {
     /// @notice Called once by factory immediately after proxy deployment.
     function initialize(Config calldata cfg, address factory_) external {
         if (initialized) revert AlreadyInitialized();
+        if (cfg.token == address(0)) revert InvalidConfig();
+        if (cfg.admin == address(0)) revert InvalidConfig();
+        if (cfg.rakeBeneficiary == address(0)) revert InvalidConfig();
         if (cfg.participants.length == 0) revert InvalidConfig();
         if (cfg.fundingDeadline <= block.timestamp) revert InvalidConfig();
         if (cfg.settlementDeadline <= cfg.fundingDeadline) revert InvalidConfig();
