@@ -10,7 +10,7 @@ from poker.hand import ActionRecord, Hand, PlayerInHand
 STARTING_CHIPS = 1000
 SMALL_BLIND = 10
 BIG_BLIND = 20
-ACTION_TIMEOUT = 15.0
+ACTION_TIMEOUT = 30.0
 EXTENSIONS_PER_PLAYER = 3
 
 

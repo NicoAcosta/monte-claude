@@ -121,6 +121,30 @@ class TestFoldToWin:
         assert hand.winners_by_pot[0][0] == 30  # pot
         # BB wins
 
+    def test_fold_awards_pot_to_winner(self):
+        """Winner must receive the pot chips when everyone else folds."""
+        players = make_players(2, chips=1000)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        # Heads-up: dealer=SB=P1, BB=P2. SB acts first preflop.
+        total_before = sum(p.chips for p in players) + hand.pot
+        hand.do_action(hand.current_player.id, "fold")
+        assert hand.is_complete
+        total_after = sum(p.chips for p in players)
+        assert total_after == total_before, f"Chips leaked: {total_before} -> {total_after}"
+
+    def test_fold_chips_conserved_after_raise(self):
+        """Chips must be conserved when fold ends a hand after a raise."""
+        players = make_players(3, chips=500)
+        hand = Hand(players, dealer_index=0, deck_seed=1)
+        total_before = sum(p.chips for p in players) + hand.pot
+        # P1 raises, P2 folds, P3 folds → P1 wins
+        hand.do_action(hand.current_player.id, "raise", 60)
+        hand.do_action(hand.current_player.id, "fold")
+        hand.do_action(hand.current_player.id, "fold")
+        assert hand.is_complete
+        total_after = sum(p.chips for p in players)
+        assert total_after == total_before, f"Chips leaked: {total_before} -> {total_after}"
+
 
 class TestAllIn:
     def test_all_in(self):

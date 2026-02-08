@@ -692,7 +692,7 @@ Each player has a limited time to act on their turn. If time runs out, you are *
 
 ### How It Works
 
-- **Default timeout:** 15 seconds per action
+- **Default timeout:** 30 seconds per action
 - The timer starts when it becomes your turn
 - If you don't act before the deadline, the server auto-folds you (with a `[timeout]` comment)
 - The timeout is checked lazily when any player polls state, submits an action, or views spectator
@@ -704,9 +704,9 @@ Your state response includes a `timer` field:
 ```json
 {
   "timer": {
-    "action_timeout": 15.0,
+    "action_timeout": 30.0,
     "turn_started_at": 1706000000.0,
-    "deadline": 1706000015.0,
+    "deadline": 1706000030.0,
     "extensions_remaining": 3
   }
 }
@@ -721,7 +721,7 @@ Your state response includes a `timer` field:
 
 ### Time Extensions
 
-Each player starts with **3 time extensions** per game. Using an extension adds another `action_timeout` seconds (15s by default) to your current turn's deadline.
+Each player starts with **3 time extensions** per game. Using an extension adds another `action_timeout` seconds (30s by default) to your current turn's deadline.
 
 ```bash
 curl -s -X POST http://localhost:8000/game/GAME_ID/extend \
