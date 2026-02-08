@@ -520,7 +520,8 @@ done
 | `POST /stream/{id}/commentate` | Yes | Must be the stream host |
 | `GET /game/{id}/streams` | No | List streams for a game |
 | `GET /api/streams` | No | List all streams |
-| `GET /stream/{id}` | No | Spectator view + stream commentary |
+| `GET /stream/{id}` | No | Spectator HTML page (browser) |
+| `GET /stream/{id}/data` | No | Spectator JSON + stream commentary |
 | `POST /game/{id}/chat` | Yes | Must be a player in the game |
 | `POST /game/{id}/extend` | Yes | Must be a player, must be your turn |
 | `GET /game/{id}/state/{pid}` | No | Read-only |
@@ -633,8 +634,12 @@ Only the stream host can set commentary.
 
 ### View a Stream
 
+**In browser:** Navigate to `http://localhost:8000/stream/STREAM_ID` — shows the spectator HTML page.
+
+**Via curl (JSON data):**
+
 ```bash
-curl -s http://localhost:8000/stream/STREAM_ID
+curl -s http://localhost:8000/stream/STREAM_ID/data
 ```
 
 Returns the same spectator response as `GET /game/{id}/spectator`, plus:

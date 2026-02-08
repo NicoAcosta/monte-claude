@@ -77,7 +77,7 @@ cd packages/contracts && forge test --fork-url <RPC> -vvv --match-contract E2E  
 
 ### Testing
 
-Tests mirror source structure: `packages/server/tests/test_hand.py`, `tests/test_game.py`, `tests/test_server.py`, `tests/test_escrow.py`, etc.
+Tests mirror source structure: `packages/server/tests/test_hand.py`, `test_game.py`, `test_server.py`, `test_escrow.py`, etc.
 
 - Module globals (`manager`, `account_store`) are swapped in test fixtures
 - Use `unittest.mock.patch("poker.game.time.time")` to control timer in tests
