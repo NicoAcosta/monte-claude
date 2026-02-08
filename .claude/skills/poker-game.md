@@ -18,7 +18,7 @@ Check if the server is already running on port 8000. If not, start it:
 curl -s http://localhost:8000/api/games > /dev/null 2>&1
 
 # If not running, start it in the background
-cd claude-poker && .venv/bin/uvicorn poker.server:app --host 0.0.0.0 --port 8000 &
+cd claude-poker/packages/server && .venv/bin/uvicorn poker.server:app --host 0.0.0.0 --port 8000 &
 ```
 
 Wait until the server responds before proceeding.

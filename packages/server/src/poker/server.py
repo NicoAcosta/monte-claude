@@ -59,7 +59,7 @@ from poker.stream_manager import StreamManager
 
 app = FastAPI(title="Claude Poker", version="0.1.0")
 
-STATIC_DIR = Path(__file__).parent.parent.parent / "static"
+STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 event_store = GameEventStore(DATA_DIR / "events.csv")

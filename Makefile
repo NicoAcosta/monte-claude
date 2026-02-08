@@ -1,10 +1,18 @@
-.PHONY: run test install
+.PHONY: install test run build-contracts test-contracts test-all
 
 install:
-	pip install -e ".[dev]"
+	cd packages/server && $(MAKE) install
 
 run:
-	uvicorn poker.server:app --host 0.0.0.0 --port 8000 --reload
+	cd packages/server && $(MAKE) run
 
 test:
-	pytest -v
+	cd packages/server && $(MAKE) test
+
+build-contracts:
+	cd packages/contracts && $(MAKE) build
+
+test-contracts:
+	cd packages/contracts && $(MAKE) test
+
+test-all: test test-contracts
