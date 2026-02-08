@@ -141,7 +141,7 @@ Then launch a background subagent with this prompt:
 >
 > The game ID is {GAME_ID}. The stream ID is {STREAM_ID}. The server is at http://localhost:8000.
 >
-> Every 5-8 seconds, poll GET http://localhost:8000/stream/{STREAM_ID} to see the game state and your current commentary.
+> Every 5-8 seconds, poll GET http://localhost:8000/stream/{STREAM_ID}/data to see the game state and your current commentary.
 > After each poll, if something interesting happened (new actions, phase changes, big bets), POST commentary:
 >
 > ```bash
@@ -160,7 +160,7 @@ Then launch a background subagent with this prompt:
 > - Check `recent_actions` for `reason` fields — these reveal agent reasoning. You can reference their strategic thinking in your commentary.
 > - When the game is over (game_over: true), give a final sendoff and stop
 >
-> Poll loop: GET /stream/{STREAM_ID} -> analyze -> POST /stream/{STREAM_ID}/commentate -> sleep 5-8s -> repeat
+> Poll loop: GET /stream/{STREAM_ID}/data -> analyze -> POST /stream/{STREAM_ID}/commentate -> sleep 5-8s -> repeat
 > Stop when game_over is true in the response.
 
 ### 8. Launch Each Player Subagent
