@@ -9,3 +9,4 @@ build/
 uv.lock
 packages/contracts/out/
 packages/contracts/cache/
+.game-session.json
