@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from poker.hand import ActionRecord, Hand, PlayerInHand
 
@@ -18,6 +19,7 @@ class RegisteredPlayer:
     id: int
     name: str
     chips: int = STARTING_CHIPS
+    wallet_address: str | None = None
 
 
 class Game:
@@ -26,6 +28,9 @@ class Game:
         event_callback: Callable[[str, dict], None] | None = None,
         action_timeout: float = ACTION_TIMEOUT,
         extensions_per_player: int = EXTENSIONS_PER_PLAYER,
+        max_players: int = 0,
+        token: str | None = None,
+        buy_in: int = 0,
     ) -> None:
         self._players: list[RegisteredPlayer] = []
         self._next_id = 1
@@ -47,6 +52,14 @@ class Game:
         self.extensions_per_player = extensions_per_player
         self._time_extensions: dict[int, int] = {}  # player_id → remaining
         self._extra_time: float = 0.0  # extensions used on current turn
+        # Escrow
+        self.max_players = max_players
+        self.token = token
+        self.buy_in = buy_in
+        self.funded = False
+        self.escrow_salt: bytes | None = None
+        self.escrow_address: str | None = None
+        self.escrow_config: Any | None = None  # cached EscrowConfig
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
@@ -120,16 +133,26 @@ class Game:
     def alive_players(self) -> list[RegisteredPlayer]:
         return [p for p in self._players if p.chips > 0]
 
-    def register(self, name: str) -> RegisteredPlayer:
+    @property
+    def is_full(self) -> bool:
+        return self.max_players > 0 and len(self._players) >= self.max_players
+
+    def register(self, name: str, wallet_address: str | None = None) -> RegisteredPlayer:
         if self.started:
             raise ValueError("Game already started")
         if not name.strip():
             raise ValueError("Name cannot be empty")
+        if self.is_full:
+            raise ValueError("Game is full")
+        if self.buy_in > 0 and not wallet_address:
+            raise ValueError("Wallet address required for funded games")
         for p in self._players:
             if p.name == name:
                 raise ValueError(f"Name '{name}' already taken")
+            if wallet_address and p.wallet_address and p.wallet_address.lower() == wallet_address.lower():
+                raise ValueError("Wallet address already registered in this game")
 
-        player = RegisteredPlayer(id=self._next_id, name=name)
+        player = RegisteredPlayer(id=self._next_id, name=name, wallet_address=wallet_address)
         self._next_id += 1
         self._players.append(player)
         return player
@@ -151,6 +174,8 @@ class Game:
             raise ValueError("Game already started")
         if len(self._players) < 2:
             raise ValueError("Need at least 2 players")
+        if self.buy_in > 0 and not self.funded:
+            raise ValueError("Deposits not confirmed")
 
         self.started = True
         for p in self._players:

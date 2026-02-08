@@ -21,23 +21,31 @@ from poker.models import (
     ChatResponse,
     CommentateRequest,
     CommentateResponse,
+    CreateGameRequest,
     CreateGameResponse,
     CreateStreamRequest,
     CreateStreamResponse,
+    DepositStatus,
+    EscrowConfigResponse,
+    EscrowInfoResponse,
     ExtendResponse,
+    FundingStatusResponse,
     GameEventResponse,
     GameHistoryResponse,
     GameListItem,
     GameListResponse,
     HandSummariesResponse,
     HandSummaryResponse,
+    JoinGameRequest,
     JoinGameResponse,
+    PayoutEntry,
     PlayerBrief,
     PlayerComment,
     PlayerPublicState,
     PlayerStateResponse,
     PlayerStatsResponse,
     RecentAction,
+    SettlementResponse,
     SidePotInfo,
     SpectatorPlayerState,
     SpectatorResponse,
@@ -152,6 +160,10 @@ def list_games():
                 game_over=s.game_over,
                 winner=s.winner,
                 hand_number=s.hand_number,
+                max_players=s.max_players,
+                token=s.token,
+                buy_in=s.buy_in,
+                funded=s.funded,
             )
             for s in summaries
         ]
@@ -159,9 +171,18 @@ def list_games():
 
 
 @app.post("/api/games", response_model=CreateGameResponse)
-def create_game():
-    game_id, _ = manager.create_game()
-    return CreateGameResponse(game_id=game_id)
+def create_game(req: CreateGameRequest):
+    game_id, game = manager.create_game(
+        max_players=req.max_players,
+        token=req.token,
+        buy_in=req.buy_in,
+    )
+    return CreateGameResponse(
+        game_id=game_id,
+        max_players=game.max_players,
+        token=game.token,
+        buy_in=game.buy_in,
+    )
 
 
 # ── Game-specific routes ─────────────────────────────────
@@ -173,10 +194,10 @@ def game_page(game_id: int):
 
 
 @app.post("/game/{game_id}/join", response_model=JoinGameResponse)
-def join_game(game_id: int, account: Account = Depends(require_auth)):
+def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
     try:
-        p = game.register(account.username)
+        p = game.register(account.username, wallet_address=req.wallet_address)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -222,6 +243,161 @@ def start(game_id: int, account: Account = Depends(require_auth)):
         })
 
     return StartResponse(message="Game started", hand_number=hand_num)
+
+
+# ── Escrow routes ────────────────────────────────────────
+
+@app.get("/game/{game_id}/escrow", response_model=EscrowInfoResponse)
+def escrow_info(game_id: int):
+    game = _get_game_or_404(game_id)
+    if game.buy_in <= 0:
+        raise HTTPException(status_code=400, detail="Not a funded game")
+    if not game.is_full:
+        raise HTTPException(status_code=400, detail="Game is not full yet")
+
+    from poker.escrow import (
+        EscrowConfig,
+        build_create_and_deposit_calldata,
+        build_deposit_calldata,
+        compute_escrow_address,
+        generate_salt,
+        get_env_config,
+        get_server_address,
+    )
+
+    env = get_env_config()
+    server_addr = get_server_address()
+    if not server_addr:
+        raise HTTPException(status_code=500, detail="Server private key not configured")
+    if not env["factory_address"]:
+        raise HTTPException(status_code=500, detail="Factory address not configured")
+
+    # Generate escrow config on first call, cache on game for subsequent calls
+    if game.escrow_config is None:
+        import time as _time
+
+        if game.escrow_salt is None:
+            game.escrow_salt = generate_salt()
+
+        wallets = tuple(
+            p.wallet_address for p in game._players
+            if p.wallet_address is not None
+        )
+
+        now = int(_time.time())
+        cfg = EscrowConfig(
+            token=game.token or "",
+            admin=server_addr,
+            rake_beneficiary=env["rake_beneficiary"] or server_addr,
+            deposit_amount=game.buy_in,
+            rake_bps=env["rake_bps"],
+            funding_deadline=now + env["funding_timeout"],
+            settlement_deadline=now + env["funding_timeout"] + env["settlement_timeout"],
+            participants=wallets,
+        )
+        game.escrow_config = cfg
+        game.escrow_address = compute_escrow_address(
+            env["factory_address"], cfg, game.escrow_salt, rpc_url=env["base_rpc_url"],
+        )
+
+    cfg = game.escrow_config
+
+    calldata_create = build_create_and_deposit_calldata(cfg, game.escrow_salt)
+    calldata_deposits = {
+        addr: build_deposit_calldata(addr)
+        for addr in cfg.participants
+    }
+
+    return EscrowInfoResponse(
+        escrow_address=game.escrow_address,
+        factory_address=env["factory_address"],
+        salt="0x" + game.escrow_salt.hex(),
+        config=EscrowConfigResponse(
+            token=cfg.token,
+            admin=cfg.admin,
+            rake_beneficiary=cfg.rake_beneficiary,
+            deposit_amount=cfg.deposit_amount,
+            rake_bps=cfg.rake_bps,
+            funding_deadline=cfg.funding_deadline,
+            settlement_deadline=cfg.settlement_deadline,
+            participants=list(cfg.participants),
+        ),
+        calldata_create_and_deposit=calldata_create,
+        calldata_deposit=calldata_deposits,
+        funding_deadline=cfg.funding_deadline,
+        settlement_deadline=cfg.settlement_deadline,
+    )
+
+
+@app.get("/game/{game_id}/funding", response_model=FundingStatusResponse)
+def funding_status(game_id: int):
+    game = _get_game_or_404(game_id)
+    if game.buy_in <= 0:
+        raise HTTPException(status_code=400, detail="Not a funded game")
+    if game.escrow_address is None:
+        raise HTTPException(status_code=400, detail="Escrow not yet configured (call /escrow first)")
+
+    from poker.escrow import check_deposit_status, get_env_config
+
+    env = get_env_config()
+    wallets = tuple(
+        p.wallet_address for p in game._players
+        if p.wallet_address is not None
+    )
+
+    statuses = check_deposit_status(env["base_rpc_url"], game.escrow_address, wallets)
+    all_deposited = all(deposited for _, deposited in statuses)
+
+    if all_deposited:
+        game.funded = True
+
+    return FundingStatusResponse(
+        all_deposited=all_deposited,
+        deposits=[
+            DepositStatus(address=addr, deposited=deposited)
+            for addr, deposited in statuses
+        ],
+    )
+
+
+@app.get("/game/{game_id}/settlement", response_model=SettlementResponse)
+def settlement(game_id: int):
+    game = _get_game_or_404(game_id)
+    if game.buy_in <= 0:
+        raise HTTPException(status_code=400, detail="Not a funded game")
+    if not game.game_over:
+        raise HTTPException(status_code=400, detail="Game is not over yet")
+    if game.escrow_address is None:
+        raise HTTPException(status_code=400, detail="Escrow not configured")
+
+    from poker.escrow import compute_payouts, get_env_config, sign_settlement
+
+    env = get_env_config()
+    if not env["server_private_key"]:
+        raise HTTPException(status_code=500, detail="Server private key not configured")
+
+    # Map player names → wallet addresses and chip counts
+    player_chips: dict[str, int] = {}
+    for p in game._players:
+        if p.wallet_address:
+            player_chips[p.wallet_address] = p.chips
+
+    from poker.game import STARTING_CHIPS
+
+    payouts = compute_payouts(player_chips, game.buy_in, STARTING_CHIPS)
+
+    sig = sign_settlement(
+        env["server_private_key"],
+        env["chain_id"],
+        game.escrow_address,
+        payouts,
+    )
+
+    return SettlementResponse(
+        payouts=[PayoutEntry(address=addr, amount=amt) for addr, amt in payouts],
+        signature=sig,
+        escrow_address=game.escrow_address,
+    )
 
 
 @app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)

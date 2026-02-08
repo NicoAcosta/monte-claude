@@ -12,6 +12,16 @@ class AccountRegisterResponse(BaseModel):
     username: str
 
 
+class CreateGameRequest(BaseModel):
+    max_players: int = 0
+    token: str | None = None
+    buy_in: int = 0
+
+
+class JoinGameRequest(BaseModel):
+    wallet_address: str | None = None
+
+
 class JoinGameResponse(BaseModel):
     player_id: int
     name: str
@@ -174,6 +184,9 @@ class ErrorResponse(BaseModel):
 
 class CreateGameResponse(BaseModel):
     game_id: int
+    max_players: int
+    token: str | None
+    buy_in: int
 
 
 class GameListItem(BaseModel):
@@ -184,6 +197,10 @@ class GameListItem(BaseModel):
     game_over: bool
     winner: str | None
     hand_number: int
+    max_players: int = 0
+    token: str | None = None
+    buy_in: int = 0
+    funded: bool = False
 
 
 class GameListResponse(BaseModel):
@@ -250,3 +267,48 @@ class StreamListItem(BaseModel):
 
 class StreamListResponse(BaseModel):
     streams: list[StreamListItem]
+
+
+# ── Escrow models ──────────────────────────────────────
+
+class DepositStatus(BaseModel):
+    address: str
+    deposited: bool
+
+
+class EscrowConfigResponse(BaseModel):
+    token: str
+    admin: str
+    rake_beneficiary: str
+    deposit_amount: int
+    rake_bps: int
+    funding_deadline: int
+    settlement_deadline: int
+    participants: list[str]
+
+
+class EscrowInfoResponse(BaseModel):
+    escrow_address: str
+    factory_address: str
+    salt: str
+    config: EscrowConfigResponse
+    calldata_create_and_deposit: str
+    calldata_deposit: dict[str, str]
+    funding_deadline: int
+    settlement_deadline: int
+
+
+class FundingStatusResponse(BaseModel):
+    all_deposited: bool
+    deposits: list[DepositStatus]
+
+
+class PayoutEntry(BaseModel):
+    address: str
+    amount: int
+
+
+class SettlementResponse(BaseModel):
+    payouts: list[PayoutEntry]
+    signature: str
+    escrow_address: str
