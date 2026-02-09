@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -10,3 +11,4 @@ class Stream:
     host_username: str
     title: str
     commentary_text: str | None = None
+    created_at: float = field(default_factory=time.time)

@@ -60,6 +60,7 @@ class PlayerPublicState(BaseModel):
     is_folded: bool
     is_all_in: bool
     is_resigned: bool = False
+    extensions_remaining: int = 0
 
 
 class RecentAction(BaseModel):
@@ -173,6 +174,7 @@ class SpectatorResponse(BaseModel):
     stream_id: int | None = None
     stream_title: str | None = None
     stream_host: str | None = None
+    stream_created_at: float | None = None
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
     buy_in: int = 0

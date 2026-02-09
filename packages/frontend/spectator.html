@@ -622,6 +622,7 @@
     <div class="header-meta">
       <span id="hand-info"></span>
       <span id="phase-info"></span>
+      <span class="hidden" id="stream-duration-wrap">Live: <span id="stream-duration">0:00</span></span>
       <span><span class="conn-dot loading" id="conn-dot"></span><span id="conn-text">Connecting</span></span>
       <button class="audio-toggle" id="audio-toggle" title="Toggle audio commentary">Sound: OFF</button>
     </div>
@@ -771,6 +772,8 @@
   const $winnerSub       = document.getElementById('winner-sub');
   const $commentaryBanner = document.getElementById('commentary-banner');
   const $commentaryText   = document.getElementById('commentary-text');
+  const $streamDurationWrap = document.getElementById('stream-duration-wrap');
+  const $streamDuration   = document.getElementById('stream-duration');
 
   /* ── State ──────────────────────────────────────────── */
   let lastHandNumber = null;
@@ -780,6 +783,10 @@
   let timerInterval = null;
   let currentDeadline = null;
   let currentTurnId = null;
+
+  /* Stream duration state */
+  let streamCreatedAt = null;
+  let streamDurationInterval = null;
 
   /* Funding poll state */
   let fundingInterval = null;
@@ -900,6 +907,11 @@
 
     /* Re-render funding data if available */
     if (lastFundingData) renderFundingStatus();
+
+    /* Stream duration (also visible while waiting) */
+    if (state.stream_created_at) {
+      startStreamDuration(state.stream_created_at);
+    }
   }
 
   /* ── Render: Active Game ────────────────────────────── */
@@ -919,6 +931,11 @@
       speakCommentary(state.commentary_text);
     } else {
       $commentaryBanner.classList.add('hidden');
+    }
+
+    /* Stream duration */
+    if (state.stream_created_at) {
+      startStreamDuration(state.stream_created_at);
     }
 
     /* Community cards */
@@ -992,6 +1009,28 @@
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     currentDeadline = null;
     currentTurnId = null;
+  }
+
+  /* ── Stream Duration ──────────────────────────────── */
+  function updateStreamDuration() {
+    if (streamCreatedAt == null) return;
+    var elapsed = Math.floor(Date.now() / 1000 - streamCreatedAt);
+    if (elapsed < 0) elapsed = 0;
+    var hrs = Math.floor(elapsed / 3600);
+    var mins = Math.floor((elapsed % 3600) / 60);
+    var secs = elapsed % 60;
+    $streamDuration.textContent = hrs > 0
+      ? hrs + ':' + (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs
+      : mins + ':' + (secs < 10 ? '0' : '') + secs;
+  }
+
+  function startStreamDuration(createdAt) {
+    if (streamCreatedAt === createdAt) return;
+    streamCreatedAt = createdAt;
+    $streamDurationWrap.classList.remove('hidden');
+    if (streamDurationInterval) clearInterval(streamDurationInterval);
+    streamDurationInterval = setInterval(updateStreamDuration, 1000);
+    updateStreamDuration();
   }
 
   /* ── Render: Players Around Table ───────────────────── */

@@ -553,6 +553,7 @@ def state(game_id: int, player_id: int):
                 is_folded=p.is_folded,
                 is_all_in=p.is_all_in,
                 is_resigned=getattr(game.get_player(p.id), 'resigned', False),
+                extensions_remaining=game.get_extensions_remaining(p.id),
             )
             for p in hand.players
         ],
@@ -871,6 +872,7 @@ def stream_view(stream_id: int):
         stream_id=stream.id,
         stream_title=stream.title,
         stream_host=stream.host_username,
+        stream_created_at=stream.created_at,
     )
 
 
