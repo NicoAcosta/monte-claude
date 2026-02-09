@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from poker.formatting import format_buy_in
+from core.formatting import format_buy_in
 
 
 @dataclass

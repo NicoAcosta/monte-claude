@@ -2,8 +2,8 @@
 
 import pytest
 
-from poker.db import get_pool
-from poker.stream_store import StreamStore
+from core.db import get_pool
+from core.stream_store import StreamStore
 
 
 class TestStreamStore:

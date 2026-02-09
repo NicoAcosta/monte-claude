@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from poker.game import Game
-from poker.game_config import GameConfig
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_recorder import GameRecorder
+from core.game_config import GameConfig
+from core.game_metadata_store import GameMetadataStore
+from core.game_protocol import GameProtocol
+from core.game_recorder import GameRecorder
+
+GameFactory = Callable[..., GameProtocol]
 
 
 @dataclass(frozen=True)
@@ -25,33 +27,76 @@ class GameSummary:
     token_symbol: str | None = None
     funded: bool = False
     mode: str | None = None
+    game_type: str = "poker"
 
 
 class GameManager:
     def __init__(
         self,
-        recorder_factory: Callable[[int], GameRecorder] | None = None,
+        recorder_factory: Callable[[int, str], GameRecorder] | None = None,
         metadata_store: GameMetadataStore | None = None,
     ) -> None:
-        self._games: dict[int, Game] = {}
+        self._games: dict[int, GameProtocol] = {}
         self._configs: dict[int, GameConfig] = {}
         self._recorders: dict[int, GameRecorder] = {}
+        self._game_types: dict[int, str] = {}
+        self._factories: dict[str, GameFactory] = {}
+        self._enabled_types: set[str] = set()
         self._next_id = 1
         self._recorder_factory = recorder_factory
         self._metadata_store = metadata_store
 
+    def register_game_type(self, game_type: str, factory: GameFactory) -> None:
+        """Register a factory for a game type (e.g. 'poker', 'dice').
+
+        Automatically enables the game type for new game creation.
+        """
+        self._factories[game_type] = factory
+        self._enabled_types.add(game_type)
+
+    def enable_game_type(self, game_type: str) -> None:
+        """Enable creation of new games for the given type.
+
+        Raises ValueError if the game type has not been registered.
+        """
+        if game_type not in self._factories:
+            raise ValueError(f"Unknown game type: {game_type!r}")
+        self._enabled_types.add(game_type)
+
+    def disable_game_type(self, game_type: str) -> None:
+        """Disable creation of new games for the given type.
+
+        Existing games of this type continue running until completion.
+        """
+        self._enabled_types.discard(game_type)
+
+    def is_game_type_enabled(self, game_type: str) -> bool:
+        return game_type in self._enabled_types
+
+    @property
+    def enabled_game_types(self) -> frozenset[str]:
+        return frozenset(self._enabled_types)
+
     def create_game(
         self,
+        game_type: str = "poker",
         max_players: int = 0,
         token: str | None = None,
         buy_in: int = 0,
         token_decimals: int = 0,
         token_symbol: str | None = None,
         mode: str | None = None,
-        on_game_over: Callable[[Game, GameConfig], None] | None = None,
+        on_game_over: Callable[[GameProtocol, GameConfig], None] | None = None,
         action_timeout: float | None = None,
         extensions_per_player: int | None = None,
-    ) -> tuple[int, Game, GameConfig]:
+    ) -> tuple[int, GameProtocol, GameConfig]:
+        if game_type not in self._enabled_types:
+            if game_type in self._factories:
+                raise ValueError(f"Game type {game_type!r} is currently disabled")
+            raise ValueError(f"Unknown game type: {game_type!r}")
+
+        factory = self._factories[game_type]
+
         game_id = self._next_id
         self._next_id += 1
 
@@ -66,7 +111,7 @@ class GameManager:
 
         recorder: GameRecorder | None = None
         if self._recorder_factory:
-            recorder = self._recorder_factory(game_id)
+            recorder = self._recorder_factory(game_id, game_type)
             self._recorders[game_id] = recorder
 
         meta = self._metadata_store
@@ -91,10 +136,11 @@ class GameManager:
             kwargs["action_timeout"] = action_timeout
         if extensions_per_player is not None:
             kwargs["extensions_per_player"] = extensions_per_player
-        game = Game(**kwargs)
+        game = factory(**kwargs)
 
         self._games[game_id] = game
         self._configs[game_id] = config
+        self._game_types[game_id] = game_type
 
         if meta:
             meta.create(
@@ -107,6 +153,7 @@ class GameManager:
                 token_symbol=config.token_symbol,
                 action_timeout=action_timeout,
                 extensions_per_player=extensions_per_player,
+                game_type=game_type,
             )
 
         return game_id, game, config
@@ -114,8 +161,11 @@ class GameManager:
     def get_recorder(self, game_id: int) -> GameRecorder | None:
         return self._recorders.get(game_id)
 
-    def get_game(self, game_id: int) -> Game | None:
+    def get_game(self, game_id: int) -> GameProtocol | None:
         return self._games.get(game_id)
+
+    def get_game_type(self, game_id: int) -> str | None:
+        return self._game_types.get(game_id)
 
     def get_config(self, game_id: int) -> GameConfig | None:
         return self._configs.get(game_id)
@@ -132,6 +182,7 @@ class GameManager:
             del self._games[gid]
             self._configs.pop(gid, None)
             self._recorders.pop(gid, None)
+            self._game_types.pop(gid, None)
         return len(to_remove)
 
     def list_games(self) -> list[GameSummary]:
@@ -139,7 +190,7 @@ class GameManager:
             GameSummary(
                 id=gid,
                 player_count=game.player_count,
-                player_names=tuple(p.name for p in game._players),
+                player_names=tuple(p.name for p in game.players),
                 started=game.started,
                 game_over=game.game_over,
                 winner=game.winner,
@@ -151,6 +202,7 @@ class GameManager:
                 token_symbol=self._configs[gid].token_symbol,
                 funded=self._configs[gid].funded,
                 mode=self._configs[gid].mode,
+                game_type=self._game_types.get(gid, "poker"),
             )
             for gid, game in self._games.items()
         ]

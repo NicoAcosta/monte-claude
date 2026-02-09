@@ -4,28 +4,21 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+
+from core.game_protocol import (
+    STARTING_CHIPS,
+    ACTION_TIMEOUT,
+    EXTENSIONS_PER_PLAYER,
+    RegisteredPlayer,
+)
+from poker.hand import ActionRecord, Hand, PlayerInHand
 
 _log = logging.getLogger("poker.game")
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
-from poker.hand import ActionRecord, Hand, PlayerInHand
-
-STARTING_CHIPS = 1000
 SMALL_BLIND = 10
 BIG_BLIND = 20
-ACTION_TIMEOUT = 30.0
-EXTENSIONS_PER_PLAYER = 3
-
-
-@dataclass
-class RegisteredPlayer:
-    id: int
-    name: str
-    chips: int = STARTING_CHIPS
-    wallet_address: str | None = None
-    resigned: bool = False
 
 
 class Game:
@@ -135,6 +128,18 @@ class Game:
     @property
     def alive_players(self) -> list[RegisteredPlayer]:
         return [p for p in self._players if p.chips > 0 and not p.resigned]
+
+    @property
+    def players(self) -> list[RegisteredPlayer]:
+        return list(self._players)
+
+    @property
+    def game_type(self) -> str:
+        return "poker"
+
+    @property
+    def starting_chips(self) -> int:
+        return STARTING_CHIPS
 
     def register(self, name: str, wallet_address: str | None = None) -> RegisteredPlayer:
         """Register a player. Callers must check capacity and mode requirements."""

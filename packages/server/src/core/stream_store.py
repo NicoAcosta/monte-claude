@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
 
-from poker.stream import Stream
+from core.stream import Stream
 
 
 @dataclass(frozen=True)

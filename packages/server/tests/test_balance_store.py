@@ -1,8 +1,8 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from poker.balance_store import BalanceStore, FAUCET_COOLDOWN_SECONDS
-from poker.db import get_pool
+from core.balance_store import BalanceStore, FAUCET_COOLDOWN_SECONDS
+from core.db import get_pool
 
 
 @pytest.fixture

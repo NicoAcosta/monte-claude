@@ -3,24 +3,38 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from poker.balance_store import BalanceStore
-from poker.game import Game, RegisteredPlayer
-from poker.game_config import GameConfig
-from poker.game_manager import GameManager
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_mode import GameMode
-from poker.game_recorder import GameRecorder
+from core.balance_store import BalanceStore
+from core.game_protocol import GameProtocol, RegisteredPlayer
+from core.game_config import GameConfig
+from core.game_manager import GameManager
+from core.game_metadata_store import GameMetadataStore
+from core.game_mode import GameMode
+from core.game_recorder import GameRecorder
+
+if TYPE_CHECKING:
+    pass
+
+# Allowed modes per game type.  Validated in infer_mode().
+GAME_ALLOWED_MODES: dict[str, frozenset[str]] = {
+    "poker": frozenset({GameMode.OFFCHAIN, GameMode.ONCHAIN}),
+    "dice": frozenset({GameMode.OFFCHAIN}),
+}
 
 
-def infer_mode(mode: str | None, token: str | None) -> str:
+def infer_mode(mode: str | None, token: str | None, game_type: str = "poker") -> str:
     """Infer game mode from request params.
 
-    Raises ValueError if onchain mode requested without token.
+    Raises ValueError if onchain mode requested without token or if mode
+    is not allowed for the game type.
     """
     if mode is not None:
         if mode == GameMode.ONCHAIN and not token:
             raise ValueError("On-chain mode requires a token address")
+        allowed = GAME_ALLOWED_MODES.get(game_type, frozenset({GameMode.OFFCHAIN}))
+        if mode not in allowed:
+            raise ValueError(f"Mode '{mode}' is not supported for {game_type} games")
         return mode
     return GameMode.ONCHAIN if token else GameMode.OFFCHAIN
 
@@ -31,14 +45,16 @@ def create_game(
     token: str | None,
     buy_in: int,
     mode: str,
+    game_type: str = "poker",
     token_decimals: int = 0,
     token_symbol: str | None = None,
-    on_game_over: Callable[[Game, GameConfig], None] | None = None,
+    on_game_over: Callable[[GameProtocol, GameConfig], None] | None = None,
     action_timeout: float | None = None,
     extensions_per_player: int | None = None,
-) -> tuple[int, Game, GameConfig]:
+) -> tuple[int, GameProtocol, GameConfig]:
     """Create a game via the manager."""
     return manager.create_game(
+        game_type=game_type,
         max_players=max_players,
         token=token,
         buy_in=buy_in,
@@ -52,7 +68,7 @@ def create_game(
 
 
 def join_game(
-    game: Game,
+    game: GameProtocol,
     config: GameConfig,
     username: str,
     wallet_address: str | None,
@@ -99,7 +115,7 @@ def join_game(
 
 
 def start_game(
-    game: Game,
+    game: GameProtocol,
     config: GameConfig,
     recorder: GameRecorder | None,
     metadata_store: GameMetadataStore | None = None,
@@ -123,7 +139,7 @@ def start_game(
     if recorder:
         recorder.on_event("game_started", {
             "player_count": game.player_count,
-            "player_names": [p.name for p in game._players],
+            "player_names": [p.name for p in game.players],
         })
 
     if metadata_store and game_id:

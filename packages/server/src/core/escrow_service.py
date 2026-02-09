@@ -8,7 +8,7 @@ from typing import Any
 
 _log = logging.getLogger("poker.escrow")
 
-from poker.escrow import (
+from core.escrow import (
     EscrowConfig,
     build_create_and_deposit_calldata,
     build_deposit_calldata,
@@ -19,14 +19,14 @@ from poker.escrow import (
     get_server_address,
     sign_settlement,
 )
-from poker.audit import EscrowAuditStore
-from poker.game import Game, STARTING_CHIPS
-from poker.game_config import GameConfig
-from poker.payout import compute_payouts
+from core.audit import EscrowAuditStore
+from core.game_protocol import GameProtocol
+from core.game_config import GameConfig
+from core.payout import compute_payouts
 
 
 def get_escrow_info(
-    game: Game,
+    game: GameProtocol,
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
@@ -54,7 +54,7 @@ def get_escrow_info(
             config.escrow_salt = generate_salt()
 
         wallets = tuple(
-            p.wallet_address for p in game._players
+            p.wallet_address for p in game.players
             if p.wallet_address is not None
         )
 
@@ -98,7 +98,7 @@ def get_escrow_info(
 
 
 def check_funding(
-    game: Game,
+    game: GameProtocol,
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
@@ -116,7 +116,7 @@ def check_funding(
 
     env = get_env_config()
     wallets = tuple(
-        p.wallet_address for p in game._players
+        p.wallet_address for p in game.players
         if p.wallet_address is not None
     )
 
@@ -131,7 +131,7 @@ def check_funding(
         config.funded = True
 
     wallet_to_name: dict[str, str] = {}
-    for p in game._players:
+    for p in game.players:
         if p.wallet_address:
             wallet_to_name[p.wallet_address.lower()] = p.name
 
@@ -143,7 +143,7 @@ def check_funding(
 
 
 def get_settlement(
-    game: Game,
+    game: GameProtocol,
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
@@ -165,11 +165,11 @@ def get_settlement(
         raise RuntimeError("Server private key not configured")
 
     player_chips: dict[str, int] = {}
-    for p in game._players:
+    for p in game.players:
         if p.wallet_address:
             player_chips[p.wallet_address] = p.chips
 
-    payouts = compute_payouts(player_chips, config.buy_in, STARTING_CHIPS)
+    payouts = compute_payouts(player_chips, config.buy_in, game.starting_chips)
 
     sig = sign_settlement(
         env["server_private_key"],

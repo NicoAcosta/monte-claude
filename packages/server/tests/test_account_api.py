@@ -4,10 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import account_api.app as account_module
-from poker.account_store import AccountStore
-from poker.audit import AuthAuditStore
-from poker.balance_store import BalanceStore
-from poker.db import get_pool
+from core.account_store import AccountStore
+from core.audit import AuthAuditStore
+from core.balance_store import BalanceStore
+from core.db import get_pool
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +60,7 @@ class TestRegistration:
 
     def test_register_rate_limit(self, client):
         """Temporarily tighten the limiter to verify rate limiting works."""
-        from poker.rate_limit import RateLimitConfig, RateLimiter
+        from core.rate_limit import RateLimitConfig, RateLimiter
         original = account_module._register_limiter
         account_module._register_limiter = RateLimiter(RateLimitConfig(max_requests=2, window_seconds=3600))
         try:

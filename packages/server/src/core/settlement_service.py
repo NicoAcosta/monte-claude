@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from poker.balance_store import BalanceStore
-from poker.game import Game, STARTING_CHIPS
-from poker.game_config import GameConfig
-from poker.game_mode import GameMode
-from poker.payout import compute_payouts
+from core.balance_store import BalanceStore
+from core.game_protocol import GameProtocol
+from core.game_config import GameConfig
+from core.game_mode import GameMode
+from core.payout import compute_payouts
 
 
 def settle_offchain_game(
-    game: Game,
+    game: GameProtocol,
     config: GameConfig,
     balance_store: BalanceStore,
 ) -> None:
@@ -23,8 +23,8 @@ def settle_offchain_game(
     if config.offchain_settlement is not None:
         return
 
-    player_chips: dict[str, int] = {p.name: p.chips for p in game._players}
-    payouts = compute_payouts(player_chips, config.buy_in, STARTING_CHIPS)
+    player_chips: dict[str, int] = {p.name: p.chips for p in game.players}
+    payouts = compute_payouts(player_chips, config.buy_in, game.starting_chips)
 
     for username, amount in payouts:
         if amount > 0:

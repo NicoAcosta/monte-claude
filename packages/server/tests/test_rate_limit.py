@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from poker.rate_limit import RateLimitConfig, RateLimiter
+from core.rate_limit import RateLimitConfig, RateLimiter
 
 
 def _make_limiter(max_requests: int = 3, window_seconds: int = 60) -> RateLimiter:
@@ -33,13 +33,13 @@ class TestRateLimiter:
     def test_window_expiry(self):
         limiter = _make_limiter(max_requests=1, window_seconds=10)
         # First request at t=100
-        with patch("poker.rate_limit.time.monotonic", return_value=100.0):
+        with patch("core.rate_limit.time.monotonic", return_value=100.0):
             assert limiter.check("ip1") is True
         # Still blocked at t=105
-        with patch("poker.rate_limit.time.monotonic", return_value=105.0):
+        with patch("core.rate_limit.time.monotonic", return_value=105.0):
             assert limiter.check("ip1") is False
         # Allowed again at t=111 (past the 10s window)
-        with patch("poker.rate_limit.time.monotonic", return_value=111.0):
+        with patch("core.rate_limit.time.monotonic", return_value=111.0):
             assert limiter.check("ip1") is True
 
     def test_remaining_count(self):

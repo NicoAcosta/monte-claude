@@ -723,6 +723,53 @@
 
   /* ── Utilities ────────────────────────────────────────── */
   .hidden { display: none !important; }
+
+  /* ── Dice-specific ─────────────────────────────────────── */
+  .dice-display {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+  .dice-face {
+    font-size: 48px;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.3));
+  }
+  .dice-waiting { opacity: 0.3; }
+  .dice-result {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+  }
+  .dice-total {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .dice-category {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .dice-cat-high { background: #27ae60; color: #fff; }
+  .dice-cat-low { background: #2980b9; color: #fff; }
+  .dice-cat-seven { background: #e74c3c; color: #fff; }
+  .dice-bet-display {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 4px;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .dice-bet-high { background: #27ae60; color: #fff; }
+  .dice-bet-low { background: #2980b9; color: #fff; }
+  .dice-bet-seven { background: #e74c3c; color: #fff; }
 </style>
 </head>
 <body>
@@ -732,7 +779,7 @@
   <!-- Header -->
   <header class="header">
     <a href="/" style="text-decoration:none;color:var(--text-dim);font-size:13px;margin-right:12px;" aria-label="Back to lobby">&larr; Lobby</a>
-    <h1 class="header-title">Poker Spectator</h1>
+    <h1 class="header-title" id="header-title">Game Spectator</h1>
     <div class="header-meta">
       <span id="hand-info"></span>
       <span id="phase-info"></span>
@@ -921,6 +968,8 @@
   const $infoGameDuration     = document.getElementById('info-game-duration');
 
   /* ── State ──────────────────────────────────────────── */
+  let currentGameType = 'poker';
+  const $headerTitle = document.getElementById('header-title');
   let lastHandNumber = null;
   let seenActionCount = 0;
 
@@ -1081,23 +1130,71 @@
   }
 
   /* ── Render: Active Game ────────────────────────────── */
+  var DICE_FACES = ['', '\u2680', '\u2681', '\u2682', '\u2683', '\u2684', '\u2685'];
+
+  function renderDiceCenter(state) {
+    var lastDice = state.last_dice;
+    var lastTotal = state.last_total;
+    var lastCategory = state.last_category;
+    var lastPot = state.last_pot;
+    var diceHtml = '';
+    if (lastDice && lastDice.length === 2) {
+      diceHtml = '<div class="dice-display">' +
+        '<span class="dice-face">' + DICE_FACES[lastDice[0]] + '</span>' +
+        '<span class="dice-face">' + DICE_FACES[lastDice[1]] + '</span>' +
+        '</div>' +
+        '<div class="dice-result">' +
+        '<span class="dice-total">' + lastTotal + '</span>' +
+        '<span class="dice-category dice-cat-' + lastCategory + '">' + lastCategory.toUpperCase() + '</span>' +
+        '</div>';
+    } else {
+      diceHtml = '<div class="dice-display">' +
+        '<span class="dice-face dice-waiting">' + DICE_FACES[1] + '</span>' +
+        '<span class="dice-face dice-waiting">' + DICE_FACES[1] + '</span>' +
+        '</div>' +
+        '<div class="dice-result"><span class="dice-total">--</span></div>';
+    }
+    $communityCards.innerHTML = diceHtml;
+    if (lastPot != null) {
+      $potAmount.textContent = formatChips(lastPot);
+    } else {
+      var ante = state.ante || 20;
+      var alive = (state.players || []).filter(function (p) { return !p.resigned; });
+      $potAmount.textContent = formatChips(ante * alive.length);
+    }
+    $sidePots.innerHTML = '';
+  }
+
   function renderGame(state) {
     $waitingScreen.classList.add('hidden');
     $pokerTable.classList.remove('hidden');
     stopFundingPoll();
 
+    var isDice = currentGameType === 'dice';
+
     /* Game info panel (populate once) */
     if (!gameInfoRendered) {
-      $infoPlayers.textContent = state.starting_players + ' players';
-      $infoBuyin.textContent = state.buy_in_display || (state.buy_in > 0 ? formatChips(state.buy_in) : 'Free');
-      $infoTimer.textContent = state.action_timeout + 's';
+      var playerCount = state.starting_players || (state.players || []).length;
+      $infoPlayers.textContent = playerCount + ' players';
+      $infoBuyin.textContent = isDice ? 'Free' : (state.buy_in_display || (state.buy_in > 0 ? formatChips(state.buy_in) : 'Free'));
+      $infoTimer.textContent = (state.action_timeout || 30) + 's';
       $infoMode.textContent = (state.mode === 'onchain') ? 'On-chain' : 'Off-chain';
-      $infoBlinds.textContent = formatChips(state.small_blind || 10) + ' / ' + formatChips(state.big_blind || 20);
+      if (isDice) {
+        var blindsLabel = document.querySelector('#info-blinds').closest('.info-item').querySelector('.info-label');
+        if (blindsLabel) blindsLabel.textContent = 'Ante';
+        $infoBlinds.textContent = formatChips(state.ante || 20);
+      } else {
+        $infoBlinds.textContent = formatChips(state.small_blind || 10) + ' / ' + formatChips(state.big_blind || 20);
+      }
       gameInfoRendered = true;
     }
 
     /* Header info */
-    $handInfo.textContent = 'Hand #' + (state.hand_number || 1);
+    if (isDice) {
+      $handInfo.textContent = 'Round #' + (state.round_number || 1);
+    } else {
+      $handInfo.textContent = 'Hand #' + (state.hand_number || 1);
+    }
     $phaseInfo.innerHTML = '<span class="phase-badge">' + escapeHtml(state.phase || 'pre-flop') + '</span>';
 
     /* Commentary banner */
@@ -1119,41 +1216,57 @@
       startStreamDuration(state.stream_created_at);
     }
 
-    /* Community cards — only rebuild DOM when cards actually change */
-    var cc = state.community_cards || [];
-    var ccKey = cc.join(',');
-    if (ccKey !== lastCommunityCardsKey) {
-      lastCommunityCardsKey = ccKey;
-      var ccHtml = '';
-      for (var i = 0; i < 5; i++) {
-        ccHtml += (i < cc.length) ? renderCard(cc[i], false) : renderCardPlaceholder();
+    if (isDice) {
+      renderDiceCenter(state);
+    } else {
+      /* Community cards — only rebuild DOM when cards actually change */
+      var cc = state.community_cards || [];
+      var ccKey = cc.join(',');
+      if (ccKey !== lastCommunityCardsKey) {
+        lastCommunityCardsKey = ccKey;
+        var ccHtml = '';
+        for (var i = 0; i < 5; i++) {
+          ccHtml += (i < cc.length) ? renderCard(cc[i], false) : renderCardPlaceholder();
+        }
+        $communityCards.innerHTML = ccHtml;
       }
-      $communityCards.innerHTML = ccHtml;
-    }
 
-    /* Pot */
-    $potAmount.textContent = formatChips(state.pot);
+      /* Pot */
+      $potAmount.textContent = formatChips(state.pot);
 
-    /* Side pots — only rebuild DOM when pots actually change */
-    var sp = state.side_pots || [];
-    var spKey = sp.map(function (pot) { return pot.amount; }).join(',');
-    if (spKey !== lastSidePotsKey) {
-      lastSidePotsKey = spKey;
-      if (sp.length > 0) {
-        $sidePots.innerHTML = sp.map(function (pot, idx) {
-          return '<span class="side-pot">Side ' + (idx + 1) + ': ' + formatChips(pot.amount) + '</span>';
-        }).join('');
-      } else {
-        $sidePots.innerHTML = '';
+      /* Side pots — only rebuild DOM when pots actually change */
+      var sp = state.side_pots || [];
+      var spKey = sp.map(function (pot) { return pot.amount; }).join(',');
+      if (spKey !== lastSidePotsKey) {
+        lastSidePotsKey = spKey;
+        if (sp.length > 0) {
+          $sidePots.innerHTML = sp.map(function (pot, idx) {
+            return '<span class="side-pot">Side ' + (idx + 1) + ': ' + formatChips(pot.amount) + '</span>';
+          }).join('');
+        } else {
+          $sidePots.innerHTML = '';
+        }
       }
     }
 
     /* Players */
     renderPlayers(state);
 
-    /* Timer */
-    if (state.timer && state.timer.deadline && state.current_turn) {
-      startTimer(state.timer.deadline, state.current_turn);
+    /* Timer — poker uses nested timer object, dice uses turn_deadline directly */
+    var timerDeadline = null;
+    var turnPlayerId = null;
+    if (state.timer && state.timer.deadline) {
+      timerDeadline = state.timer.deadline;
+      turnPlayerId = state.current_turn;
+    } else if (state.turn_deadline) {
+      timerDeadline = state.turn_deadline;
+      var players = state.players || [];
+      for (var ti = 0; ti < players.length; ti++) {
+        if (players[ti].is_current) { turnPlayerId = players[ti].id; break; }
+      }
+    }
+    if (timerDeadline && turnPlayerId) {
+      startTimer(timerDeadline, turnPlayerId);
       updateTimer();
     } else {
       stopTimer();
@@ -1248,30 +1361,44 @@
   /* ── Render: Players Around Table ───────────────────── */
   /* Build the inner HTML for a player seat (cards + info + comment) */
   function buildSeatContent(p, state) {
+    var isDice = currentGameType === 'dice';
+
     /* Badges */
     var badges = '';
-    if (state.dealer === p.id)             badges += '<span class="badge badge-dealer">D</span>';
-    if (state.small_blind_player === p.id) badges += '<span class="badge badge-sb">SB</span>';
-    if (state.big_blind_player === p.id)   badges += '<span class="badge badge-bb">BB</span>';
-    if (p.is_all_in)                       badges += '<span class="badge badge-allin">All-In</span>';
-    if (p.is_folded)                       badges += '<span class="badge badge-folded">Folded</span>';
+    if (!isDice) {
+      if (state.dealer === p.id)             badges += '<span class="badge badge-dealer">D</span>';
+      if (state.small_blind_player === p.id) badges += '<span class="badge badge-sb">SB</span>';
+      if (state.big_blind_player === p.id)   badges += '<span class="badge badge-bb">BB</span>';
+      if (p.is_all_in)                       badges += '<span class="badge badge-allin">All-In</span>';
+      if (p.is_folded)                       badges += '<span class="badge badge-folded">Folded</span>';
+    }
     if (p.is_resigned)                     badges += '<span class="badge badge-resigned">Resigned</span>';
     if (p.extensions_remaining > 0)        badges += '<span class="badge badge-ext">\u23F1\u00D7' + p.extensions_remaining + '</span>';
 
-    /* Hole cards */
+    /* Cards (poker) or bet display (dice) */
     var cardsHtml = '';
-    if (p.cards && p.cards.length > 0 && !p.is_folded) {
-      cardsHtml = p.cards.map(function (c) { return renderCard(c, true); }).join('');
-    } else if (!p.is_folded) {
-      cardsHtml = renderCardBack(true) + renderCardBack(true);
+    if (isDice) {
+      if (p.bet) {
+        cardsHtml = '<div class="dice-bet-display dice-bet-' + p.bet + '">' + p.bet.toUpperCase() + '</div>';
+      }
+    } else {
+      if (p.cards && p.cards.length > 0 && !p.is_folded) {
+        cardsHtml = p.cards.map(function (c) { return renderCard(c, true); }).join('');
+      } else if (!p.is_folded) {
+        cardsHtml = renderCardBack(true) + renderCardBack(true);
+      }
     }
 
-    /* Bet display */
-    var betHtml = (p.current_bet > 0) ? '<div class="player-bet">Bet: ' + formatChips(p.current_bet) + '</div>' : '';
+    /* Bet display (poker only) */
+    var betHtml = '';
+    if (!isDice && p.current_bet > 0) {
+      betHtml = '<div class="player-bet">Bet: ' + formatChips(p.current_bet) + '</div>';
+    }
 
     /* Timer for current turn player */
     var timerHtml = '';
-    if (state.current_turn === p.id) {
+    var isCurrent = isDice ? !!p.is_current : state.current_turn === p.id;
+    if (isCurrent) {
       timerHtml = '<div class="player-timer" id="active-timer"></div>';
     }
 
@@ -1305,6 +1432,9 @@
 
   /* Build a snapshot key for a player to detect actual data changes */
   function playerSeatKey(p, state) {
+    if (currentGameType === 'dice') {
+      return [p.id, p.chips, p.bet || '', p.resigned, p.is_current, p.extensions_remaining || 0].join('|');
+    }
     var cardKey = (p.cards && p.cards.length > 0 && !p.is_folded) ? p.cards.join(',') : (p.is_folded ? 'folded' : 'backs');
     var commentKey = '';
     var actions = state.recent_actions || [];
@@ -1355,7 +1485,7 @@
         existing.classList.toggle('folded', !!p.is_folded);
         existing.classList.toggle('all-in', !!p.is_all_in);
         existing.classList.toggle('resigned', !!p.is_resigned);
-        existing.classList.toggle('current-turn', state.current_turn === p.id);
+        existing.classList.toggle('current-turn', currentGameType === 'dice' ? !!p.is_current : state.current_turn === p.id);
 
         /* Only rebuild inner content if data actually changed */
         if (existing.getAttribute('data-seat-key') !== key) {
@@ -1371,7 +1501,7 @@
         if (p.is_folded) seat.classList.add('folded');
         if (p.is_all_in) seat.classList.add('all-in');
         if (p.is_resigned) seat.classList.add('resigned');
-        if (state.current_turn === p.id) seat.classList.add('current-turn');
+        if (currentGameType === 'dice' ? p.is_current : state.current_turn === p.id) seat.classList.add('current-turn');
         seat.style.top = pos.top + '%';
         seat.style.left = pos.left + '%';
         seat.style.transform = 'translate(-50%, -50%)';
@@ -1383,6 +1513,40 @@
 
   /* ── Render: Actions ────────────────────────────────── */
   function renderActions(state) {
+    var isDice = currentGameType === 'dice';
+    var roundKey = isDice ? state.round_number : state.hand_number;
+
+    if (isDice) {
+      /* Dice: show round results in the action log */
+      if (roundKey !== lastHandNumber) {
+        lastHandNumber = roundKey;
+        if (state.last_total != null) {
+          var entry = document.createElement('div');
+          entry.className = 'action-entry';
+          var winnersStr = '';
+          if (state.last_winner_ids && state.last_winner_ids.length > 0) {
+            var winnerNames = [];
+            var players = state.players || [];
+            for (var wi = 0; wi < state.last_winner_ids.length; wi++) {
+              for (var pi = 0; pi < players.length; pi++) {
+                if (players[pi].id === state.last_winner_ids[wi]) winnerNames.push(players[pi].name);
+              }
+            }
+            winnersStr = ' \u2014 <span class="action-player">' + winnerNames.map(escapeHtml).join(', ') + '</span> won!';
+          } else {
+            winnersStr = ' \u2014 No winners';
+          }
+          entry.innerHTML = '<span class="action-type">Roll: ' + state.last_dice.join('+') + '=' + state.last_total + '</span>' +
+            ' <span class="dice-category dice-cat-' + state.last_category + '">' + state.last_category.toUpperCase() + '</span>' +
+            winnersStr +
+            (state.last_pot ? ' <span class="action-amount">Pot: ' + formatChips(state.last_pot) + '</span>' : '');
+          $actionLog.prepend(entry);
+        }
+      }
+      return;
+    }
+
+    /* Poker: existing action log logic */
     var actions = state.recent_actions || [];
 
     /* On new hand, reset log and cached keys */
@@ -1499,6 +1663,11 @@
       })
       .then(function (state) {
         setConnection('ok', 'Live');
+        currentGameType = state.game_type || 'poker';
+        if ($headerTitle) {
+          var titleMap = { poker: 'Poker Spectator', dice: 'Dice Spectator' };
+          $headerTitle.textContent = titleMap[currentGameType] || 'Game Spectator';
+        }
 
         if (!state.started) {
           renderWaiting(state);

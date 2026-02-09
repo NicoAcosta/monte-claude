@@ -1,11 +1,12 @@
 import pytest
-from poker.account_store import AccountStore
-from poker.db import get_pool
+from core.account_store import AccountStore
+from core.db import get_pool
 
 TABLES = [
     "balance_history", "auth_events", "escrow_operations",
     "accounts", "balances", "game_events", "hand_summaries",
     "player_stats", "player_token_stats", "game_metadata", "streams",
+    "round_summaries",
 ]
 
 

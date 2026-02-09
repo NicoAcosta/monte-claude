@@ -234,7 +234,7 @@ def check_deposit_status(
 
 # ── Settlement ────────────────────────────────────────────
 
-from poker.payout import compute_payouts as compute_payouts  # re-export
+from core.payout import compute_payouts as compute_payouts  # re-export
 
 
 def sign_settlement(

@@ -10,6 +10,7 @@ from psycopg_pool import ConnectionPool
 @dataclass(frozen=True)
 class GameMetadata:
     game_id: int
+    game_type: str
     mode: str
     buy_in: int
     max_players: int
@@ -43,13 +44,14 @@ class GameMetadataStore:
         token_symbol: str | None = None,
         action_timeout: float | None = None,
         extensions_per_player: int | None = None,
+        game_type: str = "poker",
     ) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO game_metadata
-                   (game_id, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout, extensions_per_player)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (game_id, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout, extensions_per_player),
+                   (game_id, game_type, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout, extensions_per_player)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (game_id, game_type, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout, extensions_per_player),
             )
             conn.commit()
 
@@ -100,7 +102,7 @@ class GameMetadataStore:
     def list_all(self) -> list[GameMetadata]:
         with self._pool.connection() as conn:
             rows = conn.execute(
-                """SELECT game_id, mode, buy_in, max_players, token, token_decimals,
+                """SELECT game_id, game_type, mode, buy_in, max_players, token, token_decimals,
                           token_symbol, player_count, player_names, started, game_over,
                           winner, hand_number, funded, escrow_address, action_timeout,
                           extensions_per_player
@@ -108,12 +110,12 @@ class GameMetadataStore:
             ).fetchall()
         return [
             GameMetadata(
-                game_id=r[0], mode=r[1], buy_in=int(r[2]), max_players=r[3],
-                token=r[4], token_decimals=r[5], token_symbol=r[6],
-                player_count=r[7], player_names=list(r[8]) if r[8] else [],
-                started=r[9], game_over=r[10], winner=r[11],
-                hand_number=r[12], funded=r[13], escrow_address=r[14],
-                action_timeout=r[15], extensions_per_player=r[16],
+                game_id=r[0], game_type=r[1], mode=r[2], buy_in=int(r[3]), max_players=r[4],
+                token=r[5], token_decimals=r[6], token_symbol=r[7],
+                player_count=r[8], player_names=list(r[9]) if r[9] else [],
+                started=r[10], game_over=r[11], winner=r[12],
+                hand_number=r[13], funded=r[14], escrow_address=r[15],
+                action_timeout=r[16], extensions_per_player=r[17],
             )
             for r in rows
         ]

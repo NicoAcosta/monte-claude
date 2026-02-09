@@ -12,25 +12,25 @@ from fastapi.responses import JSONResponse
 
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from poker.logging_config import configure_logging, RequestContextMiddleware, client_ip_var
+from core.logging_config import configure_logging, RequestContextMiddleware, client_ip_var
 
 configure_logging()
 
 _log = logging.getLogger("poker.account_api")
 
-from poker.account_store import Account, AccountStore
-from poker.audit import AuthAuditStore
-from poker.auth import make_auth_dependency
-from poker.balance_store import BalanceStore
-from poker.db import get_pool
+from core.account_store import Account, AccountStore
+from core.audit import AuthAuditStore
+from core.auth import make_auth_dependency
+from core.balance_store import BalanceStore
+from core.db import get_pool
 from poker.models import (
     AccountRegisterRequest,
     AccountRegisterResponse,
     BalanceResponse,
     FaucetResponse,
 )
-from poker.rate_limit import RateLimitConfig, RateLimiter
-from poker import balance_service
+from core.rate_limit import RateLimitConfig, RateLimiter
+from core import balance_service
 
 # ── Rate limiters ────────────────────────────────────────
 # Limits are intentionally high (effectively infinite) for now.
