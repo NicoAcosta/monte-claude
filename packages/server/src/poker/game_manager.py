@@ -41,6 +41,7 @@ class GameManager:
         token: str | None = None,
         buy_in: int = 0,
         mode: str | None = None,
+        on_game_over: Callable[[Game, GameConfig], None] | None = None,
     ) -> tuple[int, Game, GameConfig]:
         game_id = self._next_id
         self._next_id += 1
@@ -52,12 +53,18 @@ class GameManager:
             token=token,
         )
 
+        recorder: GameRecorder | None = None
         if self._recorder_factory:
             recorder = self._recorder_factory(game_id)
             self._recorders[game_id] = recorder
-            game = Game(event_callback=recorder.on_event)
-        else:
-            game = Game()
+
+        def _event_callback(event_type: str, data: dict) -> None:
+            if recorder:
+                recorder.on_event(event_type, data)
+            if event_type == "game_over" and on_game_over is not None:
+                on_game_over(game, config)
+
+        game = Game(event_callback=_event_callback)
 
         self._games[game_id] = game
         self._configs[game_id] = config

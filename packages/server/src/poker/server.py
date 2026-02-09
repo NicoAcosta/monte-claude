@@ -99,11 +99,6 @@ def _get_game_or_404(game_id: int) -> tuple[Game, GameConfig]:
     return game, config
 
 
-def _settle_if_over(game: Game, config: GameConfig) -> None:
-    if game.game_over:
-        settlement_service.settle_offchain_game(game, config, balance_store)
-
-
 def _recent_actions(game: Game, include_reason: bool = False) -> list[RecentAction]:
     actions = game.recent_actions
     if game.current_hand:
@@ -196,8 +191,12 @@ def create_game(req: CreateGameRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    def _on_game_over(g: Game, c: GameConfig) -> None:
+        settlement_service.settle_offchain_game(g, c, balance_store)
+
     game_id, game, config = game_service.create_game(
         manager, req.max_players, req.token, req.buy_in, mode,
+        on_game_over=_on_game_over,
     )
     return CreateGameResponse(
         game_id=game_id,
@@ -357,7 +356,6 @@ def state(game_id: int, player_id: int):
         raise HTTPException(status_code=400, detail="Game not started")
 
     game._check_timeout()
-    _settle_if_over(game, config)
 
     hand = game.current_hand
 
@@ -448,7 +446,6 @@ def resign(game_id: int, account: Account = Depends(require_auth)):
 
     result = game.resign(player.id)
     if result == "ok":
-        _settle_if_over(game, config)
         return ActionResponse(success=True, message="Resigned from game")
     else:
         raise HTTPException(status_code=400, detail=result)
@@ -473,7 +470,6 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
 
     result = game.do_action(player.id, req.action, req.amount, comment=req.comment, reason=req.reason)
     if result == "ok":
-        _settle_if_over(game, config)
         return ActionResponse(success=True, message="Action accepted")
     else:
         raise HTTPException(status_code=400, detail=result)
@@ -564,7 +560,6 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
 def spectator(game_id: int):
     game, config = _get_game_or_404(game_id)
     game._check_timeout()
-    _settle_if_over(game, config)
     return _build_spectator_response(game, config)
 
 
@@ -733,7 +728,6 @@ def stream_view(stream_id: int):
     if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
     game._check_timeout()
-    _settle_if_over(game, config)
     return _build_spectator_response(
         game, config,
         commentary_text=stream.commentary_text,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from poker.balance_store import BalanceStore
 from poker.game import Game, RegisteredPlayer
 from poker.game_config import GameConfig
@@ -28,6 +30,7 @@ def create_game(
     token: str | None,
     buy_in: int,
     mode: str,
+    on_game_over: Callable[[Game, GameConfig], None] | None = None,
 ) -> tuple[int, Game, GameConfig]:
     """Create a game via the manager."""
     return manager.create_game(
@@ -35,6 +38,7 @@ def create_game(
         token=token,
         buy_in=buy_in,
         mode=mode,
+        on_game_over=on_game_over,
     )
 
 
