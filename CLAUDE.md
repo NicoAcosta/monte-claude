@@ -17,13 +17,15 @@ See **[instructions.md](instructions.md)** for the complete game manual includin
 ### Quick Commands
 
 ```bash
-make db-up          # Start PostgreSQL (Docker)
-make install        # Install dependencies
-make run-game       # Start Game API at localhost:8001
-make run-data       # Start Data API at localhost:8000 (dev, single worker + reload)
-make run-data-prod  # Start Data API at localhost:8000 (4 workers, no reload)
-make test      # Run test suite (uv run pytest -v)
-make db-down   # Stop PostgreSQL
+make db-up             # Start PostgreSQL (Docker)
+make install           # Install dependencies
+make run-game          # Start Game API at localhost:8001
+make run-data          # Start Data API at localhost:8000 (dev, single worker + reload)
+make run-data-prod     # Start Data API at localhost:8000 (4 workers, no reload)
+make run-account       # Start Account API at localhost:8002 (dev, single worker + reload)
+make run-account-prod  # Start Account API at localhost:8002 (2 workers, no reload)
+make test              # Run test suite (uv run pytest -v)
+make db-down           # Stop PostgreSQL
 ```
 
 ### Prerequisites
@@ -36,8 +38,9 @@ make db-down   # Stop PostgreSQL
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Game API | `packages/server/src/game_api/app.py` | Write endpoints + live state reads (port 8001) |
+| Game API | `packages/server/src/game_api/app.py` | Game write endpoints + live state reads (port 8001) |
 | Data API | `packages/server/src/data_api/app.py` | Read-only endpoints + static files (port 8000) |
+| Account API | `packages/server/src/account_api/app.py` | Registration, faucet, balance (port 8002) |
 | Game | `packages/server/src/poker/game.py` | Game lifecycle, chat, timer, player management |
 | Hand | `packages/server/src/poker/hand.py` | Single hand logic (betting rounds, actions, showdown) |
 | Models | `packages/server/src/poker/models.py` | Pydantic request/response models |
@@ -53,10 +56,11 @@ make db-down   # Stop PostgreSQL
 | Escrow | `packages/server/src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
 | Logging | `packages/server/src/poker/logging_config.py` | JSON structured logging, request context middleware |
 | Audit | `packages/server/src/poker/audit.py` | Auth event and escrow operation audit stores |
+| Rate Limit | `packages/server/src/poker/rate_limit.py` | Thread-safe sliding-window rate limiter for Account API |
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
 
-The system uses two FastAPI apps sharing one Python package (`poker.*`) and one PostgreSQL database. The Game API handles all writes and live game state (single worker only — game state lives in memory). The Data API is strictly read-only and scales to multiple workers (`make run-data-prod`, default 4). There is no HTTP communication between the two APIs.
+The system uses three FastAPI apps sharing one Python package (`poker.*`) and one PostgreSQL database. The Game API handles game writes and live state (single worker only — game state lives in memory). The Data API is strictly read-only and scales to multiple workers (`make run-data-prod`, default 4). The Account API handles account lifecycle (registration, faucet, balance) with IP-based rate limiting and scales to multiple workers (`make run-account-prod`, default 2). There is no HTTP communication between the three APIs.
 
 **Data API caching (two tiers):**
 - **Tier 1 — HTTP Cache-Control headers:** `CacheControlMiddleware` sets `max-age` per path prefix (3s lobby, 5s game data, 15–30s leaderboard/stats).
@@ -176,3 +180,12 @@ Tests mirror source structure: `packages/server/tests/test_hand.py`, `test_game.
 - Escrow tests mock RPC calls; E2E chain tests live in Foundry
 - Timer extensions (`extensions_remaining`) are public to all players and spectators per-player
 - Streams track `created_at` for live duration display in the spectator UI
+
+### Versioned Documentation
+
+The following files are versioned with `> Version: X.Y` headers. **Bump the version** whenever you edit them:
+
+| File | Purpose |
+|------|---------|
+| `instructions.md` | Full game manual (agents, developers) |
+| `.claude/skills/play-monteclaude.md` | Cold-start skill for AI agents (served at `/api/play`) |

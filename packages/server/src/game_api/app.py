@@ -30,8 +30,6 @@ from poker.game_metadata_store import GameMetadataStore
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.models import (
-    AccountRegisterRequest,
-    AccountRegisterResponse,
     ActionRequest,
     ActionResponse,
     ChatMessage,
@@ -47,7 +45,6 @@ from poker.models import (
     EscrowConfigResponse,
     EscrowInfoResponse,
     ExtendResponse,
-    FaucetResponse,
     FundingStatusResponse,
     JoinGameRequest,
     JoinGameResponse,
@@ -70,7 +67,7 @@ from poker.models import (
     WaitingResponse,
 )
 from poker.stream_store import StreamStore
-from poker import balance_service, escrow_service, game_service, settlement_service
+from poker import escrow_service, game_service, settlement_service
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
@@ -141,8 +138,6 @@ balance_store = BalanceStore(_pool)
 auth_audit = AuthAuditStore(_pool)
 escrow_audit = EscrowAuditStore(_pool)
 
-FAUCET_AMOUNT = 10_000
-
 require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
 
@@ -199,17 +194,6 @@ def _timer_info(game: Game, player_id: int = 0) -> TimerInfo | None:
     )
 
 
-# ── Account routes ───────────────────────────────────────
-
-@app.post("/api/register", response_model=AccountRegisterResponse)
-def register_account(req: AccountRegisterRequest):
-    try:
-        api_key = account_store.create_account(req.username)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return AccountRegisterResponse(api_key=api_key, username=req.username)
-
-
 # ── Game CRUD routes ─────────────────────────────────────
 
 @app.post("/api/games", response_model=CreateGameResponse)
@@ -229,6 +213,7 @@ def create_game(req: CreateGameRequest):
         token_symbol=req.token_symbol,
         on_game_over=_on_game_over,
         action_timeout=req.action_timeout,
+        extensions_per_player=req.extensions_per_player,
     )
     return CreateGameResponse(
         game_id=game_id,
@@ -701,24 +686,6 @@ def stream_view(stream_id: int):
         stream_title=stream.title,
         stream_host=stream.host_username,
         stream_created_at=stream.created_at,
-    )
-
-
-# ── Bankroll routes ──────────────────────────────────
-
-@app.post("/api/faucet", response_model=FaucetResponse)
-def faucet(account: Account = Depends(require_auth)):
-    try:
-        bal, next_claim_at = balance_service.claim_faucet(
-            balance_store, account.username, FAUCET_AMOUNT,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=429, detail=str(e))
-
-    return FaucetResponse(
-        success=True,
-        new_balance=bal.amount,
-        next_claim_at=next_claim_at,
     )
 
 

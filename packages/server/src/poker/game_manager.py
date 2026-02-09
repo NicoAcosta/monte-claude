@@ -50,6 +50,7 @@ class GameManager:
         mode: str | None = None,
         on_game_over: Callable[[Game, GameConfig], None] | None = None,
         action_timeout: float | None = None,
+        extensions_per_player: int | None = None,
     ) -> tuple[int, Game, GameConfig]:
         game_id = self._next_id
         self._next_id += 1
@@ -88,6 +89,8 @@ class GameManager:
         kwargs: dict = {"event_callback": _event_callback}
         if action_timeout is not None:
             kwargs["action_timeout"] = action_timeout
+        if extensions_per_player is not None:
+            kwargs["extensions_per_player"] = extensions_per_player
         game = Game(**kwargs)
 
         self._games[game_id] = game
@@ -103,6 +106,7 @@ class GameManager:
                 token_decimals=config.token_decimals,
                 token_symbol=config.token_symbol,
                 action_timeout=action_timeout,
+                extensions_per_player=extensions_per_player,
             )
 
         return game_id, game, config

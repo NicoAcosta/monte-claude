@@ -57,10 +57,8 @@ def create_game(client, **kwargs) -> int:
 
 
 def register_account(client, username: str) -> str:
-    """Helper: register an account and return the API key."""
-    resp = client.post("/api/register", json={"username": username})
-    assert resp.status_code == 200
-    return resp.json()["api_key"]
+    """Helper: register an account via store and return the API key."""
+    return game_module.account_store.create_account(username)
 
 
 def auth_header(api_key: str) -> dict[str, str]:
@@ -73,26 +71,6 @@ def join_game(client, game_id: int, api_key: str, wallet_address: str | None = N
     resp = client.post(f"/game/{game_id}/join", json=body, headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()
-
-
-# ── Account Registration ────────────────────────────────
-
-class TestAccountRegistration:
-    def test_register_account(self, client):
-        resp = client.post("/api/register", json={"username": "Alice"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["username"] == "Alice"
-        assert data["api_key"].startswith("pk_")
-
-    def test_register_duplicate_username(self, client):
-        register_account(client, "Alice")
-        resp = client.post("/api/register", json={"username": "Alice"})
-        assert resp.status_code == 400
-
-    def test_register_empty_username(self, client):
-        resp = client.post("/api/register", json={"username": ""})
-        assert resp.status_code == 400
 
 
 # ── Join Game ────────────────────────────────────────────
@@ -623,6 +601,26 @@ class TestTimer:
         assert timer["action_timeout"] == 30.0
         assert timer["deadline"] is not None
         assert timer["extensions_remaining"] == 3
+
+    def test_custom_extensions_per_player(self, client):
+        gid = create_game(client, extensions_per_player=7)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        state = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        assert state["timer"]["extensions_remaining"] == 7
+
+    def test_zero_extensions_per_player(self, client):
+        gid = create_game(client, extensions_per_player=0)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        state = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        assert state["timer"]["extensions_remaining"] == 0
 
     def test_timer_in_spectator_response(self, client):
         gid, _, _ = self._setup_started_game(client)

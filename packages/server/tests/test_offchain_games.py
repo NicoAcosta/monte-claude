@@ -11,6 +11,7 @@ from poker.game_metadata_store import GameMetadataStore
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.stream_store import StreamStore
+from poker import balance_service
 
 
 @pytest.fixture(autouse=True)
@@ -50,16 +51,21 @@ def auth_header(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
+FAUCET_AMOUNT = 10_000
+
+
 def register(client, username: str) -> str:
-    resp = client.post("/api/register", json={"username": username})
-    assert resp.status_code == 200
-    return resp.json()["api_key"]
+    """Register an account via store and return the API key."""
+    return game_module.account_store.create_account(username)
 
 
 def claim_faucet(client, api_key: str) -> dict:
-    resp = client.post("/api/faucet", headers=auth_header(api_key))
-    assert resp.status_code == 200
-    return resp.json()
+    """Claim faucet via balance_service directly."""
+    username = game_module.account_store.verify_key(api_key).username
+    bal, next_claim_at = balance_service.claim_faucet(
+        game_module.balance_store, username, FAUCET_AMOUNT,
+    )
+    return {"success": True, "new_balance": bal.amount, "next_claim_at": next_claim_at}
 
 
 def get_balance(client, api_key: str) -> int:
@@ -116,33 +122,6 @@ class TestModeInference:
         resp = client.post("/api/games", json={"buy_in": 100, "mode": "onchain"})
         assert resp.status_code == 400
         assert "token" in resp.json()["detail"].lower()
-
-
-# ── Faucet tests ─────────────────────────────────────────
-
-class TestFaucet:
-    def test_claim_faucet(self, client):
-        key = register(client, "Alice")
-        data = claim_faucet(client, key)
-        assert data["success"] is True
-        assert data["new_balance"] == 10_000
-        assert data["next_claim_at"]  # non-empty ISO string
-
-    def test_balance_starts_at_zero(self, client):
-        key = register(client, "Alice")
-        assert get_balance(client, key) == 0
-
-    def test_faucet_increases_balance(self, client):
-        key = register(client, "Alice")
-        claim_faucet(client, key)
-        assert get_balance(client, key) == 10_000
-
-    def test_double_claim_rejected(self, client):
-        key = register(client, "Alice")
-        claim_faucet(client, key)
-        resp = client.post("/api/faucet", headers=auth_header(key))
-        assert resp.status_code == 429
-        assert "cooldown" in resp.json()["detail"].lower()
 
 
 # ── Join debit/refund tests ──────────────────────────────

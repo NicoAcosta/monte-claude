@@ -35,6 +35,7 @@ def create_game(
     token_symbol: str | None = None,
     on_game_over: Callable[[Game, GameConfig], None] | None = None,
     action_timeout: float | None = None,
+    extensions_per_player: int | None = None,
 ) -> tuple[int, Game, GameConfig]:
     """Create a game via the manager."""
     return manager.create_game(
@@ -46,6 +47,7 @@ def create_game(
         mode=mode,
         on_game_over=on_game_over,
         action_timeout=action_timeout,
+        extensions_per_player=extensions_per_player,
     )
 
 

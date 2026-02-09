@@ -23,6 +23,7 @@ class CreateGameRequest(BaseModel):
     token_symbol: str | None = None
     mode: Literal["onchain", "offchain"] | None = None
     action_timeout: float | None = Field(default=None, gt=0, le=600)
+    extensions_per_player: int | None = Field(default=None, ge=0, le=20)
 
     @field_validator("token")
     @classmethod

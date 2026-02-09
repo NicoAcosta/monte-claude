@@ -47,8 +47,6 @@ def reset_state():
     data_module.summary_store = HandSummaryStore(pool)
     data_module.stats_store = PlayerStatsStore(pool)
     data_module.metadata_store = GameMetadataStore(pool)
-    data_module.account_store = AccountStore(pool)
-    data_module.balance_store = BalanceStore(pool)
     data_module.stream_store = StreamStore(pool)
     yield
 
@@ -73,8 +71,8 @@ def auth_header(api_key: str) -> dict[str, str]:
 
 def seed_game(game_client) -> tuple[int, str, str]:
     """Create a started 2-player game via Game API. Returns (game_id, key_a, key_b)."""
-    key_a = game_client.post("/api/register", json={"username": "Alice"}).json()["api_key"]
-    key_b = game_client.post("/api/register", json={"username": "Bob"}).json()["api_key"]
+    key_a = game_module.account_store.create_account("Alice")
+    key_b = game_module.account_store.create_account("Bob")
     gid = game_client.post("/api/games", json={"max_players": 2}).json()["game_id"]
     game_client.post(f"/game/{gid}/join", json={}, headers=auth_header(key_a))
     game_client.post(f"/game/{gid}/join", json={}, headers=auth_header(key_b))
@@ -106,7 +104,7 @@ class TestLobby:
 
     def test_lobby_reflects_player_join(self, game_client, client):
         gid = game_client.post("/api/games", json={"max_players": 2}).json()["game_id"]
-        key = game_client.post("/api/register", json={"username": "Alice"}).json()["api_key"]
+        key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/join", json={}, headers=auth_header(key))
         games = client.get("/api/games").json()["games"]
         assert games[0]["player_count"] == 1
@@ -192,22 +190,6 @@ class TestPlayerStats:
         assert resp.status_code == 404
 
 
-# ── Balance ──────────────────────────────────────────────
-
-class TestBalance:
-    def test_balance_requires_auth(self, client):
-        resp = client.get("/api/balance")
-        assert resp.status_code == 401
-
-    def test_balance_read(self, game_client, client):
-        key = game_client.post("/api/register", json={"username": "Alice"}).json()["api_key"]
-        game_client.post("/api/faucet", headers=auth_header(key))
-
-        resp = client.get("/api/balance", headers=auth_header(key))
-        assert resp.status_code == 200
-        assert resp.json()["balance"] == 10_000
-
-
 # ── Streams (read-only) ─────────────────────────────────
 
 class TestStreamsRead:
@@ -218,7 +200,7 @@ class TestStreamsRead:
 
     def test_list_all_streams(self, game_client, client):
         gid = game_client.post("/api/games", json={}).json()["game_id"]
-        key = game_client.post("/api/register", json={"username": "Alice"}).json()["api_key"]
+        key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "Test Stream"}, headers=auth_header(key))
 
         resp = client.get("/api/streams")
@@ -229,7 +211,7 @@ class TestStreamsRead:
 
     def test_list_streams_for_game(self, game_client, client):
         gid = game_client.post("/api/games", json={}).json()["game_id"]
-        key = game_client.post("/api/register", json={"username": "Alice"}).json()["api_key"]
+        key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "G1 Stream"}, headers=auth_header(key))
 
         resp = client.get(f"/game/{gid}/streams")
@@ -242,7 +224,7 @@ class TestStreamsRead:
 
     def test_stream_page_exists(self, game_client, client):
         gid = game_client.post("/api/games", json={}).json()["game_id"]
-        key = game_client.post("/api/register", json={"username": "Alice"}).json()["api_key"]
+        key = game_module.account_store.create_account("Alice")
         sid = game_client.post(
             f"/game/{gid}/streams", json={"title": "Test"}, headers=auth_header(key)
         ).json()["stream_id"]
