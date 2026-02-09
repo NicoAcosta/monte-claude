@@ -170,6 +170,16 @@ def lobby_page():
     return FileResponse(STATIC_DIR / "lobby.html")
 
 
+@app.get("/leaderboard")
+def leaderboard_page():
+    return FileResponse(STATIC_DIR / "leaderboard.html")
+
+
+@app.get("/player/{username}")
+def player_page(username: str):
+    return FileResponse(STATIC_DIR / "player.html")
+
+
 @app.get("/api/games", response_model=GameListResponse)
 def list_games():
     summaries = manager.list_games()
