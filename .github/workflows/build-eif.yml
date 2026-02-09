@@ -1,0 +1,53 @@
+# Phase 2: Build Nitro Enclave Image (EIF) for Game API
+# Produces PCR values for attestation verification.
+#
+# This workflow is NOT used in Phase 1. It exists as a placeholder for Phase 2
+# when the Game API moves inside a Nitro Enclave.
+
+name: Build Enclave Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_pcr:
+        description: "Publish PCR values as release artifact"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  build-eif:
+    name: Build EIF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image (amazonlinux base for enclave compatibility)
+        run: |
+          # Phase 2: Replace Dockerfile.game with amazonlinux-based image
+          # and build EIF here.
+          echo "Phase 2 TODO: Build enclave image"
+          echo "1. docker build -f infra/docker/Dockerfile.game.enclave ."
+          echo "2. nitro-cli build-enclave --docker-uri <image> --output-file game-api.eif"
+          echo "3. Extract PCR-0, PCR-1, PCR-2 from build output"
+
+      # Phase 2: Uncomment when ready
+      # - name: Build enclave image
+      #   uses: richardfan1126/nitro-enclaves-eif-build-action@v1
+      #   with:
+      #     docker-image: monteclaude-game-api
+      #     dockerfile: infra/docker/Dockerfile.game.enclave
+      #     eif-file-name: game-api.eif
+
+      # - name: Extract PCR values
+      #   run: |
+      #     cat game-api.eif.pcr | tee pcr-values.json
+
+      # - name: Upload PCR values
+      #   if: inputs.publish_pcr == 'true'
+      #   uses: softprops/action-gh-release@v1
+      #   with:
+      #     files: pcr-values.json
+      #     tag_name: eif-${{ github.sha }}
