@@ -736,6 +736,7 @@
     <div class="header-meta">
       <span id="hand-info"></span>
       <span id="phase-info"></span>
+      <span class="hidden" id="game-duration-wrap" style="font-variant-numeric:tabular-nums;" title="Game duration">&#9201; <span id="game-duration">0:00</span></span>
       <span><span class="conn-dot loading" id="conn-dot"></span><span id="conn-text">Connecting</span></span>
       <button class="info-toggle" id="info-toggle" title="Game info">i</button>
       <button class="audio-toggle" id="audio-toggle" title="Toggle audio commentary">Sound: OFF</button>
@@ -750,6 +751,7 @@
       <div class="info-item"><span class="info-label">Timer</span><span class="info-value" id="info-timer">--</span></div>
       <div class="info-item"><span class="info-label">Mode</span><span class="info-value" id="info-mode">--</span></div>
       <div class="info-item"><span class="info-label">Blinds</span><span class="info-value" id="info-blinds">--</span></div>
+      <div class="info-item hidden" id="info-game-duration-wrap"><span class="info-label">Game Time</span><span class="info-value" id="info-game-duration">0:00</span></div>
       <div class="info-item hidden" id="info-duration-wrap"><span class="info-label">Live</span><span class="info-value" id="stream-duration">0:00</span></div>
     </div>
   </div>
@@ -913,6 +915,10 @@
   const $infoBlinds       = document.getElementById('info-blinds');
   const $infoDurationWrap = document.getElementById('info-duration-wrap');
   const $streamDuration   = document.getElementById('stream-duration');
+  const $gameDurationWrap     = document.getElementById('game-duration-wrap');
+  const $gameDuration         = document.getElementById('game-duration');
+  const $infoGameDurationWrap = document.getElementById('info-game-duration-wrap');
+  const $infoGameDuration     = document.getElementById('info-game-duration');
 
   /* ── State ──────────────────────────────────────────── */
   let lastHandNumber = null;
@@ -926,6 +932,10 @@
   /* Stream duration state */
   let streamCreatedAt = null;
   let streamDurationInterval = null;
+
+  /* Game duration state */
+  let gameStartedAt = null;
+  let gameDurationInterval = null;
 
   /* Funding poll state */
   let fundingInterval = null;
@@ -1099,6 +1109,11 @@
       $commentaryBanner.classList.add('hidden');
     }
 
+    /* Game duration */
+    if (state.game_started_at) {
+      startGameDuration(state.game_started_at);
+    }
+
     /* Stream duration */
     if (state.stream_created_at) {
       startStreamDuration(state.stream_created_at);
@@ -1189,13 +1204,7 @@
   function updateStreamDuration() {
     if (streamCreatedAt == null) return;
     var elapsed = Math.floor(Date.now() / 1000 - streamCreatedAt);
-    if (elapsed < 0) elapsed = 0;
-    var hrs = Math.floor(elapsed / 3600);
-    var mins = Math.floor((elapsed % 3600) / 60);
-    var secs = elapsed % 60;
-    $streamDuration.textContent = hrs > 0
-      ? hrs + ':' + (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs
-      : mins + ':' + (secs < 10 ? '0' : '') + secs;
+    $streamDuration.textContent = formatDuration(elapsed);
   }
 
   function startStreamDuration(createdAt) {
@@ -1205,6 +1214,35 @@
     if (streamDurationInterval) clearInterval(streamDurationInterval);
     streamDurationInterval = setInterval(updateStreamDuration, 1000);
     updateStreamDuration();
+  }
+
+  /* ── Game Duration ──────────────────────────────────── */
+  function formatDuration(elapsed) {
+    if (elapsed < 0) elapsed = 0;
+    var hrs = Math.floor(elapsed / 3600);
+    var mins = Math.floor((elapsed % 3600) / 60);
+    var secs = elapsed % 60;
+    return hrs > 0
+      ? hrs + ':' + (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs
+      : mins + ':' + (secs < 10 ? '0' : '') + secs;
+  }
+
+  function updateGameDuration() {
+    if (gameStartedAt == null) return;
+    var elapsed = Math.floor(Date.now() / 1000 - gameStartedAt);
+    var display = formatDuration(elapsed);
+    $gameDuration.textContent = display;
+    $infoGameDuration.textContent = display;
+  }
+
+  function startGameDuration(startedAt) {
+    if (gameStartedAt === startedAt) return;
+    gameStartedAt = startedAt;
+    $gameDurationWrap.classList.remove('hidden');
+    $infoGameDurationWrap.classList.remove('hidden');
+    if (gameDurationInterval) clearInterval(gameDurationInterval);
+    gameDurationInterval = setInterval(updateGameDuration, 1000);
+    updateGameDuration();
   }
 
   /* ── Render: Players Around Table ───────────────────── */
