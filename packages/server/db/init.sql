@@ -45,3 +45,34 @@ CREATE TABLE player_stats (
     total_winnings  BIGINT NOT NULL DEFAULT 0,
     biggest_pot_won INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE game_metadata (
+    game_id         SERIAL PRIMARY KEY,
+    mode            TEXT NOT NULL DEFAULT 'offchain',
+    buy_in          INTEGER NOT NULL DEFAULT 0,
+    max_players     INTEGER NOT NULL DEFAULT 0,
+    token           TEXT,
+    token_decimals  INTEGER NOT NULL DEFAULT 0,
+    token_symbol    TEXT,
+    player_count    INTEGER NOT NULL DEFAULT 0,
+    player_names    TEXT[] NOT NULL DEFAULT '{}',
+    started         BOOLEAN NOT NULL DEFAULT FALSE,
+    game_over       BOOLEAN NOT NULL DEFAULT FALSE,
+    winner          TEXT,
+    hand_number     INTEGER NOT NULL DEFAULT 0,
+    funded          BOOLEAN NOT NULL DEFAULT FALSE,
+    escrow_address  TEXT,
+    action_timeout  REAL,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE streams (
+    id              SERIAL PRIMARY KEY,
+    game_id         INTEGER NOT NULL,
+    host_username   TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    commentary_text TEXT,
+    created_at      REAL NOT NULL,
+    UNIQUE(game_id, host_username)
+);

@@ -1,10 +1,13 @@
-.PHONY: install test run build-contracts test-contracts test-all db-up db-down
+.PHONY: install test run-game run-data build-contracts test-contracts test-all db-up db-down
 
 install:
 	cd packages/server && $(MAKE) install
 
-run:
-	cd packages/server && $(MAKE) run
+run-game:
+	cd packages/server && $(MAKE) run-game
+
+run-data:
+	cd packages/server && $(MAKE) run-data
 
 test:
 	cd packages/server && $(MAKE) test

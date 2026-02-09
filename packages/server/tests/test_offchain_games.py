@@ -2,41 +2,46 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import poker.server as server_module
+import game_api.app as game_module
 from poker.account_store import AccountStore
 from poker.balance_store import BalanceStore
 from poker.db import get_pool
 from poker.game_manager import GameManager
+from poker.game_metadata_store import GameMetadataStore
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
-from poker.stream_manager import StreamManager
+from poker.stream_store import StreamStore
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
     pool = get_pool()
-    server_module.event_store = GameEventStore(pool)
-    server_module.summary_store = HandSummaryStore(pool)
-    server_module.stats_store = PlayerStatsStore(pool)
+    game_module.event_store = GameEventStore(pool)
+    game_module.summary_store = HandSummaryStore(pool)
+    game_module.stats_store = PlayerStatsStore(pool)
+    game_module.metadata_store = GameMetadataStore(pool)
+    game_module.stream_store = StreamStore(pool)
 
     def make_recorder(game_id: int) -> GameRecorder:
         return GameRecorder(
             game_id,
-            server_module.event_store,
-            server_module.summary_store,
-            server_module.stats_store,
+            game_module.event_store,
+            game_module.summary_store,
+            game_module.stats_store,
         )
 
-    server_module.manager = GameManager(recorder_factory=make_recorder)
-    server_module.account_store = AccountStore(pool)
-    server_module.balance_store = BalanceStore(pool)
-    server_module.stream_manager = StreamManager()
+    game_module.manager = GameManager(
+        recorder_factory=make_recorder,
+        metadata_store=game_module.metadata_store,
+    )
+    game_module.account_store = AccountStore(pool)
+    game_module.balance_store = BalanceStore(pool)
     yield
 
 
 @pytest.fixture
 def client():
-    return TestClient(server_module.app)
+    return TestClient(game_module.app)
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -58,9 +63,11 @@ def claim_faucet(client, api_key: str) -> dict:
 
 
 def get_balance(client, api_key: str) -> int:
-    resp = client.get("/api/balance", headers=auth_header(api_key))
-    assert resp.status_code == 200
-    return resp.json()["balance"]
+    """Get balance via the game API's balance store directly."""
+    bal = game_module.balance_store.get(
+        game_module.account_store.verify_key(api_key).username
+    )
+    return bal.amount
 
 
 def create_offchain_game(client, buy_in: int, max_players: int = 0) -> int:
@@ -109,14 +116,6 @@ class TestModeInference:
         resp = client.post("/api/games", json={"buy_in": 100, "mode": "onchain"})
         assert resp.status_code == 400
         assert "token" in resp.json()["detail"].lower()
-
-    def test_mode_in_game_list(self, client):
-        create_offchain_game(client, buy_in=100)
-        resp = client.get("/api/games")
-        assert resp.status_code == 200
-        games = resp.json()["games"]
-        assert len(games) == 1
-        assert games[0]["mode"] == "offchain"
 
 
 # ── Faucet tests ─────────────────────────────────────────

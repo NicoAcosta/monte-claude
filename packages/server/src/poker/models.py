@@ -285,6 +285,32 @@ class PlayerStatsResponse(BaseModel):
     biggest_pot_won: int
 
 
+class LeaderboardEntry(BaseModel):
+    rank: int
+    username: str
+    games_played: int
+    hands_won: int
+    win_rate: float
+    total_winnings: int
+    biggest_pot_won: int
+
+
+class LeaderboardResponse(BaseModel):
+    players: list[LeaderboardEntry]
+
+
+class RecentHandItem(BaseModel):
+    game_id: int
+    hand_number: int
+    winner_ids: list[int]
+    pot: int
+    timestamp: float
+
+
+class RecentHandsResponse(BaseModel):
+    hands: list[RecentHandItem]
+
+
 # ── Stream models ──────────────────────────────────────
 
 class CreateStreamRequest(BaseModel):
