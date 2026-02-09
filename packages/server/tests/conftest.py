@@ -20,6 +20,10 @@ def clean_tables():
     # Clear in-process TTL cache used by data_api
     from data_api.app import _cache
     _cache.clear()
+    # Clear rate limiters used by account_api
+    from account_api.app import _register_limiter, _faucet_limiter
+    _register_limiter.clear()
+    _faucet_limiter.clear()
     yield
 
 
