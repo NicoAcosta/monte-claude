@@ -11,6 +11,7 @@ from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
 from poker.db import get_pool
+from poker.formatting import format_buy_in
 from poker.game_metadata_store import GameMetadataStore
 from poker.game_mode import GameMode
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
@@ -111,7 +112,7 @@ def list_games():
                 max_players=r.max_players,
                 token=r.token,
                 buy_in=r.buy_in,
-                buy_in_display=_buy_in_display(r.buy_in, r.token_decimals, r.token_symbol, r.mode),
+                buy_in_display=format_buy_in(r.buy_in, r.token_decimals, r.token_symbol, r.mode),
                 token_symbol=r.token_symbol,
                 funded=r.funded,
                 mode=r.mode or GameMode.OFFCHAIN,
@@ -119,21 +120,6 @@ def list_games():
             for r in rows
         ]
     )
-
-
-def _buy_in_display(buy_in: int, token_decimals: int, token_symbol: str | None, mode: str) -> str:
-    """Replicate GameConfig.buy_in_display logic for metadata rows."""
-    if buy_in == 0:
-        return "Free"
-    if token_decimals > 0:
-        raw = buy_in / (10 ** token_decimals)
-        amount = f"{raw:g}"
-    else:
-        amount = str(buy_in)
-    symbol = token_symbol or ("credits" if mode == "offchain" else None)
-    if symbol:
-        return f"{amount} {symbol}"
-    return amount
 
 
 # ── History routes ──────────────────────────────────────

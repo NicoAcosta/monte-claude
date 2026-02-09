@@ -6,6 +6,7 @@ import time
 
 from dataclasses import dataclass
 
+from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
 
 from poker.stream import Stream
@@ -34,7 +35,7 @@ class StreamStore:
                     (game_id, host_username, title, created_at),
                 ).fetchone()
                 conn.commit()
-            except Exception:
+            except UniqueViolation:
                 conn.rollback()
                 raise ValueError(f"User '{host_username}' already has a stream on this game")
         return Stream(

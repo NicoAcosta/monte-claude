@@ -417,3 +417,113 @@ class TestActionTimer:
 
         # Hand should have advanced
         assert game.hand_number > hand_before
+
+
+class TestResignStateVersion:
+    """CR-1: resign must increment _state_version by exactly 1, not double-increment."""
+
+    def test_on_turn_resign_increments_by_one(self):
+        """When resigning on your turn, do_action(fold) handles the increment."""
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        cp = game.current_hand.current_player
+        v_before = game.state_version
+        game.resign(cp.id)
+        assert game.state_version == v_before + 1
+
+    def test_off_turn_resign_increments_by_one(self):
+        """When resigning off-turn, resign() itself increments once."""
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        cp = game.current_hand.current_player
+        # Pick a player who is NOT the current player
+        off_turn = [p for p in game._players if p.id != cp.id][0]
+        v_before = game.state_version
+        game.resign(off_turn.id)
+        assert game.state_version == v_before + 1
+
+    def test_resign_not_in_hand_increments_by_one(self):
+        """When resigning while not participating in a hand, increment once."""
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        # Force a player to be already folded in the current hand
+        cp = game.current_hand.current_player
+        off_turn = [p for p in game._players if p.id != cp.id][0]
+        hand_player = game.current_hand._get_player(off_turn.id)
+        hand_player.is_folded = True  # simulate already folded
+        v_before = game.state_version
+        game.resign(off_turn.id)
+        assert game.state_version == v_before + 1
+
+
+class TestOffTurnResignHandContinues:
+    """CR-2: Off-turn resign force-fold must not break the hand for remaining players."""
+
+    def test_3player_offturn_resign_hand_completes(self):
+        """Force-folding an off-turn player in a 3-player hand leaves 2 active players
+        and the hand should complete normally."""
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        hand_num = game.hand_number
+
+        cp = game.current_hand.current_player
+        # Resign a player who is NOT the current player
+        off_turn = [p for p in game._players if p.id != cp.id][0]
+        game.resign(off_turn.id)
+
+        # Hand should still be active with 2 remaining active players
+        assert game.current_hand is not None
+        active = game.current_hand.active_players
+        assert len(active) == 2
+
+        # Finish the hand by having remaining players fold
+        for _ in range(10):
+            if game.hand_number > hand_num or game.game_over:
+                break
+            cp = game.current_hand.current_player if game.current_hand else None
+            if cp is None:
+                break
+            game.do_action(cp.id, "fold")
+
+        # Hand should have advanced (completed successfully)
+        assert game.hand_number > hand_num or game.game_over
+
+    def test_3player_offturn_resign_leaves_1_active_ends_hand(self):
+        """In a 3-player hand, if one fold + one off-turn resign leaves only 1 active
+        player, the hand should complete immediately."""
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+
+        cp = game.current_hand.current_player
+        # First, the current player folds normally
+        game.do_action(cp.id, "fold")
+
+        # Now 2 active players remain in the same hand.
+        # Resign the one who is NOT the current player AND still active in hand.
+        if not game.game_over and game.current_hand is not None:
+            hand_num = game.hand_number
+            cp2 = game.current_hand.current_player
+            if cp2 is not None:
+                # Find a player who is still active in the hand but not the current player
+                off_turn_hand = [
+                    hp for hp in game.current_hand.active_players
+                    if hp.id != cp2.id
+                ]
+                assert len(off_turn_hand) > 0, "Need an off-turn active player"
+                game.resign(off_turn_hand[0].id)
+                # Hand should advance or game should end since only 1 active remains
+                assert game.hand_number > hand_num or game.game_over

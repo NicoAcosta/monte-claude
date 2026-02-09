@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from poker.formatting import format_buy_in
+
 
 @dataclass
 class GameConfig:
@@ -26,14 +28,4 @@ class GameConfig:
     @property
     def buy_in_display(self) -> str:
         """Human-readable buy-in (e.g., '1000 MONTE' or '500 credits')."""
-        if self.buy_in == 0:
-            return "Free"
-        if self.token_decimals > 0:
-            raw = self.buy_in / (10 ** self.token_decimals)
-            amount = f"{raw:g}"
-        else:
-            amount = str(self.buy_in)
-        symbol = self.token_symbol or ("credits" if self.mode == "offchain" else None)
-        if symbol:
-            return f"{amount} {symbol}"
-        return amount
+        return format_buy_in(self.buy_in, self.token_decimals, self.token_symbol, self.mode)

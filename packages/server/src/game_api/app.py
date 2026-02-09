@@ -157,6 +157,7 @@ def create_game(req: CreateGameRequest):
 
     def _on_game_over(g: Game, c: GameConfig) -> None:
         settlement_service.settle_offchain_game(g, c, balance_store)
+        manager.cleanup_completed()
 
     game_id, game, config = game_service.create_game(
         manager, req.max_players, req.token, req.buy_in, mode,
@@ -574,10 +575,9 @@ def extend(game_id: int, account: Account = Depends(require_auth)):
     if player is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
 
-    game._check_timeout()
-
     result = game.use_extension(player.id)
     if result is None:
+        game._check_timeout()
         raise HTTPException(status_code=400, detail="Cannot extend (not your turn or no extensions left)")
 
     new_deadline, remaining = result

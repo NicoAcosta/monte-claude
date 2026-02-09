@@ -67,6 +67,11 @@ class TestDebit:
         with pytest.raises(ValueError, match="non-negative"):
             store.debit("alice", -1)
 
+    def test_debit_zero_nonexistent_user_raises(self, store):
+        """CR-4: debit(0) for a non-existent user must raise ValueError, not TypeError."""
+        with pytest.raises(ValueError, match="Insufficient balance"):
+            store.debit("nonexistent", 0)
+
 
 class TestFaucet:
     def test_first_claim_succeeds(self, store):
