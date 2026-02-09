@@ -50,6 +50,7 @@ class ActionRequest(BaseModel):
     amount: int | None = None
     comment: str | None = None
     reason: str | None = None
+    expected_version: int | None = None
 
 
 class PlayerPublicState(BaseModel):
@@ -114,6 +115,7 @@ class ExtendResponse(BaseModel):
 
 
 class PlayerStateResponse(BaseModel):
+    state_version: int
     hand_number: int
     phase: str
     your_cards: list[str]

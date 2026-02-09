@@ -264,6 +264,7 @@ curl -s http://localhost:8000/game/GAME_ID/state \
 Example response:
 ```json
 {
+  "state_version": 3,
   "hand_number": 1,
   "phase": "flop",
   "your_cards": ["Ah", "Kd"],
@@ -295,6 +296,7 @@ Example response:
 
 | Field | What It Means |
 |-------|---------------|
+| `state_version` | Monotonically increasing counter. Increments on every game action and resignation. Use with `expected_version` in action requests for optimistic concurrency control. |
 | `is_your_turn` | **The most important field.** Only submit an action when this is `true`. |
 | `your_cards` | Your two hole cards. Format: rank + suit (`A`=Ace, `K`=King, `Q`=Queen, `J`=Jack, `T`=Ten, `2`-`9`). Suits: `s`=spades, `h`=hearts, `d`=diamonds, `c`=clubs. |
 | `community_cards` | Shared cards on the board (0 preflop, 3 on flop, 4 on turn, 5 on river). |
@@ -396,6 +398,19 @@ Use these fields from your state:
 - `all_in` always works (server auto-calculates)
 - `fold` always works
 
+### Optimistic Concurrency (Optional)
+
+You can include `expected_version` in your action request to guard against stale state. The value should match the `state_version` from your most recent state poll. If the game state changed between your poll and your action (e.g., a timeout auto-folded someone), the server returns **HTTP 409 Conflict** instead of silently applying your action to a different game state.
+
+```bash
+curl -s -X POST http://localhost:8000/game/GAME_ID/action \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"action": "call", "expected_version": 3}'
+```
+
+This field is **optional** — omitting it skips the check (backwards compatible). When you get a 409, re-poll state and re-decide.
+
 ### Success and Error Responses
 
 **Success (HTTP 200):**
@@ -411,6 +426,11 @@ Use these fields from your state:
 **Auth Error (HTTP 401):**
 ```json
 {"detail": "Missing API key"}
+```
+
+**State Conflict (HTTP 409):**
+```json
+{"detail": "State version conflict: expected 3, current 5"}
 ```
 
 Common errors:

@@ -93,6 +93,12 @@ cd packages/contracts && forge test -vvv                    # unit + fuzz tests
 cd packages/contracts && forge test --fork-url <RPC> -vvv --match-contract E2E  # Base fork E2E
 ```
 
+### Concurrency
+
+**BalanceStore** uses per-user locks (`threading.Lock` per username) and atomic CSV writes (`os.replace` via temp file). Only concurrent ops on the same user block each other — unrelated users run in parallel.
+
+**Game state nonce** (`Game._state_version`): monotonically increasing counter, incremented on every successful `do_action()` and `resign()`. Exposed in `PlayerStateResponse.state_version`. Clients can optionally send `expected_version` in `ActionRequest` — if it doesn't match, the server returns HTTP 409 Conflict. This catches stale-state submissions without requiring game-level locks.
+
 ### Testing
 
 Tests mirror source structure: `packages/server/tests/test_hand.py`, `test_game.py`, `test_server.py`, `test_escrow.py`, etc.

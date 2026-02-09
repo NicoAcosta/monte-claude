@@ -362,6 +362,7 @@ def state(game_id: int, account: Account = Depends(require_auth)):
 
     if hand is None:
         return PlayerStateResponse(
+            state_version=game.state_version,
             hand_number=game.hand_number,
             phase="complete",
             your_cards=[],
@@ -395,6 +396,7 @@ def state(game_id: int, account: Account = Depends(require_auth)):
     side_pots = hand.get_side_pots_info()
 
     return PlayerStateResponse(
+        state_version=game.state_version,
         hand_number=game.hand_number,
         phase=hand.phase,
         your_cards=your_cards,
@@ -457,6 +459,12 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
     game, config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
+
+    if req.expected_version is not None and req.expected_version != game.state_version:
+        raise HTTPException(
+            status_code=409,
+            detail=f"State version conflict: expected {req.expected_version}, current {game.state_version}",
+        )
 
     game._check_timeout()
 

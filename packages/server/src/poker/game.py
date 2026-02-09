@@ -51,6 +51,7 @@ class Game:
         self._time_extensions: dict[int, int] = {}  # player_id → remaining
         self._extra_time: float = 0.0  # extensions used on current turn
         self.first_hand_grace = first_hand_grace
+        self._state_version: int = 0
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
@@ -115,6 +116,10 @@ class Game:
 
     def get_extensions_remaining(self, player_id: int) -> int:
         return self._time_extensions.get(player_id, 0)
+
+    @property
+    def state_version(self) -> int:
+        return self._state_version
 
     @property
     def player_count(self) -> int:
@@ -185,6 +190,7 @@ class Game:
         result = self.current_hand.do_action(player_id, action, amount, comment=comment, reason=reason)
 
         if result == "ok":
+            self._state_version += 1
             self._extra_time = 0.0
             if self.current_hand.is_complete:
                 self._finish_hand()
@@ -207,6 +213,7 @@ class Game:
             return "Already eliminated"
 
         player.resigned = True
+        self._state_version += 1
         self._notify("player_resigned", {
             "player_name": player.name,
             "player_id": player.id,
