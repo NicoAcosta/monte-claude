@@ -16,5 +16,15 @@ services:
       timeout: 5s
       retries: 5
 
+  bot:
+    build: packages/bot
+    environment:
+      BOT_SERVER: http://host.docker.internal:8001
+      BOT_ACCOUNT_SERVER: http://host.docker.internal:8002
+      BOT_GAME_ID: ${GAME_ID:-1}
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   pgdata:
