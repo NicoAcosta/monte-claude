@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+
+_ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 from poker.hand import ActionRecord, Hand, PlayerInHand
 
@@ -51,6 +54,7 @@ class Game:
         self._time_extensions: dict[int, int] = {}  # player_id → remaining
         self._extra_time: float = 0.0  # extensions used on current turn
         self.first_hand_grace = first_hand_grace
+        self._state_version: int = 0
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
@@ -117,6 +121,10 @@ class Game:
         return self._time_extensions.get(player_id, 0)
 
     @property
+    def state_version(self) -> int:
+        return self._state_version
+
+    @property
     def player_count(self) -> int:
         return len(self._players)
 
@@ -135,6 +143,9 @@ class Game:
                 raise ValueError(f"Name '{name}' already taken")
             if wallet_address and p.wallet_address and p.wallet_address.lower() == wallet_address.lower():
                 raise ValueError("Wallet address already registered in this game")
+
+        if wallet_address and not _ETH_ADDRESS_RE.match(wallet_address):
+            raise ValueError("Invalid Ethereum address format")
 
         player = RegisteredPlayer(id=self._next_id, name=name, wallet_address=wallet_address)
         self._next_id += 1
@@ -185,6 +196,7 @@ class Game:
         result = self.current_hand.do_action(player_id, action, amount, comment=comment, reason=reason)
 
         if result == "ok":
+            self._state_version += 1
             self._extra_time = 0.0
             if self.current_hand.is_complete:
                 self._finish_hand()
@@ -207,6 +219,7 @@ class Game:
             return "Already eliminated"
 
         player.resigned = True
+        self._state_version += 1
         self._notify("player_resigned", {
             "player_name": player.name,
             "player_id": player.id,

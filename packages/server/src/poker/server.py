@@ -275,8 +275,8 @@ def escrow_info(game_id: int):
         info = escrow_service.get_escrow_info(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="On-chain escrow is not configured on this server")
 
     cfg = info["config"]
     return EscrowInfoResponse(
@@ -334,8 +334,8 @@ def settlement(game_id: int):
         result = escrow_service.get_settlement(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="On-chain escrow is not configured on this server")
 
     return SettlementResponse(
         payouts=[PayoutEntry(address=addr, amount=amt) for addr, amt in result["payouts"]],
@@ -346,12 +346,13 @@ def settlement(game_id: int):
 
 # ── Game state & action routes ───────────────────────────
 
-@app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)
-def state(game_id: int, player_id: int):
+@app.get("/game/{game_id}/state", response_model=PlayerStateResponse)
+def state(game_id: int, account: Account = Depends(require_auth)):
     game, config = _get_game_or_404(game_id)
-    rp = game.get_player(player_id)
+    rp = game.get_player_by_name(account.username)
     if rp is None:
-        raise HTTPException(status_code=404, detail="Player not found")
+        raise HTTPException(status_code=403, detail="Not a player in this game")
+    player_id = rp.id
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
@@ -361,6 +362,7 @@ def state(game_id: int, player_id: int):
 
     if hand is None:
         return PlayerStateResponse(
+            state_version=game.state_version,
             hand_number=game.hand_number,
             phase="complete",
             your_cards=[],
@@ -394,6 +396,7 @@ def state(game_id: int, player_id: int):
     side_pots = hand.get_side_pots_info()
 
     return PlayerStateResponse(
+        state_version=game.state_version,
         hand_number=game.hand_number,
         phase=hand.phase,
         your_cards=your_cards,
@@ -456,6 +459,12 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
     game, config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
+
+    if req.expected_version is not None and req.expected_version != game.state_version:
+        raise HTTPException(
+            status_code=409,
+            detail=f"State version conflict: expected {req.expected_version}, current {game.state_version}",
+        )
 
     game._check_timeout()
 
