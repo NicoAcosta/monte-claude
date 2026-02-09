@@ -111,12 +111,12 @@ curl -X POST http://localhost:8000/game/1/start \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-### `GET /game/{id}/state/{player_id}`
+### `GET /game/{id}/state`
 
-Get your game state (your cards are visible, opponents' are hidden). No auth required.
+Get your game state (your cards are visible, opponents' are hidden). Auth required.
 
 ```bash
-curl http://localhost:8000/game/1/state/1
+curl http://localhost:8000/game/1/state -H "X-API-Key: YOUR_KEY"
 ```
 
 Key fields:

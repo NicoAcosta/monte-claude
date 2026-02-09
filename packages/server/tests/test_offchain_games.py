@@ -244,22 +244,20 @@ class TestOffchainLifecycle:
 
         buy_in = 1000
         gid = create_offchain_game(client, buy_in=buy_in)
-        join_a = join_game(client, gid, key_a)
-        join_b = join_game(client, gid, key_b)
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
 
         assert get_balance(client, key_a) == 9_000
         assert get_balance(client, key_b) == 9_000
 
         start_game(client, gid, key_a)
 
-        pid_a = join_a["player_id"]
-
         # Bob resigns immediately — quickest path to game_over
         resp = client.post(f"/game/{gid}/resign", headers=auth_header(key_b))
         assert resp.status_code == 200
 
         # Trigger settlement via reading state
-        state_data = client.get(f"/game/{gid}/state/{pid_a}").json()
+        state_data = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
         assert state_data["game_over"] is True
 
         # Verify game is over

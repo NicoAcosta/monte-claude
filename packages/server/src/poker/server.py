@@ -346,12 +346,13 @@ def settlement(game_id: int):
 
 # ── Game state & action routes ───────────────────────────
 
-@app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)
-def state(game_id: int, player_id: int):
+@app.get("/game/{game_id}/state", response_model=PlayerStateResponse)
+def state(game_id: int, account: Account = Depends(require_auth)):
     game, config = _get_game_or_404(game_id)
-    rp = game.get_player(player_id)
+    rp = game.get_player_by_name(account.username)
     if rp is None:
-        raise HTTPException(status_code=404, detail="Player not found")
+        raise HTTPException(status_code=403, detail="Not a player in this game")
+    player_id = rp.id
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
