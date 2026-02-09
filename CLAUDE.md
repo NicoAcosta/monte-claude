@@ -51,6 +51,8 @@ make db-down   # Stop PostgreSQL
 | Evaluator | `packages/server/src/poker/evaluator.py` | Hand ranking and comparison |
 | Deck | `packages/server/src/poker/deck.py` | Card and deck types |
 | Escrow | `packages/server/src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
+| Logging | `packages/server/src/poker/logging_config.py` | JSON structured logging, request context middleware |
+| Audit | `packages/server/src/poker/audit.py` | Auth event and escrow operation audit stores |
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
 
@@ -108,6 +110,11 @@ The escrow system enables funded games with real ERC-20 token deposits on Base c
 | `CHAIN_ID` | Chain ID for EIP-712 | `8453` (Base) |
 | `FUNDING_TIMEOUT` | Seconds for deposits | `300` |
 | `SETTLEMENT_TIMEOUT` | Seconds for settlement | `7200` |
+| `LOG_LEVEL` | Python log level | `INFO` |
+| `LOG_FILE` | Path to log file (enables rotation) | (none) |
+| `SLOW_QUERY_MS` | Threshold for slow query warnings | `100` |
+| `DB_CONNECT_RETRIES` | Pool connection retry attempts | `3` |
+| `DB_CONNECT_RETRY_DELAY` | Seconds between retries | `2` |
 
 **Foundry commands:**
 ```bash
@@ -128,13 +135,34 @@ PostgreSQL 16 runs in Docker via `docker-compose.yml`. The server connects non-d
 | Pool | `psycopg_pool.ConnectionPool` singleton in `db.py` |
 | DSN override | `DATABASE_URL` env var |
 
-Tables: `accounts`, `balances`, `game_events`, `hand_summaries`, `player_stats`, `game_metadata`, `streams`.
+Tables: `accounts`, `balances`, `game_events`, `hand_summaries`, `player_stats`, `player_token_stats`, `game_metadata`, `streams`.
+
+**Audit tables** (append-only): `balance_history`, `auth_events`, `escrow_operations`.
+
+**Foreign keys**: `balances`, `player_stats`, `player_token_stats`, `balance_history` all reference `accounts(username)`.
 
 ### Concurrency
 
 **BalanceStore** uses PostgreSQL row-level locking (`SELECT ... FOR UPDATE`) for debit and faucet operations. No application-level locks needed.
 
 **Game state nonce** (`Game._state_version`): monotonically increasing counter, incremented on every successful `do_action()` and `resign()`. Exposed in `PlayerStateResponse.state_version`. Clients can optionally send `expected_version` in `ActionRequest` — if it doesn't match, the server returns HTTP 409 Conflict. This catches stale-state submissions without requiring game-level locks.
+
+### Observability
+
+**Structured logging**: All logs are JSON via `poker.logging_config`. `RequestContextMiddleware` assigns a `X-Request-ID` (from header or auto-generated) to every request, included in all log entries. Configure level with `LOG_LEVEL`, optional file rotation with `LOG_FILE`.
+
+**Health**: `GET /health` on both apps — pings the DB, returns pool stats and `healthy`/`degraded` status.
+
+**Metrics**: `GET /metrics` on both apps — Prometheus-compatible via `prometheus-fastapi-instrumentator`.
+
+**Audit trail**: Three append-only PostgreSQL tables:
+- `balance_history` — every credit/debit/faucet, written in the same transaction as the balance mutation
+- `auth_events` — registration, login success/failure, with IP address
+- `escrow_operations` — config creation, funding checks, settlement signing
+
+**Slow query logging**: `db.timed_query()` context manager warns when queries exceed `SLOW_QUERY_MS` (default 100ms). Wraps hot-path balance operations.
+
+**DB retry**: `get_pool()` retries `DB_CONNECT_RETRIES` times with `DB_CONNECT_RETRY_DELAY`s delay on startup failure.
 
 ### Testing
 

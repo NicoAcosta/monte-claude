@@ -11,17 +11,22 @@ Orchestrate an AI poker game: start the server, register agents with personaliti
 
 ### 1. Ensure the Server Is Running
 
-Check if the server is already running on port 8000. If not, start it:
+Check if both APIs are already running. If not, start them:
 
 ```bash
-# Check if server is up
-curl -s http://localhost:8000/api/games > /dev/null 2>&1
+# Check if Game API is up (port 8001)
+curl -s http://localhost:8001/ping > /dev/null 2>&1
 
-# If not running, start it in the background
-cd claude-poker/packages/server && .venv/bin/uvicorn poker.server:app --host 0.0.0.0 --port 8000 &
+# Check if Data API is up (port 8000)
+curl -s http://localhost:8000/ping > /dev/null 2>&1
+
+# If not running, start the database and both APIs
+make db-up
+make run-game &   # Game API on port 8001 (writes + live state)
+make run-data &   # Data API on port 8000 (reads + static files)
 ```
 
-Wait until the server responds before proceeding.
+Wait until both servers respond before proceeding.
 
 ### 2. Ask the User for Player Configuration
 
@@ -38,14 +43,14 @@ If the user doesn't specify, use these defaults (3 players):
 
 **Free game** (virtual chips only):
 ```bash
-curl -s -X POST http://localhost:8000/api/games \
+curl -s -X POST http://localhost:8001/api/games \
   -H "Content-Type: application/json" \
   -d '{"max_players": 0, "buy_in": 0}'
 ```
 
 **Funded game** (on-chain token buy-in):
 ```bash
-curl -s -X POST http://localhost:8000/api/games \
+curl -s -X POST http://localhost:8001/api/games \
   -H "Content-Type: application/json" \
   -d '{"max_players": 4, "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "buy_in": 100000000}'
 ```
@@ -58,19 +63,19 @@ For each player, register an account and join the game:
 
 ```bash
 # Register account (save the API key!)
-RESPONSE=$(curl -s -X POST http://localhost:8000/api/register \
+RESPONSE=$(curl -s -X POST http://localhost:8001/api/register \
   -H "Content-Type: application/json" \
   -d '{"username": "PLAYER_NAME"}')
 API_KEY=$(echo "$RESPONSE" | jq -r .api_key)
 
 # Join the game (free game — wallet_address is null)
-curl -s -X POST http://localhost:8000/game/GAME_ID/join \
+curl -s -X POST http://localhost:8001/game/GAME_ID/join \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $API_KEY" \
   -d '{"wallet_address": null}'
 
 # For funded games — each player needs a unique wallet address:
-curl -s -X POST http://localhost:8000/game/GAME_ID/join \
+curl -s -X POST http://localhost:8001/game/GAME_ID/join \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $API_KEY" \
   -d '{"wallet_address": "0xPLAYER_WALLET"}'
@@ -87,7 +92,7 @@ Skip this step for free games (buy_in = 0).
 Once all seats are filled, get the escrow configuration:
 
 ```bash
-curl -s http://localhost:8000/game/GAME_ID/escrow
+curl -s http://localhost:8001/game/GAME_ID/escrow
 ```
 
 This returns the escrow address, calldata for depositing, and deadlines. Each player must:
@@ -98,7 +103,7 @@ This returns the escrow address, calldata for depositing, and deadlines. Each pl
 Poll funding status until all deposits are confirmed:
 
 ```bash
-curl -s http://localhost:8000/game/GAME_ID/funding
+curl -s http://localhost:8001/game/GAME_ID/funding
 ```
 
 The game cannot start until `all_deposited` is `true`. The server auto-checks when polled.
@@ -110,7 +115,7 @@ The game cannot start until `all_deposited` is `true`. The server auto-checks wh
 Any registered player can start the game (requires their API key):
 
 ```bash
-curl -s -X POST http://localhost:8000/game/GAME_ID/start \
+curl -s -X POST http://localhost:8001/game/GAME_ID/start \
   -H "X-API-Key: $API_KEY"
 ```
 
@@ -122,13 +127,13 @@ First, register a commentator account and create a stream on the game:
 
 ```bash
 # Register the commentator account
-RESPONSE=$(curl -s -X POST http://localhost:8000/api/register \
+RESPONSE=$(curl -s -X POST http://localhost:8001/api/register \
   -H "Content-Type: application/json" \
   -d '{"username": "Commentator"}')
 COMMENTATOR_KEY=$(echo "$RESPONSE" | jq -r .api_key)
 
 # Create a stream on the game
-STREAM_RESPONSE=$(curl -s -X POST http://localhost:8000/game/GAME_ID/streams \
+STREAM_RESPONSE=$(curl -s -X POST http://localhost:8001/game/GAME_ID/streams \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $COMMENTATOR_KEY" \
   -d '{"title": "Official Commentary"}')
@@ -139,13 +144,13 @@ Then launch a background subagent with this prompt:
 
 > You are a poker commentator. Your job is to watch the game and provide entertaining, insightful commentary.
 >
-> The game ID is {GAME_ID}. The stream ID is {STREAM_ID}. The server is at http://localhost:8000.
+> The game ID is {GAME_ID}. The stream ID is {STREAM_ID}. The server is at http://localhost:8001.
 >
-> Every 5-8 seconds, poll GET http://localhost:8000/stream/{STREAM_ID}/data to see the game state and your current commentary.
+> Every 5-8 seconds, poll GET http://localhost:8001/stream/{STREAM_ID}/data to see the game state and your current commentary.
 > After each poll, if something interesting happened (new actions, phase changes, big bets), POST commentary:
 >
 > ```bash
-> curl -s -X POST http://localhost:8000/stream/STREAM_ID/commentate \
+> curl -s -X POST http://localhost:8001/stream/STREAM_ID/commentate \
 >   -H "Content-Type: application/json" \
 >   -H "X-API-Key: YOUR_API_KEY" \
 >   -d '{"text": "YOUR COMMENTARY HERE"}'
@@ -169,12 +174,12 @@ For each registered player, launch a background subagent with this prompt templa
 
 > You are {NAME}, a poker player. {PERSONALITY_DESCRIPTION}
 >
-> Your player_id is {ID}. Your API key is {API_KEY}. The game ID is {GAME_ID}. The server is at http://localhost:8000.
+> Your player_id is {ID}. Your API key is {API_KEY}. The game ID is {GAME_ID}. The server is at http://localhost:8001.
 >
 > Read the game instructions from: instructions.md
 >
 > Your game loop:
-> 1. GET http://localhost:8000/game/{GAME_ID}/state/{ID}
+> 1. GET http://localhost:8001/game/{GAME_ID}/state/{ID}
 > 2. If game_over is true, stop
 > 3. If is_your_turn is false, wait 1 second and poll again
 > 4. If is_your_turn is true:
@@ -196,7 +201,7 @@ For each registered player, launch a background subagent with this prompt templa
 >
 > Example action with comment and reason:
 > ```bash
-> curl -s -X POST http://localhost:8000/game/GAME_ID/action \
+> curl -s -X POST http://localhost:8001/game/GAME_ID/action \
 >   -H "Content-Type: application/json" \
 >   -H "X-API-Key: API_KEY" \
 >   -d '{"action": "call", "comment": "YOUR TRASH TALK", "reason": "Strategic reasoning here"}'
@@ -207,7 +212,7 @@ For each registered player, launch a background subagent with this prompt templa
 After launching all agents, periodically poll the spectator endpoint to track progress:
 
 ```bash
-curl -s http://localhost:8000/game/GAME_ID/spectator | jq '{hand: .hand_number, phase: .phase, game_over: .game_over, winner: .winner}'
+curl -s http://localhost:8001/game/GAME_ID/spectator | jq '{hand: .hand_number, phase: .phase, game_over: .game_over, winner: .winner}'
 ```
 
 Report to the user:
@@ -222,7 +227,7 @@ Skip this step for free games.
 Once the game is over, get the settlement data:
 
 ```bash
-curl -s http://localhost:8000/game/GAME_ID/settlement
+curl -s http://localhost:8001/game/GAME_ID/settlement
 ```
 
 This returns the EIP-712 signed payout distribution. Any player can submit the settlement transaction on-chain using the provided signature. The escrow contract deducts rake and distributes tokens to winners.

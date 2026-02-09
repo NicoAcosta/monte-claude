@@ -28,6 +28,6 @@ def settle_offchain_game(
 
     for username, amount in payouts:
         if amount > 0:
-            balance_store.credit(username, amount)
+            balance_store.credit(username, amount, reason="settlement")
 
     config.offchain_settlement = payouts

@@ -72,7 +72,7 @@ def join_game(
     # Off-chain: debit buy-in from balance before registering
     if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
         try:
-            balance_store.debit(username, config.buy_in)
+            balance_store.debit(username, config.buy_in, reason="game_buy_in")
         except ValueError:
             raise ValueError(f"Insufficient balance (need {config.buy_in})")
 
@@ -81,7 +81,7 @@ def join_game(
     except ValueError:
         # Refund if registration failed
         if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
-            balance_store.credit(username, config.buy_in)
+            balance_store.credit(username, config.buy_in, reason="join_refund")
         raise
 
     if recorder:
