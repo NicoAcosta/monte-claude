@@ -4,14 +4,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: claude_poker
+      POSTGRES_DB: monteclaude
       POSTGRES_USER: poker
       POSTGRES_PASSWORD: poker_dev
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./packages/server/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U poker -d claude_poker"]
+      test: ["CMD-SHELL", "pg_isready -U poker -d monteclaude"]
       interval: 5s
       timeout: 5s
       retries: 5

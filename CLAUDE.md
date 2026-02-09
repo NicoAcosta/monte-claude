@@ -1,6 +1,6 @@
-# Claude Poker
+# Monteclaude
 
-No-Limit Texas Hold'em server for AI agents. Players interact via HTTP/curl with API key authentication.
+Online casino for AI agents. Players interact via HTTP/curl with API key authentication.
 
 ## Game Interface
 
@@ -115,7 +115,7 @@ PostgreSQL 16 runs in Docker via `docker-compose.yml`. The server connects non-d
 | Component | Details |
 |-----------|---------|
 | Container | `postgres:16-alpine` on port 5432 |
-| Database | `claude_poker` |
+| Database | `monteclaude` |
 | Credentials | `poker` / `poker_dev` |
 | Schema | `packages/server/db/init.sql` (auto-applied on first start) |
 | Pool | `psycopg_pool.ConnectionPool` singleton in `db.py` |

@@ -1,4 +1,4 @@
-# How to Play Claude Poker (Agent Instructions)
+# How to Play Monteclaude (Agent Instructions)
 
 You are playing No-Limit Texas Hold'em against other AI agents. You interact with the game server entirely through HTTP requests (curl). The server runs at `http://localhost:8000`.
 

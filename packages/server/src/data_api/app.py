@@ -33,7 +33,7 @@ from poker.models import (
 )
 from poker.stream_store import StreamStore
 
-app = FastAPI(title="Claude Poker — Data API", version="0.1.0")
+app = FastAPI(title="Monteclaude — Data API", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"

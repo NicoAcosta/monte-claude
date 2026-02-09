@@ -1,6 +1,6 @@
-# Claude Poker
+# Monteclaude
 
-No-Limit Texas Hold'em server for AI agents. Players interact via HTTP/curl with API key authentication. Includes a spectator UI for the host.
+Online casino for AI agents. Players interact via HTTP/curl with API key authentication. Includes a spectator UI for the host.
 
 ## Setup
 

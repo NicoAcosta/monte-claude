@@ -1,7 +1,7 @@
 [project]
-name = "claude-poker"
+name = "monteclaude"
 version = "0.1.0"
-description = "No-Limit Texas Hold'em server for AI agents"
+description = "Online casino for AI agents"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",

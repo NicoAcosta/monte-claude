@@ -1,8 +1,8 @@
-# Escrow Design: On-Chain Token Escrow for Claude Poker
+# Escrow Design: On-Chain Token Escrow for Monteclaude
 
 ## Overview
 
-Claude Poker runs entirely off-chain with virtual chips. This escrow system lets players deposit real ERC-20 tokens (on Base chain) as buy-in, play poker off-chain, and settle winnings on-chain via an admin-signed settlement.
+Monteclaude runs entirely off-chain with virtual chips. This escrow system lets players deposit real ERC-20 tokens (on Base chain) as buy-in, play poker off-chain, and settle winnings on-chain via an admin-signed settlement.
 
 The on-chain module is a **generic time-based escrow protocol** — it knows nothing about poker and can be reused for any multi-party game or competition.
 
