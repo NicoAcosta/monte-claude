@@ -642,19 +642,70 @@
   .audio-toggle:hover { border-color: var(--gold); color: var(--gold); }
   .audio-toggle.active { border-color: var(--gold); color: var(--gold); }
 
-  /* ── Game Info Badges ─────────────────────────────────── */
-  .game-info-pills {
-    display: inline-flex;
-    gap: 6px;
-    font-size: 11px;
-  }
-  .game-info-pill {
-    padding: 2px 8px;
-    border-radius: 10px;
-    background: rgba(255,255,255,.06);
+  /* ── Info Toggle Button ──────────────────────────────── */
+  .info-toggle {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.15);
+    background: none;
     color: var(--text-dim);
-    border: 1px solid rgba(255,255,255,.08);
-    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 700;
+    font-style: italic;
+    font-family: Georgia, serif;
+    cursor: pointer;
+    transition: all .2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .info-toggle:hover, .info-toggle.active {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+
+  /* ── Info Panel (dropdown below header) ────────────── */
+  .info-panel {
+    background: rgba(0,0,0,.45);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    padding: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .3s ease, padding .3s ease;
+  }
+  .info-panel.visible {
+    max-height: 120px;
+    padding: 12px 24px;
+  }
+  .info-grid {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .info-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .info-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+  }
+  .info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  /* ── Responsive Header ────────────────────────────────── */
+  @media (max-width: 600px) {
+    .header { padding: 8px 12px; }
+    .header-title { font-size: 12px; letter-spacing: 1px; }
+    .header-meta { gap: 10px; font-size: 11px; }
   }
 
   /* ── Utilities ────────────────────────────────────────── */
@@ -672,12 +723,22 @@
     <div class="header-meta">
       <span id="hand-info"></span>
       <span id="phase-info"></span>
-      <span class="hidden" id="stream-duration-wrap">Live: <span id="stream-duration">0:00</span></span>
-      <span id="game-info"></span>
       <span><span class="conn-dot loading" id="conn-dot"></span><span id="conn-text">Connecting</span></span>
+      <button class="info-toggle" id="info-toggle" title="Game info">i</button>
       <button class="audio-toggle" id="audio-toggle" title="Toggle audio commentary">Sound: OFF</button>
     </div>
   </header>
+
+  <!-- Info Panel (toggled by info button) -->
+  <div class="info-panel" id="info-panel">
+    <div class="info-grid">
+      <div class="info-item"><span class="info-label">Players</span><span class="info-value" id="info-players">--</span></div>
+      <div class="info-item"><span class="info-label">Buy-in</span><span class="info-value" id="info-buyin">--</span></div>
+      <div class="info-item"><span class="info-label">Timer</span><span class="info-value" id="info-timer">--</span></div>
+      <div class="info-item"><span class="info-label">Mode</span><span class="info-value" id="info-mode">--</span></div>
+      <div class="info-item hidden" id="info-duration-wrap"><span class="info-label">Live</span><span class="info-value" id="stream-duration">0:00</span></div>
+    </div>
+  </div>
 
   <!-- Table Area -->
   <div class="table-area">
@@ -823,9 +884,14 @@
   const $winnerSub       = document.getElementById('winner-sub');
   const $commentaryBanner = document.getElementById('commentary-banner');
   const $commentaryText   = document.getElementById('commentary-text');
-  const $streamDurationWrap = document.getElementById('stream-duration-wrap');
+  const $infoToggle       = document.getElementById('info-toggle');
+  const $infoPanel        = document.getElementById('info-panel');
+  const $infoPlayers      = document.getElementById('info-players');
+  const $infoBuyin        = document.getElementById('info-buyin');
+  const $infoTimer        = document.getElementById('info-timer');
+  const $infoMode         = document.getElementById('info-mode');
+  const $infoDurationWrap = document.getElementById('info-duration-wrap');
   const $streamDuration   = document.getElementById('stream-duration');
-  const $gameInfo         = document.getElementById('game-info');
 
   /* ── State ──────────────────────────────────────────── */
   let lastHandNumber = null;
@@ -872,6 +938,11 @@
       speechQueue.length = 0;
       isSpeaking = false;
     }
+  });
+
+  $infoToggle.addEventListener('click', function () {
+    $infoPanel.classList.toggle('visible');
+    $infoToggle.classList.toggle('active');
   });
 
   function speak(text, rate, pitch) {
@@ -984,17 +1055,12 @@
     $pokerTable.classList.remove('hidden');
     stopFundingPoll();
 
-    /* Game info (render once) */
+    /* Game info panel (populate once) */
     if (!gameInfoRendered) {
-      var playersText = state.starting_players + ' players';
-      var buyInText = state.buy_in > 0 ? formatChips(state.buy_in) + ' buy-in' : 'Free';
-      var timerText = state.action_timeout + 's timer';
-      $gameInfo.innerHTML =
-        '<span class="game-info-pills">' +
-          '<span class="game-info-pill">' + escapeHtml(playersText) + '</span>' +
-          '<span class="game-info-pill">' + escapeHtml(buyInText) + '</span>' +
-          '<span class="game-info-pill">' + escapeHtml(timerText) + '</span>' +
-        '</span>';
+      $infoPlayers.textContent = state.starting_players + ' players';
+      $infoBuyin.textContent = state.buy_in_display || (state.buy_in > 0 ? formatChips(state.buy_in) : 'Free');
+      $infoTimer.textContent = state.action_timeout + 's';
+      $infoMode.textContent = (state.mode === 'onchain') ? 'On-chain' : 'Off-chain';
       gameInfoRendered = true;
     }
 
@@ -1113,7 +1179,7 @@
   function startStreamDuration(createdAt) {
     if (streamCreatedAt === createdAt) return;
     streamCreatedAt = createdAt;
-    $streamDurationWrap.classList.remove('hidden');
+    $infoDurationWrap.classList.remove('hidden');
     if (streamDurationInterval) clearInterval(streamDurationInterval);
     streamDurationInterval = setInterval(updateStreamDuration, 1000);
     updateStreamDuration();

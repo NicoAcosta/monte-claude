@@ -20,6 +20,8 @@ class GameSummary:
     max_players: int = 0
     token: str | None = None
     buy_in: int = 0
+    buy_in_display: str = ""
+    token_symbol: str | None = None
     funded: bool = False
     mode: str | None = None
 
@@ -40,6 +42,8 @@ class GameManager:
         max_players: int = 0,
         token: str | None = None,
         buy_in: int = 0,
+        token_decimals: int = 0,
+        token_symbol: str | None = None,
         mode: str | None = None,
         on_game_over: Callable[[Game, GameConfig], None] | None = None,
         action_timeout: float | None = None,
@@ -52,6 +56,8 @@ class GameManager:
             buy_in=buy_in,
             max_players=max_players,
             token=token,
+            token_decimals=token_decimals,
+            token_symbol=token_symbol,
         )
 
         recorder: GameRecorder | None = None
@@ -96,6 +102,8 @@ class GameManager:
                 max_players=self._configs[gid].max_players,
                 token=self._configs[gid].token,
                 buy_in=self._configs[gid].buy_in,
+                buy_in_display=self._configs[gid].buy_in_display,
+                token_symbol=self._configs[gid].token_symbol,
                 funded=self._configs[gid].funded,
                 mode=self._configs[gid].mode,
             )

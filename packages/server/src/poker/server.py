@@ -186,6 +186,8 @@ def list_games():
                 max_players=s.max_players,
                 token=s.token,
                 buy_in=s.buy_in,
+                buy_in_display=s.buy_in_display,
+                token_symbol=s.token_symbol,
                 funded=s.funded,
                 mode=s.mode or GameMode.OFFCHAIN,
             )
@@ -206,6 +208,8 @@ def create_game(req: CreateGameRequest):
 
     game_id, game, config = game_service.create_game(
         manager, req.max_players, req.token, req.buy_in, mode,
+        token_decimals=req.token_decimals,
+        token_symbol=req.token_symbol,
         on_game_over=_on_game_over,
         action_timeout=req.action_timeout,
     )
@@ -214,6 +218,8 @@ def create_game(req: CreateGameRequest):
         max_players=config.max_players,
         token=config.token,
         buy_in=config.buy_in,
+        buy_in_display=config.buy_in_display,
+        token_symbol=config.token_symbol,
         mode=config.mode or GameMode.OFFCHAIN,
     )
 
@@ -572,6 +578,8 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
         chat_log=_chat_log(game),
         timer=_timer_info(game),
         buy_in=config.buy_in,
+        buy_in_display=config.buy_in_display,
+        token_symbol=config.token_symbol,
         escrow_address=config.escrow_address,
         mode=config.mode or GameMode.OFFCHAIN,
         max_players=config.max_players,

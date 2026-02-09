@@ -30,6 +30,8 @@ def create_game(
     token: str | None,
     buy_in: int,
     mode: str,
+    token_decimals: int = 0,
+    token_symbol: str | None = None,
     on_game_over: Callable[[Game, GameConfig], None] | None = None,
     action_timeout: float | None = None,
 ) -> tuple[int, Game, GameConfig]:
@@ -38,6 +40,8 @@ def create_game(
         max_players=max_players,
         token=token,
         buy_in=buy_in,
+        token_decimals=token_decimals,
+        token_symbol=token_symbol,
         mode=mode,
         on_game_over=on_game_over,
         action_timeout=action_timeout,
