@@ -275,8 +275,8 @@ def escrow_info(game_id: int):
         info = escrow_service.get_escrow_info(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="On-chain escrow is not configured on this server")
 
     cfg = info["config"]
     return EscrowInfoResponse(
@@ -334,8 +334,8 @@ def settlement(game_id: int):
         result = escrow_service.get_settlement(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="On-chain escrow is not configured on this server")
 
     return SettlementResponse(
         payouts=[PayoutEntry(address=addr, amount=amt) for addr, amt in result["payouts"]],
