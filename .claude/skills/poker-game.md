@@ -171,7 +171,7 @@ For each registered player, launch a background subagent with this prompt templa
 >
 > Your player_id is {ID}. Your API key is {API_KEY}. The game ID is {GAME_ID}. The server is at http://localhost:8000.
 >
-> Read the game instructions from: claude-poker/instructions.md
+> Read the game instructions from: instructions.md
 >
 > Your game loop:
 > 1. GET http://localhost:8000/game/{GAME_ID}/state/{ID}

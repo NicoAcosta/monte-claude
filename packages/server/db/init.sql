@@ -1,4 +1,4 @@
--- Claude Poker — PostgreSQL schema
+-- Monteclaude — PostgreSQL schema
 
 CREATE TABLE accounts (
     username    TEXT PRIMARY KEY,

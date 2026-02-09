@@ -58,7 +58,7 @@ from poker.models import (
 from poker.stream_store import StreamStore
 from poker import balance_service, escrow_service, game_service, settlement_service
 
-app = FastAPI(title="Claude Poker — Game API", version="0.1.0")
+app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 
 _pool = get_pool()
 

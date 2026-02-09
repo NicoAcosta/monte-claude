@@ -13,7 +13,7 @@ def get_pool() -> ConnectionPool:
     if _pool is None:
         dsn = os.environ.get(
             "DATABASE_URL",
-            "postgresql://poker:poker_dev@localhost:5432/claude_poker",
+            "postgresql://poker:poker_dev@localhost:5432/monteclaude",
         )
         _pool = ConnectionPool(dsn, min_size=2, max_size=10, open=True)
     return _pool
