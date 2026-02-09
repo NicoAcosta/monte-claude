@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import time
 
-from poker.history_models import GameEvent, HandSummary
-from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
+from core.history_models import GameEvent
+from core.history_store import GameEventStore, PlayerStatsStore
+from poker.history_models import HandSummary
+from poker.history_store import HandSummaryStore
 
 
 class GameRecorder:

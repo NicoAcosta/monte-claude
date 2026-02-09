@@ -3,15 +3,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 import game_api.app as game_module
-from poker.account_store import AccountStore
-from poker.balance_store import BalanceStore
-from poker.db import get_pool
-from poker.game_manager import GameManager
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_recorder import GameRecorder
+from core.account_store import AccountStore
+from core.balance_store import BalanceStore
+from core.db import get_pool
+from core.game_manager import GameManager
+from core.game_metadata_store import GameMetadataStore
+from core.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
-from poker.stream_store import StreamStore
-from poker import balance_service
+from core.stream_store import StreamStore
+from core import balance_service
 
 
 @pytest.fixture(autouse=True)

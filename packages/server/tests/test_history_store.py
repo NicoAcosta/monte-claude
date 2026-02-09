@@ -1,6 +1,6 @@
 import json
 
-from poker.db import get_pool
+from core.db import get_pool
 from poker.history_models import GameEvent, HandSummary, PlayerStats
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 

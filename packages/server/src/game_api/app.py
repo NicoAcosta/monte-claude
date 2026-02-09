@@ -11,23 +11,23 @@ from starlette.requests import Request
 
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from poker.logging_config import configure_logging, RequestContextMiddleware
+from core.logging_config import configure_logging, RequestContextMiddleware
 
 configure_logging()
 
 _log = logging.getLogger("poker.game_api")
 
-from poker.account_store import Account, AccountStore
-from poker.audit import AuthAuditStore, EscrowAuditStore
-from poker.auth import make_auth_dependency
-from poker.balance_store import BalanceStore
-from poker.db import get_pool
+from core.account_store import Account, AccountStore
+from core.audit import AuthAuditStore, EscrowAuditStore
+from core.auth import make_auth_dependency
+from core.balance_store import BalanceStore
+from core.db import get_pool
 from poker.game import BIG_BLIND, Game, SMALL_BLIND
-from poker.game_config import GameConfig
-from poker.game_mode import GameMode
-from poker.game_manager import GameManager
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_recorder import GameRecorder
+from core.game_config import GameConfig
+from core.game_mode import GameMode
+from core.game_manager import GameManager
+from core.game_metadata_store import GameMetadataStore
+from core.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.models import (
     ActionRequest,
@@ -66,8 +66,8 @@ from poker.models import (
     TimerInfo,
     WaitingResponse,
 )
-from poker.stream_store import StreamStore
-from poker import escrow_service, game_service, settlement_service
+from core.stream_store import StreamStore
+from core import escrow_service, game_service, settlement_service
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
@@ -117,7 +117,7 @@ def health():
 _pool = get_pool()
 
 # Validate escrow env (non-fatal: offchain games still work)
-from poker.escrow import validate_escrow_env
+from core.escrow import validate_escrow_env
 for _warn in validate_escrow_env():
     _log.warning("escrow_env: %s", _warn)
 

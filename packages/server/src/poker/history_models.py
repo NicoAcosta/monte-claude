@@ -2,15 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
-@dataclass(frozen=True)
-class GameEvent:
-    game_id: int
-    event_type: str
-    timestamp: float
-    hand_number: int
-    data: str  # JSON-encoded payload
-    sequence: int
+# Re-export from core for backward compatibility
+from core.history_models import GameEvent, PlayerStats  # noqa: F401
 
 
 @dataclass(frozen=True)
@@ -27,13 +20,3 @@ class HandSummary:
     winning_cards: str = "{}"  # JSON: {name: [cards]}
     result_type: str = "fold"  # "fold" or "showdown"
     token_symbol: str | None = None
-
-
-@dataclass(frozen=True)
-class PlayerStats:
-    username: str
-    games_played: int
-    hands_played: int
-    hands_won: int
-    total_winnings: int  # net chips won across all games
-    biggest_pot_won: int

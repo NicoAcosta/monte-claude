@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from psycopg_pool import ConnectionPool
 
-from poker.db import timed_query
+from core.db import timed_query
 
 _log = logging.getLogger("poker.balance")
 

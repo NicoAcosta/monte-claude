@@ -1,7 +1,7 @@
 """Unit tests for GameMetadataStore."""
 
-from poker.db import get_pool
-from poker.game_metadata_store import GameMetadataStore
+from core.db import get_pool
+from core.game_metadata_store import GameMetadataStore
 
 
 class TestGameMetadataStore:

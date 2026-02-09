@@ -1,6 +1,6 @@
 import pytest
-from poker.account_store import AccountStore, KEY_PREFIX, hash_key
-from poker.db import get_pool
+from core.account_store import AccountStore, KEY_PREFIX, hash_key
+from core.db import get_pool
 
 
 @pytest.fixture

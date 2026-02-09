@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from poker.balance_store import BalanceStore
+from core.balance_store import BalanceStore
 from poker.game import Game, STARTING_CHIPS
-from poker.game_config import GameConfig
-from poker.game_mode import GameMode
-from poker.payout import compute_payouts
+from core.game_config import GameConfig
+from core.game_mode import GameMode
+from core.payout import compute_payouts
 
 
 def settle_offchain_game(

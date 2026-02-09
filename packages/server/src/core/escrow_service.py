@@ -8,7 +8,7 @@ from typing import Any
 
 _log = logging.getLogger("poker.escrow")
 
-from poker.escrow import (
+from core.escrow import (
     EscrowConfig,
     build_create_and_deposit_calldata,
     build_deposit_calldata,
@@ -19,10 +19,10 @@ from poker.escrow import (
     get_server_address,
     sign_settlement,
 )
-from poker.audit import EscrowAuditStore
+from core.audit import EscrowAuditStore
 from poker.game import Game, STARTING_CHIPS
-from poker.game_config import GameConfig
-from poker.payout import compute_payouts
+from core.game_config import GameConfig
+from core.payout import compute_payouts
 
 
 def get_escrow_info(

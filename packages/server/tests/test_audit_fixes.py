@@ -2,11 +2,11 @@
 
 import pytest
 
-from poker.account_store import AccountStore
-from poker.db import get_pool
-from poker.formatting import format_buy_in
-from poker.game_manager import GameManager
-from poker.stream_store import StreamStore
+from core.account_store import AccountStore
+from core.db import get_pool
+from core.formatting import format_buy_in
+from core.game_manager import GameManager
+from core.stream_store import StreamStore
 
 
 # ── Fix 1: Account creation TOCTOU race ────────────────
@@ -161,7 +161,7 @@ class TestFormatBuyIn:
 
     def test_game_config_uses_shared_function(self):
         """Verify GameConfig.buy_in_display delegates to the shared function."""
-        from poker.game_config import GameConfig
+        from core.game_config import GameConfig
 
         config = GameConfig(mode="offchain", buy_in=500)
         assert config.buy_in_display == format_buy_in(500, 0, None, "offchain")

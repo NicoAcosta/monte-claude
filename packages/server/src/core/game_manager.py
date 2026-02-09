@@ -4,9 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from poker.game import Game
-from poker.game_config import GameConfig
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_recorder import GameRecorder
+from core.game_config import GameConfig
+from core.game_metadata_store import GameMetadataStore
+from core.game_recorder import GameRecorder
 
 
 @dataclass(frozen=True)

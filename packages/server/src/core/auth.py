@@ -6,9 +6,9 @@ from collections.abc import Callable
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
-from poker.account_store import Account, AccountStore
-from poker.audit import AuthAuditStore
-from poker.logging_config import client_ip_var
+from core.account_store import Account, AccountStore
+from core.audit import AuthAuditStore
+from core.logging_config import client_ip_var
 
 _log = logging.getLogger("poker.auth")
 

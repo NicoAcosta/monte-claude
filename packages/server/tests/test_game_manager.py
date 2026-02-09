@@ -1,4 +1,4 @@
-from poker.game_manager import GameManager, GameSummary
+from core.game_manager import GameManager, GameSummary
 
 
 class TestGameManager:

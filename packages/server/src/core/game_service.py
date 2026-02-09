@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from poker.balance_store import BalanceStore
-from poker.game import Game, RegisteredPlayer
-from poker.game_config import GameConfig
-from poker.game_manager import GameManager
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_mode import GameMode
-from poker.game_recorder import GameRecorder
+from core.balance_store import BalanceStore
+from core.game_protocol import RegisteredPlayer
+from poker.game import Game
+from core.game_config import GameConfig
+from core.game_manager import GameManager
+from core.game_metadata_store import GameMetadataStore
+from core.game_mode import GameMode
+from core.game_recorder import GameRecorder
 
 
 def infer_mode(mode: str | None, token: str | None) -> str:

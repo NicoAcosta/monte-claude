@@ -8,7 +8,7 @@ from web3 import Web3
 
 import pytest
 
-from poker.escrow import (
+from core.escrow import (
     EscrowConfig,
     build_create_and_deposit_calldata,
     build_deposit_calldata,

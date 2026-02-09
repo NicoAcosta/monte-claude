@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from poker.balance_store import FAUCET_COOLDOWN_SECONDS, Balance, BalanceStore
+from core.balance_store import FAUCET_COOLDOWN_SECONDS, Balance, BalanceStore
 
 
 def claim_faucet(

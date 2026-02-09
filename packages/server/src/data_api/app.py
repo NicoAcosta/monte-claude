@@ -15,17 +15,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from poker.logging_config import configure_logging, RequestContextMiddleware
+from core.logging_config import configure_logging, RequestContextMiddleware
 
 configure_logging()
 
 _log = logging.getLogger("poker.data_api")
 
-from poker.cache import TTLCache
-from poker.db import get_pool
-from poker.formatting import format_buy_in
-from poker.game_metadata_store import GameMetadataStore
-from poker.game_mode import GameMode
+from core.cache import TTLCache
+from core.db import get_pool
+from core.formatting import format_buy_in
+from core.game_metadata_store import GameMetadataStore
+from core.game_mode import GameMode
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.models import (
     GameEventResponse,
@@ -43,7 +43,7 @@ from poker.models import (
     StreamListResponse,
     TokenStatsEntry,
 )
-from poker.stream_store import StreamStore
+from core.stream_store import StreamStore
 
 
 @asynccontextmanager
