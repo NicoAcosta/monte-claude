@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from poker.game import Game
+from poker.game_config import GameConfig
 from poker.game_recorder import GameRecorder
 
 
@@ -29,6 +30,7 @@ class GameManager:
         recorder_factory: Callable[[int], GameRecorder] | None = None,
     ) -> None:
         self._games: dict[int, Game] = {}
+        self._configs: dict[int, GameConfig] = {}
         self._recorders: dict[int, GameRecorder] = {}
         self._next_id = 1
         self._recorder_factory = recorder_factory
@@ -39,29 +41,43 @@ class GameManager:
         token: str | None = None,
         buy_in: int = 0,
         mode: str | None = None,
-    ) -> tuple[int, Game]:
+        on_game_over: Callable[[Game, GameConfig], None] | None = None,
+    ) -> tuple[int, Game, GameConfig]:
         game_id = self._next_id
         self._next_id += 1
 
+        config = GameConfig(
+            mode=mode or "offchain",
+            buy_in=buy_in,
+            max_players=max_players,
+            token=token,
+        )
+
+        recorder: GameRecorder | None = None
         if self._recorder_factory:
             recorder = self._recorder_factory(game_id)
             self._recorders[game_id] = recorder
-            game = Game(
-                event_callback=recorder.on_event,
-                max_players=max_players, token=token, buy_in=buy_in,
-                mode=mode,
-            )
-        else:
-            game = Game(max_players=max_players, token=token, buy_in=buy_in, mode=mode)
+
+        def _event_callback(event_type: str, data: dict) -> None:
+            if recorder:
+                recorder.on_event(event_type, data)
+            if event_type == "game_over" and on_game_over is not None:
+                on_game_over(game, config)
+
+        game = Game(event_callback=_event_callback)
 
         self._games[game_id] = game
-        return game_id, game
+        self._configs[game_id] = config
+        return game_id, game, config
 
     def get_recorder(self, game_id: int) -> GameRecorder | None:
         return self._recorders.get(game_id)
 
     def get_game(self, game_id: int) -> Game | None:
         return self._games.get(game_id)
+
+    def get_config(self, game_id: int) -> GameConfig | None:
+        return self._configs.get(game_id)
 
     def list_games(self) -> list[GameSummary]:
         return [
@@ -73,11 +89,11 @@ class GameManager:
                 game_over=game.game_over,
                 winner=game.winner,
                 hand_number=game.hand_number,
-                max_players=game.max_players,
-                token=game.token,
-                buy_in=game.buy_in,
-                funded=game.funded,
-                mode=game.mode,
+                max_players=self._configs[gid].max_players,
+                token=self._configs[gid].token,
+                buy_in=self._configs[gid].buy_in,
+                funded=self._configs[gid].funded,
+                mode=self._configs[gid].mode,
             )
             for gid, game in self._games.items()
         ]

@@ -4,20 +4,21 @@ from poker.game_manager import GameManager, GameSummary
 class TestGameManager:
     def test_create_game_returns_id_and_game(self):
         mgr = GameManager()
-        game_id, game = mgr.create_game()
+        game_id, game, config = mgr.create_game()
         assert game_id == 1
         assert game is not None
+        assert config is not None
 
     def test_create_game_increments_ids(self):
         mgr = GameManager()
-        id1, _ = mgr.create_game()
-        id2, _ = mgr.create_game()
+        id1, _, _ = mgr.create_game()
+        id2, _, _ = mgr.create_game()
         assert id1 == 1
         assert id2 == 2
 
     def test_get_game_exists(self):
         mgr = GameManager()
-        game_id, game = mgr.create_game()
+        game_id, game, _ = mgr.create_game()
         assert mgr.get_game(game_id) is game
 
     def test_get_game_missing(self):
@@ -30,7 +31,7 @@ class TestGameManager:
 
     def test_list_games_returns_summaries(self):
         mgr = GameManager()
-        gid, game = mgr.create_game()
+        gid, game, _ = mgr.create_game()
         game.register("Alice")
         game.register("Bob")
 
@@ -49,7 +50,7 @@ class TestGameManager:
 
     def test_list_games_reflects_started(self):
         mgr = GameManager()
-        _, game = mgr.create_game()
+        _, game, _ = mgr.create_game()
         game.register("Alice")
         game.register("Bob")
         game.start()
@@ -60,8 +61,8 @@ class TestGameManager:
 
     def test_games_are_independent(self):
         mgr = GameManager()
-        _, g1 = mgr.create_game()
-        _, g2 = mgr.create_game()
+        _, g1, _ = mgr.create_game()
+        _, g2, _ = mgr.create_game()
         g1.register("Alice")
         g2.register("Bob")
         assert g1.player_count == 1

@@ -1,0 +1,110 @@
+"""Game lifecycle orchestration — create, join, start, action."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from poker.balance_store import BalanceStore
+from poker.game import Game, RegisteredPlayer
+from poker.game_config import GameConfig
+from poker.game_manager import GameManager
+from poker.game_mode import GameMode
+from poker.game_recorder import GameRecorder
+
+
+def infer_mode(mode: str | None, token: str | None) -> str:
+    """Infer game mode from request params.
+
+    Raises ValueError if onchain mode requested without token.
+    """
+    if mode is not None:
+        if mode == GameMode.ONCHAIN and not token:
+            raise ValueError("On-chain mode requires a token address")
+        return mode
+    return GameMode.ONCHAIN if token else GameMode.OFFCHAIN
+
+
+def create_game(
+    manager: GameManager,
+    max_players: int,
+    token: str | None,
+    buy_in: int,
+    mode: str,
+    on_game_over: Callable[[Game, GameConfig], None] | None = None,
+) -> tuple[int, Game, GameConfig]:
+    """Create a game via the manager."""
+    return manager.create_game(
+        max_players=max_players,
+        token=token,
+        buy_in=buy_in,
+        mode=mode,
+        on_game_over=on_game_over,
+    )
+
+
+def join_game(
+    game: Game,
+    config: GameConfig,
+    username: str,
+    wallet_address: str | None,
+    balance_store: BalanceStore,
+    recorder: GameRecorder | None,
+) -> RegisteredPlayer:
+    """Join a game: check capacity/mode, debit balance, register player, record event.
+
+    Raises ValueError on insufficient balance, capacity, mode, or registration failure.
+    Refunds on registration failure.
+    """
+    if config.is_at_capacity(game.player_count):
+        raise ValueError("Game is full")
+    if config.mode == GameMode.ONCHAIN and not wallet_address:
+        raise ValueError("Wallet address required for on-chain games")
+
+    # Off-chain: debit buy-in from balance before registering
+    if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
+        try:
+            balance_store.debit(username, config.buy_in)
+        except ValueError:
+            raise ValueError(f"Insufficient balance (need {config.buy_in})")
+
+    try:
+        player = game.register(username, wallet_address=wallet_address)
+    except ValueError:
+        # Refund if registration failed
+        if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
+            balance_store.credit(username, config.buy_in)
+        raise
+
+    if recorder:
+        recorder.on_event("player_joined", {
+            "player_name": player.name,
+            "player_id": player.id,
+        })
+
+    return player
+
+
+def start_game(
+    game: Game,
+    config: GameConfig,
+    recorder: GameRecorder | None,
+) -> int:
+    """Check funding, mark funded (for offchain), and start the game.
+
+    Raises ValueError if game can't start.
+    Returns hand number.
+    """
+    if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
+        config.funded = True
+    elif config.buy_in > 0 and not config.funded:
+        raise ValueError("Deposits not confirmed")
+
+    hand_num = game.start()
+
+    if recorder:
+        recorder.on_event("game_started", {
+            "player_count": game.player_count,
+            "player_names": [p.name for p in game._players],
+        })
+
+    return hand_num
