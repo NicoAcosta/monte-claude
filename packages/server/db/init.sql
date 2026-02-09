@@ -74,6 +74,7 @@ CREATE TABLE game_metadata (
     funded          BOOLEAN NOT NULL DEFAULT FALSE,
     escrow_address  TEXT,
     action_timeout  REAL,
+    extensions_per_player INTEGER,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
     CHECK (buy_in >= 0),

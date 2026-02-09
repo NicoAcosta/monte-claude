@@ -602,6 +602,26 @@ class TestTimer:
         assert timer["deadline"] is not None
         assert timer["extensions_remaining"] == 3
 
+    def test_custom_extensions_per_player(self, client):
+        gid = create_game(client, extensions_per_player=7)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        state = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        assert state["timer"]["extensions_remaining"] == 7
+
+    def test_zero_extensions_per_player(self, client):
+        gid = create_game(client, extensions_per_player=0)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        state = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        assert state["timer"]["extensions_remaining"] == 0
+
     def test_timer_in_spectator_response(self, client):
         gid, _, _ = self._setup_started_game(client)
         spec = client.get(f"/game/{gid}/spectator").json()
