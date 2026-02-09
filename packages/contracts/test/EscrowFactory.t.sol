@@ -167,7 +167,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
 
         uint256 pk = player1 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -199,7 +199,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
 
         uint256 pk = player1 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -220,7 +220,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
 
         uint256 pk = player1 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });

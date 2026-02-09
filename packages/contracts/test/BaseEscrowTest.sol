@@ -11,7 +11,10 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 /// @dev Simple ERC20 for testing
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock", "MCK") {}
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
 }
 
 /// @dev Minimal Permit2 mock implementing SignatureTransfer with proper EIP-712 verification.
@@ -20,8 +23,7 @@ contract MockPermit2 is ISignatureTransfer {
     bytes32 private constant _DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,uint256 chainId,address verifyingContract)");
     bytes32 private constant _NAME_HASH = keccak256("Permit2");
-    bytes32 private constant _TOKEN_PERMISSIONS_TYPEHASH =
-        keccak256("TokenPermissions(address token,uint256 amount)");
+    bytes32 private constant _TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
     bytes32 private constant _PERMIT_TRANSFER_FROM_TYPEHASH = keccak256(
         "PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
     );
@@ -43,15 +45,16 @@ contract MockPermit2 is ISignatureTransfer {
         address owner,
         bytes calldata signature
     ) external override {
-        if (block.timestamp > permit.deadline) revert SignatureExpired(permit.deadline);
+        if (block.timestamp > permit.deadline) {
+            revert SignatureExpired(permit.deadline);
+        }
 
         // Use and invalidate nonce
         _useNonce(owner, permit.nonce);
 
         // Verify signature (spender = msg.sender, NOT in the struct but in the hash)
-        bytes32 tokenPermissionsHash = keccak256(
-            abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted.token, permit.permitted.amount)
-        );
+        bytes32 tokenPermissionsHash =
+            keccak256(abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted.token, permit.permitted.amount));
         bytes32 structHash = keccak256(
             abi.encode(
                 _PERMIT_TRANSFER_FROM_TYPEHASH,
@@ -96,9 +99,11 @@ abstract contract BaseEscrowTest is Test {
     function _sorted2(address a, address b) internal pure returns (address[] memory) {
         address[] memory arr = new address[](2);
         if (uint160(a) < uint160(b)) {
-            arr[0] = a; arr[1] = b;
+            arr[0] = a;
+            arr[1] = b;
         } else {
-            arr[0] = b; arr[1] = a;
+            arr[0] = b;
+            arr[1] = a;
         }
         return arr;
     }
@@ -106,7 +111,9 @@ abstract contract BaseEscrowTest is Test {
     /// @dev Sort 3 addresses ascending
     function _sorted3(address a, address b, address c) internal pure returns (address[] memory) {
         address[] memory arr = new address[](3);
-        arr[0] = a; arr[1] = b; arr[2] = c;
+        arr[0] = a;
+        arr[1] = b;
+        arr[2] = c;
         // Bubble sort 3 elements
         if (uint160(arr[0]) > uint160(arr[1])) (arr[0], arr[1]) = (arr[1], arr[0]);
         if (uint160(arr[1]) > uint160(arr[2])) (arr[1], arr[2]) = (arr[2], arr[1]);
@@ -134,9 +141,7 @@ abstract contract BaseEscrowTest is Test {
         for (uint256 i = 0; i < payouts.length; i++) {
             payoutHashes[i] = keccak256(
                 abi.encode(
-                    keccak256("Payout(address recipient,uint256 amount)"),
-                    payouts[i].recipient,
-                    payouts[i].amount
+                    keccak256("Payout(address recipient,uint256 amount)"), payouts[i].recipient, payouts[i].amount
                 )
             );
         }
@@ -174,9 +179,8 @@ abstract contract BaseEscrowTest is Test {
             abi.encode(_PERMIT2_DOMAIN_TYPEHASH, _PERMIT2_NAME_HASH, block.chainid, PERMIT2_ADDRESS)
         );
 
-        bytes32 tokenPermissionsHash = keccak256(
-            abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted.token, permit.permitted.amount)
-        );
+        bytes32 tokenPermissionsHash =
+            keccak256(abi.encode(_TOKEN_PERMISSIONS_TYPEHASH, permit.permitted.token, permit.permitted.amount));
 
         bytes32 structHash = keccak256(
             abi.encode(_PERMIT_TRANSFER_FROM_TYPEHASH, tokenPermissionsHash, spender, permit.nonce, permit.deadline)

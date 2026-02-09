@@ -12,8 +12,15 @@ import {BaseEscrowTest, MockERC20} from "./BaseEscrowTest.sol";
 contract FalseReturnToken is ERC20 {
     mapping(address => bool) public blocked;
     constructor() ERC20("FalseReturn", "FRT") {}
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
-    function setBlocked(address addr, bool val) external { blocked[addr] = val; }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function setBlocked(address addr, bool val) external {
+        blocked[addr] = val;
+    }
+
     function transfer(address to, uint256 amount) public override returns (bool) {
         if (blocked[to]) return false;
         return super.transfer(to, amount);
@@ -41,7 +48,7 @@ contract EscrowTest is BaseEscrowTest {
     address player3; // for 3-player: third in sorted order of alice, bob, charlie
 
     uint256 constant DEPOSIT = 100e6; // 100 USDC-like
-    uint16 constant RAKE_BPS = 250;   // 2.5%
+    uint16 constant RAKE_BPS = 250; // 2.5%
     uint256 constant FUNDING_DEADLINE = 1000;
     uint256 constant SETTLEMENT_DEADLINE = 2000;
 
@@ -357,10 +364,12 @@ contract EscrowTest is BaseEscrowTest {
         bytes32[] memory payoutHashes = new bytes32[](2);
         payoutHashes[0] = keccak256(abi.encode(keccak256("Payout(address recipient,uint256 amount)"), player1, balance));
         payoutHashes[1] = keccak256(abi.encode(keccak256("Payout(address recipient,uint256 amount)"), player2, 0));
-        bytes32 structHash = keccak256(abi.encode(
-            keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)"),
-            keccak256(abi.encodePacked(payoutHashes))
-        ));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)"),
+                keccak256(abi.encodePacked(payoutHashes))
+            )
+        );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, digest);
 
@@ -381,9 +390,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, DEPOSIT + 1); // off by 1
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        vm.expectRevert(abi.encodeWithSelector(
-            Escrow.PayoutSumMismatch.selector, DEPOSIT * 2, DEPOSIT * 2 + 1
-        ));
+        vm.expectRevert(abi.encodeWithSelector(Escrow.PayoutSumMismatch.selector, DEPOSIT * 2, DEPOSIT * 2 + 1));
         escrow.settle(payouts, sig);
     }
 
@@ -606,7 +613,7 @@ contract EscrowTest is BaseEscrowTest {
 
         uint256 pk = player2 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -627,7 +634,7 @@ contract EscrowTest is BaseEscrowTest {
 
         uint256 pk = player2 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -649,7 +656,7 @@ contract EscrowTest is BaseEscrowTest {
 
         uint256 pk = player1 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -667,7 +674,7 @@ contract EscrowTest is BaseEscrowTest {
         token.approve(PERMIT2_ADDRESS, type(uint256).max);
 
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -687,7 +694,7 @@ contract EscrowTest is BaseEscrowTest {
 
         uint256 pk = player2 == alice ? alicePk : bobPk;
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -718,7 +725,7 @@ contract EscrowTest is BaseEscrowTest {
         token.approve(PERMIT2_ADDRESS, type(uint256).max);
 
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -741,7 +748,7 @@ contract EscrowTest is BaseEscrowTest {
         token.approve(PERMIT2_ADDRESS, type(uint256).max);
 
         ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
             nonce: 0,
             deadline: block.timestamp + 100
         });

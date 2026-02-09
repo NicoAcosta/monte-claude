@@ -16,14 +16,19 @@ contract Escrow is ReentrancyGuard {
 
     // ── Types ────────────────────────────────────────────────────────────
 
-    enum Status { FUNDING, ACTIVE, SETTLED, EXPIRED }
+    enum Status {
+        FUNDING,
+        ACTIVE,
+        SETTLED,
+        EXPIRED
+    }
 
     struct Config {
         address token;
         address admin;
         address rakeBeneficiary;
         uint256 depositAmount;
-        uint16  rakeBps;
+        uint16 rakeBps;
         uint256 fundingDeadline;
         uint256 settlementDeadline;
         address[] participants;
@@ -38,11 +43,10 @@ contract Escrow is ReentrancyGuard {
 
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    bytes32 private constant NAME_HASH   = keccak256("TimeBasedEscrow");
+    bytes32 private constant NAME_HASH = keccak256("TimeBasedEscrow");
     bytes32 private constant VERSION_HASH = keccak256("1");
 
-    bytes32 private constant PAYOUT_TYPEHASH =
-        keccak256("Payout(address recipient,uint256 amount)");
+    bytes32 private constant PAYOUT_TYPEHASH = keccak256("Payout(address recipient,uint256 amount)");
     bytes32 private constant SETTLE_TYPEHASH =
         keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)");
 
@@ -53,8 +57,8 @@ contract Escrow is ReentrancyGuard {
 
     // ── Storage ──────────────────────────────────────────────────────────
 
-    bool    public initialized;
-    Status  public status;
+    bool public initialized;
+    Status public status;
     address public factory;
 
     // Config fields (set once in initialize)
@@ -62,7 +66,7 @@ contract Escrow is ReentrancyGuard {
     address public admin;
     address public rakeBeneficiary;
     uint256 public depositAmount;
-    uint16  public rakeBps;
+    uint16 public rakeBps;
     uint256 public fundingDeadline;
     uint256 public settlementDeadline;
 
@@ -140,13 +144,13 @@ contract Escrow is ReentrancyGuard {
         initialized = true;
         factory = factory_;
 
-        token               = cfg.token;
-        admin               = cfg.admin;
-        rakeBeneficiary     = cfg.rakeBeneficiary;
-        depositAmount       = cfg.depositAmount;
-        rakeBps             = cfg.rakeBps;
-        fundingDeadline     = cfg.fundingDeadline;
-        settlementDeadline  = cfg.settlementDeadline;
+        token = cfg.token;
+        admin = cfg.admin;
+        rakeBeneficiary = cfg.rakeBeneficiary;
+        depositAmount = cfg.depositAmount;
+        rakeBps = cfg.rakeBps;
+        fundingDeadline = cfg.fundingDeadline;
+        settlementDeadline = cfg.settlementDeadline;
 
         uint256 len = cfg.participants.length;
         // Invariant: participants must be sorted ascending by address (deterministic ordering)
@@ -206,12 +210,13 @@ contract Escrow is ReentrancyGuard {
         if (hasDeposited[participant]) revert AlreadyDeposited(participant);
 
         uint256 balBefore = SafeTransferLib.balanceOf(token, address(this));
-        ISignatureTransfer(PERMIT2).permitTransferFrom(
-            permit,
-            ISignatureTransfer.SignatureTransferDetails({ to: address(this), requestedAmount: depositAmount }),
-            owner,
-            signature
-        );
+        ISignatureTransfer(PERMIT2)
+            .permitTransferFrom(
+                permit,
+                ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: depositAmount}),
+                owner,
+                signature
+            );
         uint256 balAfter = SafeTransferLib.balanceOf(token, address(this));
         if (balAfter - balBefore != depositAmount) {
             revert DepositTransferMismatch(depositAmount, balAfter - balBefore);
@@ -236,10 +241,7 @@ contract Escrow is ReentrancyGuard {
     /// @notice Submit admin-signed settlement. Distributes payouts minus rake.
     ///         `sum(payouts.amount)` must equal token balance of this contract.
     ///         Callable from FUNDING or ACTIVE state.
-    function settle(Payout[] calldata payouts, bytes calldata signature)
-        external
-        nonReentrant
-    {
+    function settle(Payout[] calldata payouts, bytes calldata signature) external nonReentrant {
         if (status != Status.FUNDING && status != Status.ACTIVE) {
             revert InvalidStatus(status, Status.ACTIVE);
         }
@@ -323,20 +325,28 @@ contract Escrow is ReentrancyGuard {
         return _participants.contains(addr);
     }
 
-    function getConfig() external view returns (
-        address token_,
-        address admin_,
-        address rakeBeneficiary_,
-        uint256 depositAmount_,
-        uint16  rakeBps_,
-        uint256 fundingDeadline_,
-        uint256 settlementDeadline_,
-        address[] memory participants_
-    ) {
+    function getConfig()
+        external
+        view
+        returns (
+            address token_,
+            address admin_,
+            address rakeBeneficiary_,
+            uint256 depositAmount_,
+            uint16 rakeBps_,
+            uint256 fundingDeadline_,
+            uint256 settlementDeadline_,
+            address[] memory participants_
+        )
+    {
         return (
-            token, admin, rakeBeneficiary,
-            depositAmount, rakeBps,
-            fundingDeadline, settlementDeadline,
+            token,
+            admin,
+            rakeBeneficiary,
+            depositAmount,
+            rakeBps,
+            fundingDeadline,
+            settlementDeadline,
             _participants.values()
         );
     }
@@ -381,9 +391,7 @@ contract Escrow is ReentrancyGuard {
     }
 
     function _domainSeparator() private view returns (bytes32) {
-        return keccak256(
-            abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this))
-        );
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)));
     }
 
     function _hashTypedData(bytes32 structHash) private view returns (bytes32) {
@@ -393,12 +401,8 @@ contract Escrow is ReentrancyGuard {
     function _hashSettlement(Payout[] calldata payouts) private pure returns (bytes32) {
         bytes32[] memory payoutHashes = new bytes32[](payouts.length);
         for (uint256 i; i < payouts.length; ++i) {
-            payoutHashes[i] = keccak256(
-                abi.encode(PAYOUT_TYPEHASH, payouts[i].recipient, payouts[i].amount)
-            );
+            payoutHashes[i] = keccak256(abi.encode(PAYOUT_TYPEHASH, payouts[i].recipient, payouts[i].amount));
         }
-        return keccak256(
-            abi.encode(SETTLE_TYPEHASH, keccak256(abi.encodePacked(payoutHashes)))
-        );
+        return keccak256(abi.encode(SETTLE_TYPEHASH, keccak256(abi.encodePacked(payoutHashes))));
     }
 }

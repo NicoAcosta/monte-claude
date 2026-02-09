@@ -34,7 +34,7 @@ contract E2ETest is BaseEscrowTest {
     uint256 player2Pk;
 
     uint256 constant BUY_IN = 100e6; // 100 USDC (6 decimals)
-    uint16 constant RAKE_BPS = 250;  // 2.5%
+    uint16 constant RAKE_BPS = 250; // 2.5%
 
     function setUp() public {
         (admin, adminPk) = makeAddrAndKey("admin");
@@ -43,11 +43,15 @@ contract E2ETest is BaseEscrowTest {
 
         // Assign sorted player aliases
         if (uint160(alice) < uint160(bob)) {
-            player1 = alice; player1Pk = alicePk;
-            player2 = bob;   player2Pk = bobPk;
+            player1 = alice;
+            player1Pk = alicePk;
+            player2 = bob;
+            player2Pk = bobPk;
         } else {
-            player1 = bob;   player1Pk = bobPk;
-            player2 = alice; player2Pk = alicePk;
+            player1 = bob;
+            player1Pk = bobPk;
+            player2 = alice;
+            player2Pk = alicePk;
         }
 
         impl = new Escrow();
@@ -244,11 +248,15 @@ contract E2EPermit2Test is BaseEscrowTest {
         (bob, bobPk) = makeAddrAndKey("bob");
 
         if (uint160(alice) < uint160(bob)) {
-            player1 = alice; player1Pk = alicePk;
-            player2 = bob;   player2Pk = bobPk;
+            player1 = alice;
+            player1Pk = alicePk;
+            player2 = bob;
+            player2Pk = bobPk;
         } else {
-            player1 = bob;   player1Pk = bobPk;
-            player2 = alice; player2Pk = alicePk;
+            player1 = bob;
+            player1Pk = bobPk;
+            player2 = alice;
+            player2Pk = alicePk;
         }
 
         // On a fork, makeAddrAndKey addresses may collide with deployed contracts.
@@ -301,7 +309,7 @@ contract E2EPermit2Test is BaseEscrowTest {
 
         // player1 creates escrow via Permit2 (no ERC-20 approve needed for MONTE)
         ISignatureTransfer.PermitTransferFrom memory permit1 = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(monte), amount: BUY_IN }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(monte), amount: BUY_IN}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -317,7 +325,7 @@ contract E2EPermit2Test is BaseEscrowTest {
 
         // player2 deposits via Permit2
         ISignatureTransfer.PermitTransferFrom memory permit2 = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(monte), amount: BUY_IN }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(monte), amount: BUY_IN}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -358,7 +366,7 @@ contract E2EPermit2Test is BaseEscrowTest {
 
         // player1 creates via Permit2
         ISignatureTransfer.PermitTransferFrom memory permit1 = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(monte), amount: BUY_IN }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(monte), amount: BUY_IN}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -394,7 +402,7 @@ contract E2EPermit2Test is BaseEscrowTest {
 
         // player2 deposits via Permit2
         ISignatureTransfer.PermitTransferFrom memory permit2 = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(monte), amount: BUY_IN }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(monte), amount: BUY_IN}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
@@ -417,7 +425,7 @@ contract E2EPermit2Test is BaseEscrowTest {
 
         // player1 creates via Permit2
         ISignatureTransfer.PermitTransferFrom memory permit1 = ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({ token: address(monte), amount: BUY_IN }),
+            permitted: ISignatureTransfer.TokenPermissions({token: address(monte), amount: BUY_IN}),
             nonce: 0,
             deadline: block.timestamp + 100
         });
