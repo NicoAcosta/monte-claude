@@ -25,6 +25,7 @@ class GameMetadata:
     funded: bool
     escrow_address: str | None
     action_timeout: float | None
+    extensions_per_player: int | None
 
 
 class GameMetadataStore:
@@ -41,13 +42,14 @@ class GameMetadataStore:
         token_decimals: int = 0,
         token_symbol: str | None = None,
         action_timeout: float | None = None,
+        extensions_per_player: int | None = None,
     ) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO game_metadata
-                   (game_id, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (game_id, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout),
+                   (game_id, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout, extensions_per_player)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (game_id, mode, buy_in, max_players, token, token_decimals, token_symbol, action_timeout, extensions_per_player),
             )
             conn.commit()
 
@@ -100,7 +102,8 @@ class GameMetadataStore:
             rows = conn.execute(
                 """SELECT game_id, mode, buy_in, max_players, token, token_decimals,
                           token_symbol, player_count, player_names, started, game_over,
-                          winner, hand_number, funded, escrow_address, action_timeout
+                          winner, hand_number, funded, escrow_address, action_timeout,
+                          extensions_per_player
                    FROM game_metadata ORDER BY game_id""",
             ).fetchall()
         return [
@@ -110,7 +113,7 @@ class GameMetadataStore:
                 player_count=r[7], player_names=list(r[8]) if r[8] else [],
                 started=r[9], game_over=r[10], winner=r[11],
                 hand_number=r[12], funded=r[13], escrow_address=r[14],
-                action_timeout=r[15],
+                action_timeout=r[15], extensions_per_player=r[16],
             )
             for r in rows
         ]

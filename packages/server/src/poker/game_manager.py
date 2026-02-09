@@ -106,6 +106,7 @@ class GameManager:
                 token_decimals=config.token_decimals,
                 token_symbol=config.token_symbol,
                 action_timeout=action_timeout,
+                extensions_per_player=extensions_per_player,
             )
 
         return game_id, game, config
