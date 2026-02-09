@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -21,10 +21,6 @@ configure_logging()
 
 _log = logging.getLogger("poker.data_api")
 
-from poker.account_store import Account, AccountStore
-from poker.audit import AuthAuditStore
-from poker.auth import make_auth_dependency
-from poker.balance_store import BalanceStore
 from poker.cache import TTLCache
 from poker.db import get_pool
 from poker.formatting import format_buy_in
@@ -32,7 +28,6 @@ from poker.game_metadata_store import GameMetadataStore
 from poker.game_mode import GameMode
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.models import (
-    BalanceResponse,
     GameEventResponse,
     GameHistoryResponse,
     GameListItem,
@@ -73,6 +68,7 @@ _CACHE_RULES: list[tuple[str, int]] = [
     ("/api/streams", 5),
     ("/api/config", 300),
     ("/api/instructions", 120),
+    ("/api/play", 120),
 ]
 
 
@@ -129,6 +125,7 @@ def health():
 
 STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"
+SKILL_PATH = Path(__file__).parent.parent.parent.parent.parent / ".claude" / "skills" / "play-monteclaude.md"
 
 # Stores are initialised lazily at first request (not at import time) so that
 # each uvicorn worker creates its own DB connections after fork().
@@ -136,17 +133,12 @@ event_store: GameEventStore | None = None
 summary_store: HandSummaryStore | None = None
 stats_store: PlayerStatsStore | None = None
 metadata_store: GameMetadataStore | None = None
-account_store: AccountStore | None = None
-balance_store: BalanceStore | None = None
 stream_store: StreamStore | None = None
-auth_audit: AuthAuditStore | None = None
-require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
 
 def _ensure_stores() -> None:
     """Create stores on first call — safe to call after fork."""
-    global event_store, summary_store, stats_store, metadata_store
-    global account_store, balance_store, stream_store, auth_audit
+    global event_store, summary_store, stats_store, metadata_store, stream_store
     if event_store is not None:
         return
     pool = get_pool()
@@ -154,25 +146,23 @@ def _ensure_stores() -> None:
     summary_store = HandSummaryStore(pool)
     stats_store = PlayerStatsStore(pool)
     metadata_store = GameMetadataStore(pool)
-    account_store = AccountStore(pool)
-    balance_store = BalanceStore(pool)
     stream_store = StreamStore(pool)
-    auth_audit = AuthAuditStore(pool)
 
 
 
-# Game API URL — frontend needs this to poll live game state
+# API URLs — frontend needs these to reach the correct services
 GAME_API_URL = os.environ.get("GAME_API_URL", "")
+ACCOUNT_API_URL = os.environ.get("ACCOUNT_API_URL", "")
 
 # ── Default limits for read endpoints ────────────────────
 MAX_EVENTS = 200
 MAX_HANDS = 100
 
 
-# ── Config endpoint (tells frontend where Game API lives) ──
+# ── Config endpoint (tells frontend where other APIs live) ──
 @app.get("/api/config")
 def get_config():
-    return JSONResponse({"game_api_url": GAME_API_URL})
+    return JSONResponse({"game_api_url": GAME_API_URL, "account_api_url": ACCOUNT_API_URL})
 
 
 # ── Static file routes ───────────────────────────────────
@@ -212,6 +202,13 @@ def instructions():
     if not INSTRUCTIONS_PATH.is_file():
         raise HTTPException(status_code=404, detail="Instructions file not found")
     return PlainTextResponse(INSTRUCTIONS_PATH.read_text())
+
+
+@app.get("/api/play", response_class=PlainTextResponse)
+def play_skill():
+    if not SKILL_PATH.is_file():
+        raise HTTPException(status_code=404, detail="Skill file not found")
+    return PlainTextResponse(SKILL_PATH.read_text())
 
 
 # ── Lobby ────────────────────────────────────────────────
@@ -390,14 +387,6 @@ def recent_hands(
     )
     _cache.set(cache_key, result, ttl=10)
     return result
-
-
-# ── Balance route ────────────────────────────────────────
-
-@app.get("/api/balance", response_model=BalanceResponse)
-def get_balance(account: Account = Depends(require_auth)):
-    bal = balance_store.get(account.username)
-    return BalanceResponse(username=account.username, balance=bal.amount)
 
 
 # ── Stream routes ────────────────────────────────────────
