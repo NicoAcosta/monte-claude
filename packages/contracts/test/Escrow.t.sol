@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Escrow} from "../src/Escrow.sol";
 import {EscrowFactory} from "../src/EscrowFactory.sol";
+import {ISignatureTransfer} from "../src/interfaces/ISignatureTransfer.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {BaseEscrowTest, MockERC20} from "./BaseEscrowTest.sol";
@@ -27,9 +28,12 @@ contract EscrowTest is BaseEscrowTest {
     address admin;
     uint256 adminPk;
     address rakeBeneficiary = makeAddr("rake");
-    address alice = makeAddr("alice");
-    address bob = makeAddr("bob");
-    address charlie = makeAddr("charlie");
+    address alice;
+    uint256 alicePk;
+    address bob;
+    uint256 bobPk;
+    address charlie;
+    uint256 charliePk;
 
     // Sorted aliases (assigned in setUp)
     address player1; // lowest address of alice, bob
@@ -43,10 +47,14 @@ contract EscrowTest is BaseEscrowTest {
 
     function setUp() public {
         (admin, adminPk) = makeAddrAndKey("admin");
+        (alice, alicePk) = makeAddrAndKey("alice");
+        (bob, bobPk) = makeAddrAndKey("bob");
+        (charlie, charliePk) = makeAddrAndKey("charlie");
 
         token = new MockERC20();
         impl = new Escrow();
         factory = new EscrowFactory(address(impl));
+        _deployPermit2();
 
         // Assign sorted player aliases (2-player)
         if (uint160(alice) < uint160(bob)) {
@@ -584,6 +592,167 @@ contract EscrowTest is BaseEscrowTest {
             abi.encodeWithSelector(Escrow.InvalidStatus.selector, Escrow.Status.ACTIVE, Escrow.Status.FUNDING)
         );
         escrow.deposit(player1);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // PERMIT2 DEPOSIT TESTS
+    // ══════════════════════════════════════════════════════════════════════
+
+    function test_depositWithPermit2_valid() public {
+        Escrow escrow = _deployEscrow(_defaultConfig());
+        // player2 deposits via Permit2
+        vm.prank(player2);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player2 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(escrow));
+
+        vm.prank(player2);
+        escrow.depositWithPermit2(player2, permit, player2, sig);
+
+        assertTrue(escrow.hasDeposited(player2));
+        assertEq(escrow.depositCount(), 2);
+    }
+
+    function test_depositWithPermit2_autoTransition() public {
+        Escrow escrow = _deployEscrow(_defaultConfig());
+
+        vm.prank(player2);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player2 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(escrow));
+
+        vm.prank(player2);
+        escrow.depositWithPermit2(player2, permit, player2, sig);
+
+        assertEq(uint256(escrow.status()), uint256(Escrow.Status.ACTIVE));
+        assertTrue(escrow.allDeposited());
+    }
+
+    function test_depositWithPermit2_duplicateReverts() public {
+        Escrow escrow = _deployEscrow(_defaultConfig());
+
+        // player1 already deposited via factory, try Permit2 again
+        vm.prank(player1);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player1 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(escrow));
+
+        vm.prank(player1);
+        vm.expectRevert(abi.encodeWithSelector(Escrow.AlreadyDeposited.selector, player1));
+        escrow.depositWithPermit2(player1, permit, player1, sig);
+    }
+
+    function test_depositWithPermit2_nonParticipantReverts() public {
+        Escrow escrow = _deployEscrow(_defaultConfig());
+
+        vm.prank(charlie);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, charliePk, address(escrow));
+
+        vm.prank(charlie);
+        vm.expectRevert(abi.encodeWithSelector(Escrow.NotParticipant.selector, charlie));
+        escrow.depositWithPermit2(charlie, permit, charlie, sig);
+    }
+
+    function test_depositWithPermit2_pastDeadlineReverts() public {
+        Escrow escrow = _deployEscrow(_defaultConfig());
+        vm.warp(FUNDING_DEADLINE + 1);
+
+        vm.prank(player2);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player2 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(escrow));
+
+        vm.prank(player2);
+        vm.expectRevert(Escrow.FundingDeadlinePassed.selector);
+        escrow.depositWithPermit2(player2, permit, player2, sig);
+    }
+
+    function test_depositWithPermit2_mixedMethods() public {
+        Escrow.Config memory cfg = _threePlayerConfig();
+        Escrow escrow = _deployEscrow(cfg);
+
+        // Second player deposits via standard approve
+        address second = cfg.participants[1];
+        vm.prank(second);
+        token.approve(address(escrow), DEPOSIT);
+        vm.prank(second);
+        escrow.deposit(second);
+        assertEq(uint256(escrow.status()), uint256(Escrow.Status.FUNDING));
+
+        // Third player deposits via Permit2 → should transition to ACTIVE
+        address third = cfg.participants[2];
+        uint256 thirdPk = third == alice ? alicePk : (third == bob ? bobPk : charliePk);
+
+        vm.prank(third);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, thirdPk, address(escrow));
+
+        vm.prank(third);
+        escrow.depositWithPermit2(third, permit, third, sig);
+
+        assertEq(uint256(escrow.status()), uint256(Escrow.Status.ACTIVE));
+        assertTrue(escrow.allDeposited());
+    }
+
+    function test_depositWithPermit2_thirdPartyFunds() public {
+        Escrow escrow = _deployEscrow(_defaultConfig());
+
+        // Charlie funds player2's deposit via Permit2
+        // Charlie signs the Permit2 message (he's the token owner)
+        // but the deposit is recorded for player2
+        vm.prank(charlie);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, charliePk, address(escrow));
+
+        vm.prank(charlie);
+        escrow.depositWithPermit2(player2, permit, charlie, sig);
+
+        assertTrue(escrow.hasDeposited(player2));
+        assertEq(escrow.depositCount(), 2);
+        assertEq(uint256(escrow.status()), uint256(Escrow.Status.ACTIVE));
     }
 
     // ══════════════════════════════════════════════════════════════════════

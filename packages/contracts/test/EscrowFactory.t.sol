@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Escrow} from "../src/Escrow.sol";
 import {EscrowFactory} from "../src/EscrowFactory.sol";
+import {ISignatureTransfer} from "../src/interfaces/ISignatureTransfer.sol";
 import {BaseEscrowTest, MockERC20} from "./BaseEscrowTest.sol";
 
 contract EscrowFactoryTest is BaseEscrowTest {
@@ -12,8 +13,10 @@ contract EscrowFactoryTest is BaseEscrowTest {
 
     address admin = makeAddr("admin");
     address rakeBeneficiary = makeAddr("rake");
-    address alice = makeAddr("alice");
-    address bob = makeAddr("bob");
+    address alice;
+    uint256 alicePk;
+    address bob;
+    uint256 bobPk;
 
     // Sorted aliases (assigned in setUp)
     address player1;
@@ -22,9 +25,13 @@ contract EscrowFactoryTest is BaseEscrowTest {
     uint256 constant DEPOSIT = 100e6;
 
     function setUp() public {
+        (alice, alicePk) = makeAddrAndKey("alice");
+        (bob, bobPk) = makeAddrAndKey("bob");
+
         token = new MockERC20();
         impl = new Escrow();
         factory = new EscrowFactory(address(impl));
+        _deployPermit2();
         token.mint(alice, DEPOSIT * 10);
         token.mint(bob, DEPOSIT * 10);
         vm.warp(100);
@@ -146,6 +153,98 @@ contract EscrowFactoryTest is BaseEscrowTest {
         vm.expectRevert(abi.encodeWithSelector(Escrow.NotParticipant.selector, charlie));
         factory.createAndDeposit(cfg, bytes32(uint256(1)));
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // PERMIT2 FACTORY TESTS
+    // ══════════════════════════════════════════════════════════════════════
+
+    function test_createAndDepositWithPermit2() public {
+        Escrow.Config memory cfg = _defaultConfig();
+
+        // player1 approves Permit2 and signs transfer
+        vm.prank(player1);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player1 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+
+        // Need to predict the escrow address since Permit2 sig includes spender (= factory)
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
+
+        vm.prank(player1);
+        address escrow = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(1)), permit, sig);
+
+        Escrow e = Escrow(escrow);
+        assertTrue(e.initialized());
+        assertEq(e.token(), address(token));
+        assertEq(e.admin(), admin);
+        assertEq(e.depositAmount(), DEPOSIT);
+        assertTrue(e.hasDeposited(player1));
+        assertEq(e.depositCount(), 1);
+        assertEq(token.balanceOf(escrow), DEPOSIT);
+    }
+
+    function test_createAndDepositWithPermit2_addressMatch() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(1));
+
+        address predicted = factory.getEscrowAddress(cfg, salt);
+
+        vm.prank(player1);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player1 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
+
+        vm.prank(player1);
+        address actual = factory.createAndDepositWithPermit2(cfg, salt, permit, sig);
+
+        assertEq(predicted, actual);
+    }
+
+    function test_createAndDepositWithPermit2_mixedFlow() public {
+        Escrow.Config memory cfg = _defaultConfig();
+
+        // player1 creates via Permit2
+        vm.prank(player1);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player1 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({ token: address(token), amount: DEPOSIT }),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
+
+        vm.prank(player1);
+        address addr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(1)), permit, sig);
+        Escrow escrow = Escrow(addr);
+
+        assertEq(uint256(escrow.status()), uint256(Escrow.Status.FUNDING));
+
+        // player2 deposits via standard approve → should transition to ACTIVE
+        vm.prank(player2);
+        token.approve(addr, DEPOSIT);
+        vm.prank(player2);
+        escrow.deposit(player2);
+
+        assertEq(uint256(escrow.status()), uint256(Escrow.Status.ACTIVE));
+        assertTrue(escrow.allDeposited());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // FUZZ TESTS
+    // ══════════════════════════════════════════════════════════════════════
 
     function testFuzz_differentConfigs(uint256 depositAmt) public {
         depositAmt = bound(depositAmt, 1, 1e30);

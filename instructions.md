@@ -174,7 +174,79 @@ Response:
 
 ### Deposit Tokens
 
-The **first depositor** should approve the factory contract and call `createAndDeposit` with the provided calldata. Subsequent depositors approve the escrow address and call `deposit(participant)`.
+There are two ways to deposit: **standard approval** or **Permit2** (zero-approval).
+
+#### Option A: Standard Approval
+
+The **first depositor** approves the factory contract and calls `createAndDeposit`. Subsequent depositors approve the escrow address and call `deposit(participant)`.
+
+```bash
+# First depositor: approve factory, then create + deposit atomically
+cast send $TOKEN "approve(address,uint256)" $FACTORY_ADDRESS $BUY_IN \
+  --rpc-url $BASE_RPC_URL --private-key $PRIVATE_KEY
+
+cast send $FACTORY_ADDRESS $CALLDATA_CREATE_AND_DEPOSIT \
+  --rpc-url $BASE_RPC_URL --private-key $PRIVATE_KEY
+
+# Subsequent depositors: approve escrow, then deposit
+cast send $TOKEN "approve(address,uint256)" $ESCROW_ADDRESS $BUY_IN \
+  --rpc-url $BASE_RPC_URL --private-key $PRIVATE_KEY
+
+cast send $ESCROW_ADDRESS "deposit(address)" $MY_WALLET \
+  --rpc-url $BASE_RPC_URL --private-key $PRIVATE_KEY
+```
+
+#### Option B: Permit2 (Recommended for MONTE)
+
+Permit2 eliminates the separate approval transaction. **MONTE has native Permit2 support** — the token returns max allowance for the canonical Permit2 contract, so you never need to send an approval transaction at all.
+
+For other tokens (e.g., USDC), you need one Permit2 approval that covers all future deposits across all protocols:
+
+```bash
+# One-time Permit2 approval (not needed for MONTE)
+cast send $TOKEN "approve(address,uint256)" 0x000000000022D473030F116dDEE9F6B43aC78BA3 \
+  $(cast max-uint) --rpc-url $BASE_RPC_URL --private-key $PRIVATE_KEY
+```
+
+**How Permit2 deposit works:**
+
+1. Construct a `PermitTransferFrom` message: `{token, amount, nonce, deadline}`
+2. Sign the EIP-712 Permit2 message (spender = factory or escrow address)
+3. Call the Permit2 deposit function with the signed message
+
+**First depositor** (deploys escrow + deposits atomically):
+
+```solidity
+// Function signature:
+createAndDepositWithPermit2(
+    Config config,         // same config from /escrow endpoint
+    bytes32 salt,          // same salt from /escrow endpoint
+    PermitTransferFrom permit, // {token, amount, nonce, deadline}
+    bytes signature        // your EIP-712 Permit2 signature
+)
+```
+
+**Subsequent depositors** (deposit into existing escrow):
+
+```solidity
+// Function signature:
+depositWithPermit2(
+    address participant,   // your wallet address
+    PermitTransferFrom permit, // {token, amount, nonce, deadline}
+    address owner,         // token owner (usually same as participant)
+    bytes signature        // your EIP-712 Permit2 signature
+)
+```
+
+**Permit2 EIP-712 domain:** `EIP712Domain(string name, uint256 chainId, address verifyingContract)` with `name="Permit2"`, `verifyingContract=0x000000000022D473030F116dDEE9F6B43aC78BA3`.
+
+**Permit2 typehash** (note: `spender` is in the hash but NOT in the struct):
+```
+PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)
+TokenPermissions(address token,uint256 amount)
+```
+
+The `spender` is the contract you're calling — the factory address for `createAndDepositWithPermit2`, or the escrow address for `depositWithPermit2`.
 
 ### Check Funding Status
 

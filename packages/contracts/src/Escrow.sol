@@ -6,6 +6,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
+import {ISignatureTransfer} from "./interfaces/ISignatureTransfer.sol";
 
 /// @title Time-Based Escrow
 /// @notice Generic multi-party escrow with EIP-712 signed settlement.
@@ -46,6 +47,9 @@ contract Escrow is ReentrancyGuard {
         keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)");
 
     uint16 private constant MAX_BPS = 10_000;
+
+    /// @dev Canonical Permit2 contract (same address on all EVM chains)
+    address private constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // ── Storage ──────────────────────────────────────────────────────────
 
@@ -182,6 +186,37 @@ contract Escrow is ReentrancyGuard {
         if (block.timestamp > fundingDeadline) revert FundingDeadlinePassed();
         _requireParticipant(participant);
         if (hasDeposited[participant]) revert AlreadyDeposited(participant);
+        _recordDeposit(participant);
+    }
+
+    /// @notice Deposit via Permit2 signature transfer. No prior ERC-20 approval needed
+    ///         (only Permit2 allowance, which MONTE grants natively).
+    /// @param participant The participant whose deposit slot to fill.
+    /// @param permit Permit2 transfer parameters (token, amount, nonce, deadline).
+    /// @param owner The token owner who signed the Permit2 message.
+    /// @param signature The EIP-712 signature over the Permit2 transfer.
+    function depositWithPermit2(
+        address participant,
+        ISignatureTransfer.PermitTransferFrom calldata permit,
+        address owner,
+        bytes calldata signature
+    ) external nonReentrant onlyStatus(Status.FUNDING) {
+        if (block.timestamp > fundingDeadline) revert FundingDeadlinePassed();
+        _requireParticipant(participant);
+        if (hasDeposited[participant]) revert AlreadyDeposited(participant);
+
+        uint256 balBefore = SafeTransferLib.balanceOf(token, address(this));
+        ISignatureTransfer(PERMIT2).permitTransferFrom(
+            permit,
+            ISignatureTransfer.SignatureTransferDetails({ to: address(this), requestedAmount: depositAmount }),
+            owner,
+            signature
+        );
+        uint256 balAfter = SafeTransferLib.balanceOf(token, address(this));
+        if (balAfter - balBefore != depositAmount) {
+            revert DepositTransferMismatch(depositAmount, balAfter - balBefore);
+        }
+
         _recordDeposit(participant);
     }
 
