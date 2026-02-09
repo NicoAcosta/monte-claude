@@ -62,6 +62,7 @@ from poker.models import (
     WaitingResponse,
 )
 from poker.stream_manager import StreamManager
+from poker import balance_service, escrow_service, game_service, settlement_service
 
 app = FastAPI(title="Claude Poker", version="0.1.0")
 
@@ -87,31 +88,19 @@ FAUCET_AMOUNT = 10_000
 require_auth = make_auth_dependency(lambda: account_store)
 
 
-def _settle_offchain_game(game: Game) -> None:
-    """Compute and credit offchain payouts when a game ends."""
-    if game.mode != GameMode.OFFCHAIN or game.buy_in <= 0:
-        return
-    if game.offchain_settlement is not None:
-        return  # already settled
-
-    from poker.escrow import compute_payouts
-    from poker.game import STARTING_CHIPS
-
-    player_chips: dict[str, int] = {p.name: p.chips for p in game._players}
-    payouts = compute_payouts(player_chips, game.buy_in, STARTING_CHIPS)
-
-    for username, amount in payouts:
-        if amount > 0:
-            balance_store.credit(username, amount)
-
-    game.offchain_settlement = payouts
-
+# ── Helpers ──────────────────────────────────────────────
 
 def _get_game_or_404(game_id: int) -> Game:
     game = manager.get_game(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return game
+
+
+def _settle_if_over(game: Game) -> None:
+    """Settle offchain game if it just ended."""
+    if game.game_over:
+        settlement_service.settle_offchain_game(game, balance_store, game.buy_in)
 
 
 def _recent_actions(game: Game, include_reason: bool = False) -> list[RecentAction]:
@@ -131,7 +120,6 @@ def _action_to_recent(a, include_reason: bool = False) -> RecentAction:
 
 
 def _player_comments(game: Game) -> list[PlayerComment]:
-    """Extract the latest comment per player from current hand actions."""
     actions = game.current_hand.actions if game.current_hand else game.recent_actions
     latest: dict[str, str] = {}
     for a in actions:
@@ -202,19 +190,13 @@ def list_games():
 
 @app.post("/api/games", response_model=CreateGameResponse)
 def create_game(req: CreateGameRequest):
-    # Infer mode: token present → onchain, else → offchain
-    if req.mode is not None:
-        mode = req.mode
-        if mode == GameMode.ONCHAIN and not req.token:
-            raise HTTPException(status_code=400, detail="On-chain mode requires a token address")
-    else:
-        mode = GameMode.ONCHAIN if req.token else GameMode.OFFCHAIN
+    try:
+        mode = game_service.infer_mode(req.mode, req.token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    game_id, game = manager.create_game(
-        max_players=req.max_players,
-        token=req.token,
-        buy_in=req.buy_in,
-        mode=mode,
+    game_id, game = game_service.create_game(
+        manager, req.max_players, req.token, req.buy_in, mode,
     )
     return CreateGameResponse(
         game_id=game_id,
@@ -236,33 +218,19 @@ def game_page(game_id: int):
 @app.post("/game/{game_id}/join", response_model=JoinGameResponse)
 def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
-
-    # Off-chain: debit buy-in from balance before registering
-    if game.mode == GameMode.OFFCHAIN and game.buy_in > 0:
-        try:
-            balance_store.debit(account.username, game.buy_in)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient balance (need {game.buy_in})",
-            )
-
     try:
-        p = game.register(account.username, wallet_address=req.wallet_address)
+        player = game_service.join_game(
+            game=game,
+            username=account.username,
+            wallet_address=req.wallet_address,
+            balance_store=balance_store,
+            buy_in=game.buy_in,
+            mode=game.mode,
+            recorder=manager.get_recorder(game_id),
+        )
     except ValueError as e:
-        # Refund if registration failed (e.g. duplicate name)
-        if game.mode == GameMode.OFFCHAIN and game.buy_in > 0:
-            balance_store.credit(account.username, game.buy_in)
         raise HTTPException(status_code=400, detail=str(e))
-
-    recorder = manager.get_recorder(game_id)
-    if recorder:
-        recorder.on_event("player_joined", {
-            "player_name": p.name,
-            "player_id": p.id,
-        })
-
-    return JoinGameResponse(player_id=p.id, name=p.name)
+    return JoinGameResponse(player_id=player.id, name=player.name)
 
 
 @app.get("/game/{game_id}/waiting", response_model=WaitingResponse)
@@ -281,25 +249,18 @@ def waiting(game_id: int):
 @app.post("/game/{game_id}/start", response_model=StartResponse)
 def start(game_id: int, account: Account = Depends(require_auth)):
     game = _get_game_or_404(game_id)
-    # Must be a player in the game to start it
     if game.get_player_by_name(account.username) is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
 
-    # Off-chain games: balance was reserved at join time, mark funded
-    if game.mode == GameMode.OFFCHAIN and game.buy_in > 0:
-        game.funded = True
-
     try:
-        hand_num = game.start()
+        hand_num = game_service.start_game(
+            game=game,
+            mode=game.mode,
+            buy_in=game.buy_in,
+            recorder=manager.get_recorder(game_id),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    recorder = manager.get_recorder(game_id)
-    if recorder:
-        recorder.on_event("game_started", {
-            "player_count": game.player_count,
-            "player_names": [p.name for p in game._players],
-        })
 
     return StartResponse(message="Game started", hand_number=hand_num)
 
@@ -311,68 +272,19 @@ def escrow_info(game_id: int):
     game = _get_game_or_404(game_id)
     if game.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Escrow only available for on-chain games")
-    if game.buy_in <= 0:
-        raise HTTPException(status_code=400, detail="Not a funded game")
-    if not game.is_full:
-        raise HTTPException(status_code=400, detail="Game is not full yet")
 
-    from poker.escrow import (
-        EscrowConfig,
-        build_create_and_deposit_calldata,
-        build_deposit_calldata,
-        compute_escrow_address,
-        generate_salt,
-        get_env_config,
-        get_server_address,
-    )
+    try:
+        info = escrow_service.get_escrow_info(game)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    env = get_env_config()
-    server_addr = get_server_address()
-    if not server_addr:
-        raise HTTPException(status_code=500, detail="Server private key not configured")
-    if not env["factory_address"]:
-        raise HTTPException(status_code=500, detail="Factory address not configured")
-
-    # Generate escrow config on first call, cache on game for subsequent calls
-    if game.escrow_config is None:
-        import time as _time
-
-        if game.escrow_salt is None:
-            game.escrow_salt = generate_salt()
-
-        wallets = tuple(
-            p.wallet_address for p in game._players
-            if p.wallet_address is not None
-        )
-
-        now = int(_time.time())
-        cfg = EscrowConfig(
-            token=game.token or "",
-            admin=server_addr,
-            rake_beneficiary=env["rake_beneficiary"] or server_addr,
-            deposit_amount=game.buy_in,
-            rake_bps=env["rake_bps"],
-            funding_deadline=now + env["funding_timeout"],
-            settlement_deadline=now + env["funding_timeout"] + env["settlement_timeout"],
-            participants=wallets,
-        )
-        game.escrow_config = cfg
-        game.escrow_address = compute_escrow_address(
-            env["factory_address"], cfg, game.escrow_salt, rpc_url=env["base_rpc_url"],
-        )
-
-    cfg = game.escrow_config
-
-    calldata_create = build_create_and_deposit_calldata(cfg, game.escrow_salt)
-    calldata_deposits = {
-        addr: build_deposit_calldata(addr)
-        for addr in cfg.participants
-    }
-
+    cfg = info["config"]
     return EscrowInfoResponse(
-        escrow_address=game.escrow_address,
-        factory_address=env["factory_address"],
-        salt="0x" + game.escrow_salt.hex(),
+        escrow_address=info["escrow_address"],
+        factory_address=info["factory_address"],
+        salt=info["salt"],
         config=EscrowConfigResponse(
             token=cfg.token,
             admin=cfg.admin,
@@ -383,10 +295,10 @@ def escrow_info(game_id: int):
             settlement_deadline=cfg.settlement_deadline,
             participants=list(cfg.participants),
         ),
-        calldata_create_and_deposit=calldata_create,
-        calldata_deposit=calldata_deposits,
-        funding_deadline=cfg.funding_deadline,
-        settlement_deadline=cfg.settlement_deadline,
+        calldata_create_and_deposit=info["calldata_create_and_deposit"],
+        calldata_deposit=info["calldata_deposit"],
+        funding_deadline=info["funding_deadline"],
+        settlement_deadline=info["settlement_deadline"],
     )
 
 
@@ -395,39 +307,21 @@ def funding_status(game_id: int):
     game = _get_game_or_404(game_id)
     if game.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Funding status only available for on-chain games")
-    if game.buy_in <= 0:
-        raise HTTPException(status_code=400, detail="Not a funded game")
-    if game.escrow_address is None:
-        raise HTTPException(status_code=400, detail="Escrow not yet configured (call /escrow first)")
 
-    from poker.escrow import check_deposit_status, get_env_config
-
-    env = get_env_config()
-    wallets = tuple(
-        p.wallet_address for p in game._players
-        if p.wallet_address is not None
-    )
-
-    statuses = check_deposit_status(env["base_rpc_url"], game.escrow_address, wallets)
-    all_deposited = all(deposited for _, deposited in statuses)
-
-    if all_deposited:
-        game.funded = True
-
-    wallet_to_name: dict[str, str] = {}
-    for p in game._players:
-        if p.wallet_address:
-            wallet_to_name[p.wallet_address.lower()] = p.name
+    try:
+        result = escrow_service.check_funding(game)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return FundingStatusResponse(
-        all_deposited=all_deposited,
+        all_deposited=result["all_deposited"],
         deposits=[
             DepositStatus(
                 address=addr,
                 deposited=deposited,
-                player_name=wallet_to_name.get(addr.lower()),
+                player_name=result["wallet_to_name"].get(addr.lower()),
             )
-            for addr, deposited in statuses
+            for addr, deposited in result["statuses"]
         ],
     )
 
@@ -437,42 +331,22 @@ def settlement(game_id: int):
     game = _get_game_or_404(game_id)
     if game.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Settlement only available for on-chain games")
-    if game.buy_in <= 0:
-        raise HTTPException(status_code=400, detail="Not a funded game")
-    if not game.game_over:
-        raise HTTPException(status_code=400, detail="Game is not over yet")
-    if game.escrow_address is None:
-        raise HTTPException(status_code=400, detail="Escrow not configured")
 
-    from poker.escrow import compute_payouts, get_env_config, sign_settlement
-
-    env = get_env_config()
-    if not env["server_private_key"]:
-        raise HTTPException(status_code=500, detail="Server private key not configured")
-
-    # Map player names → wallet addresses and chip counts
-    player_chips: dict[str, int] = {}
-    for p in game._players:
-        if p.wallet_address:
-            player_chips[p.wallet_address] = p.chips
-
-    from poker.game import STARTING_CHIPS
-
-    payouts = compute_payouts(player_chips, game.buy_in, STARTING_CHIPS)
-
-    sig = sign_settlement(
-        env["server_private_key"],
-        env["chain_id"],
-        game.escrow_address,
-        payouts,
-    )
+    try:
+        result = escrow_service.get_settlement(game)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     return SettlementResponse(
-        payouts=[PayoutEntry(address=addr, amount=amt) for addr, amt in payouts],
-        signature=sig,
-        escrow_address=game.escrow_address,
+        payouts=[PayoutEntry(address=addr, amount=amt) for addr, amt in result["payouts"]],
+        signature=result["signature"],
+        escrow_address=result["escrow_address"],
     )
 
+
+# ── Game state & action routes ───────────────────────────
 
 @app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)
 def state(game_id: int, player_id: int):
@@ -484,13 +358,11 @@ def state(game_id: int, player_id: int):
         raise HTTPException(status_code=400, detail="Game not started")
 
     game._check_timeout()
-    if game.game_over:
-        _settle_offchain_game(game)
+    _settle_if_over(game)
 
     hand = game.current_hand
 
     if hand is None:
-        # Game over or between hands
         return PlayerStateResponse(
             hand_number=game.hand_number,
             phase="complete",
@@ -515,7 +387,6 @@ def state(game_id: int, player_id: int):
             chat_log=_chat_log(game),
         )
 
-    # Find this player in the hand
     hand_player = hand._get_player(player_id)
     your_cards = [str(c) for c in hand_player.hole_cards] if hand_player else []
     your_chips = hand_player.chips if hand_player else rp.chips
@@ -578,8 +449,7 @@ def resign(game_id: int, account: Account = Depends(require_auth)):
 
     result = game.resign(player.id)
     if result == "ok":
-        if game.game_over:
-            _settle_offchain_game(game)
+        _settle_if_over(game)
         return ActionResponse(success=True, message="Resigned from game")
     else:
         raise HTTPException(status_code=400, detail=result)
@@ -604,15 +474,15 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
 
     result = game.do_action(player.id, req.action, req.amount, comment=req.comment, reason=req.reason)
     if result == "ok":
-        if game.game_over:
-            _settle_offchain_game(game)
+        _settle_if_over(game)
         return ActionResponse(success=True, message="Action accepted")
     else:
         raise HTTPException(status_code=400, detail=result)
 
 
+# ── Spectator ────────────────────────────────────────────
+
 def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
-    """Build a SpectatorResponse for a game, with optional field overrides."""
     prev = game.previous_hand
 
     if prev is None:
@@ -695,8 +565,7 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
 def spectator(game_id: int):
     game = _get_game_or_404(game_id)
     game._check_timeout()
-    if game.game_over:
-        _settle_offchain_game(game)
+    _settle_if_over(game)
     return _build_spectator_response(game)
 
 
@@ -864,8 +733,7 @@ def stream_view(stream_id: int):
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
     game._check_timeout()
-    if game.game_over:
-        _settle_offchain_game(game)
+    _settle_if_over(game)
     return _build_spectator_response(
         game,
         commentary_text=stream.commentary_text,
@@ -881,20 +749,16 @@ def stream_view(stream_id: int):
 @app.post("/api/faucet", response_model=FaucetResponse)
 def faucet(account: Account = Depends(require_auth)):
     try:
-        bal = balance_store.try_claim_faucet(account.username, FAUCET_AMOUNT)
+        bal, next_claim_at = balance_service.claim_faucet(
+            balance_store, account.username, FAUCET_AMOUNT,
+        )
     except ValueError as e:
         raise HTTPException(status_code=429, detail=str(e))
-
-    from datetime import datetime, timedelta, timezone
-    from poker.balance_store import FAUCET_COOLDOWN_SECONDS
-
-    last = datetime.fromisoformat(bal.last_claim_at)
-    next_claim = last + timedelta(seconds=FAUCET_COOLDOWN_SECONDS)
 
     return FaucetResponse(
         success=True,
         new_balance=bal.amount,
-        next_claim_at=next_claim.isoformat(),
+        next_claim_at=next_claim_at,
     )
 
 
