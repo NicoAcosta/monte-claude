@@ -40,6 +40,7 @@ class Game:
         self._next_id = 1
         self._next_action_id = 1
         self.started = False
+        self.started_at: float | None = None
         self.hand_number = 0
         self.dealer_index = 0
         self.current_hand: Hand | None = None
@@ -175,6 +176,7 @@ class Game:
             raise ValueError("Need at least 2 players")
 
         self.started = True
+        self.started_at = time.time()
         for p in self._players:
             self._time_extensions[p.id] = self.extensions_per_player
         self._start_new_hand()

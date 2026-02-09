@@ -10,3 +10,10 @@ uv.lock
 packages/contracts/out/
 packages/contracts/cache/
 .game-session.json
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/terraform.tfvars
+infra/terraform/.terraform.lock.hcl

@@ -204,6 +204,7 @@ class SpectatorResponse(BaseModel):
     action_timeout: float = 30.0
     small_blind: int = 10
     big_blind: int = 20
+    game_started_at: float | None = None
 
 
 class ActionResponse(BaseModel):

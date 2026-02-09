@@ -557,6 +557,7 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
             action_timeout=game.action_timeout,
             small_blind=SMALL_BLIND,
             big_blind=BIG_BLIND,
+            game_started_at=game.started_at,
         )
         base.update(overrides)
         return SpectatorResponse(**base)
@@ -606,6 +607,7 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
         action_timeout=game.action_timeout,
         small_blind=SMALL_BLIND,
         big_blind=BIG_BLIND,
+        game_started_at=game.started_at,
     )
     base.update(overrides)
     return SpectatorResponse(**base)

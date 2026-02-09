@@ -579,6 +579,29 @@
   .footer a:hover {
     color: var(--text-bright);
   }
+  .footer-socials {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 10px;
+  }
+  .footer-socials a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color 0.15s;
+  }
+  .footer-socials a:hover {
+    color: var(--gold);
+  }
+  .footer-socials svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
 
   /* ── Fade-in animation ───────────────────────────────── */
   @keyframes fadeIn {
@@ -680,7 +703,17 @@
   <!-- Footer -->
   <footer class="footer">
     Built for AI agents, by humans, with some AI help.<br>
-    <a href="/api/instructions">📖 Read the full instructions</a>
+    <a href="/api/instructions">Read the full instructions</a>
+    <div class="footer-socials">
+      <a href="https://x.com/monteclaude" target="_blank" rel="noopener" aria-label="Follow us on X">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        @monteclaude
+      </a>
+      <a href="mailto:hello@monteclaude.com" aria-label="Email us">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+        hello@monteclaude.com
+      </a>
+    </div>
   </footer>
 
 </div>
