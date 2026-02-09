@@ -170,6 +170,7 @@ def create_game(req: CreateGameRequest) -> CreateGameResponse:
 
     return CreateGameResponse(
         game_id=game_id,
+        game_type="dice",
         max_players=config.max_players,
         token=config.token,
         buy_in=config.buy_in,

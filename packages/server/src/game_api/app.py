@@ -44,8 +44,8 @@ from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
 from poker.router import router as poker_router, configure as configure_poker_router
-from poker.router import _build_spectator_response
-from poker.models import SpectatorResponse
+from poker.router import _build_spectator_response as _build_poker_spectator_response
+from dice.router import _build_spectator_response as _build_dice_spectator_response
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
@@ -198,7 +198,14 @@ def stream_commentate(stream_id: int, req: CommentateRequest, account: Account =
     return CommentateResponse(success=True)
 
 
-@app.get("/stream/{stream_id}/data", response_model=SpectatorResponse)
+def _build_spectator_for_game(game, config, **overrides):
+    """Dispatch to the correct spectator response builder based on game type."""
+    if game.game_type == "dice":
+        return _build_dice_spectator_response(game, config, **overrides)
+    return _build_poker_spectator_response(game, config, **overrides)
+
+
+@app.get("/stream/{stream_id}/data")
 def stream_view(stream_id: int):
     stream = stream_store.get(stream_id)
     if stream is None:
@@ -208,7 +215,7 @@ def stream_view(stream_id: int):
     if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
     game._check_timeout()
-    return _build_spectator_response(
+    return _build_spectator_for_game(
         game, config,
         commentary_text=stream.commentary_text,
         stream_id=stream.id,
@@ -216,3 +223,14 @@ def stream_view(stream_id: int):
         stream_host=stream.host_username,
         stream_created_at=stream.created_at,
     )
+
+
+@app.get("/game/{game_id}/spectator")
+def game_spectator_compat(game_id: int):
+    """Compat route: dispatches to the correct game-type spectator."""
+    game = manager.get_game(game_id)
+    config = manager.get_config(game_id)
+    if game is None or config is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    game._check_timeout()
+    return _build_spectator_for_game(game, config)

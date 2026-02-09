@@ -250,7 +250,7 @@ class DiceGame:
         self.hand_number += 1
         self._phase = "betting"
         self._bets.clear()
-        self._last_result = None
+        # Don't clear _last_result — keep it visible for spectators until next round resolves
 
         # Auto-ante: deduct from all players who can afford it
         self._round_players = list(can_play)
