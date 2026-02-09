@@ -16,9 +16,15 @@ from web3 import Web3
 # ── Constants ─────────────────────────────────────────────
 
 ESCROW_ABI_DEPOSIT = "deposit(address)"
+ESCROW_ABI_DEPOSIT_WITH_PERMIT2 = (
+    "depositWithPermit2(address,(address,uint256,uint256,uint256),address,bytes)"
+)
 ESCROW_ABI_RECORD_DEPOSIT = "recordDeposit(address)"
 ESCROW_ABI_ALL_DEPOSITED = "allDeposited()"
 ESCROW_ABI_HAS_DEPOSITED = "hasDeposited(address)"
+
+# Canonical Permit2 address (same on all EVM chains)
+PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
 
 # Minimal ABIs for RPC calls
 ESCROW_MINIMAL_ABI = [
@@ -38,23 +44,34 @@ ESCROW_MINIMAL_ABI = [
     },
 ]
 
+_CONFIG_COMPONENTS = [
+    {"name": "token", "type": "address"},
+    {"name": "admin", "type": "address"},
+    {"name": "rakeBeneficiary", "type": "address"},
+    {"name": "depositAmount", "type": "uint256"},
+    {"name": "rakeBps", "type": "uint16"},
+    {"name": "fundingDeadline", "type": "uint256"},
+    {"name": "settlementDeadline", "type": "uint256"},
+    {"name": "participants", "type": "address[]"},
+]
+
+_PERMIT_TRANSFER_FROM_COMPONENTS = [
+    {
+        "name": "permitted",
+        "type": "tuple",
+        "components": [
+            {"name": "token", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+    },
+    {"name": "nonce", "type": "uint256"},
+    {"name": "deadline", "type": "uint256"},
+]
+
 FACTORY_MINIMAL_ABI = [
     {
         "inputs": [
-            {
-                "components": [
-                    {"name": "token", "type": "address"},
-                    {"name": "admin", "type": "address"},
-                    {"name": "rakeBeneficiary", "type": "address"},
-                    {"name": "depositAmount", "type": "uint256"},
-                    {"name": "rakeBps", "type": "uint16"},
-                    {"name": "fundingDeadline", "type": "uint256"},
-                    {"name": "settlementDeadline", "type": "uint256"},
-                    {"name": "participants", "type": "address[]"},
-                ],
-                "name": "config",
-                "type": "tuple",
-            },
+            {"name": "config", "type": "tuple", "components": _CONFIG_COMPONENTS},
             {"name": "salt", "type": "bytes32"},
         ],
         "name": "createAndDeposit",
@@ -64,20 +81,19 @@ FACTORY_MINIMAL_ABI = [
     },
     {
         "inputs": [
-            {
-                "components": [
-                    {"name": "token", "type": "address"},
-                    {"name": "admin", "type": "address"},
-                    {"name": "rakeBeneficiary", "type": "address"},
-                    {"name": "depositAmount", "type": "uint256"},
-                    {"name": "rakeBps", "type": "uint16"},
-                    {"name": "fundingDeadline", "type": "uint256"},
-                    {"name": "settlementDeadline", "type": "uint256"},
-                    {"name": "participants", "type": "address[]"},
-                ],
-                "name": "config",
-                "type": "tuple",
-            },
+            {"name": "config", "type": "tuple", "components": _CONFIG_COMPONENTS},
+            {"name": "salt", "type": "bytes32"},
+            {"name": "permit", "type": "tuple", "components": _PERMIT_TRANSFER_FROM_COMPONENTS},
+            {"name": "signature", "type": "bytes"},
+        ],
+        "name": "createAndDepositWithPermit2",
+        "outputs": [{"name": "escrow", "type": "address"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"name": "config", "type": "tuple", "components": _CONFIG_COMPONENTS},
             {"name": "salt", "type": "bytes32"},
         ],
         "name": "getEscrowAddress",

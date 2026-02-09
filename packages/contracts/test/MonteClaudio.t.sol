@@ -63,12 +63,7 @@ contract MonteClaudioTest is Test {
 
         // Try again immediately
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MonteClaudio.CooldownNotElapsed.selector,
-                block.timestamp + 1 days
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MonteClaudio.CooldownNotElapsed.selector, block.timestamp + 1 days));
         token.faucet();
     }
 
@@ -109,10 +104,7 @@ contract MonteClaudioTest is Test {
     // ── Permit2 Allowance ─────────────────────────────────────
 
     function test_allowance_returnsMaxForPermit2() public view {
-        assertEq(
-            token.allowance(alice, token.PERMIT2()),
-            type(uint256).max
-        );
+        assertEq(token.allowance(alice, token.PERMIT2()), type(uint256).max);
     }
 
     function test_allowance_returnsNormalForOthers() public view {
@@ -174,9 +166,6 @@ contract MonteClaudioTest is Test {
     }
 
     function testFuzz_permit2AlwaysMax(address owner) public view {
-        assertEq(
-            token.allowance(owner, token.PERMIT2()),
-            type(uint256).max
-        );
+        assertEq(token.allowance(owner, token.PERMIT2()), type(uint256).max);
     }
 }
