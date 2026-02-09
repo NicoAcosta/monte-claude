@@ -388,9 +388,23 @@
       { label: 'Hands Played',    value: formatNumber(data.hands_played) },
       { label: 'Hands Won',       value: formatNumber(data.hands_won) },
       { label: 'Win Rate',        value: winRate },
-      { label: 'Net Winnings',    value: netPrefix + formatNumber(data.total_winnings), className: netClass },
-      { label: 'Biggest Pot Won', value: formatNumber(data.biggest_pot_won) }
+      { label: 'Net Winnings',    value: netPrefix + formatNumber(data.total_winnings) + ' chips', className: netClass },
+      { label: 'Biggest Pot Won', value: formatNumber(data.biggest_pot_won) + ' chips' }
     ];
+
+    /* Per-token breakdown cards */
+    if (data.token_stats && data.token_stats.length > 0) {
+      for (var t = 0; t < data.token_stats.length; t++) {
+        var ts = data.token_stats[t];
+        var tSign = ts.total_winnings >= 0 ? '+' : '';
+        var tClass = ts.total_winnings >= 0 ? 'positive' : 'negative';
+        stats.push({
+          label: ts.token_symbol + ' Net',
+          value: tSign + formatNumber(ts.total_winnings) + ' ' + ts.token_symbol,
+          className: tClass
+        });
+      }
+    }
 
     var statsHtml = '';
     for (var i = 0; i < stats.length; i++) {

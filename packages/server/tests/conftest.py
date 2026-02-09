@@ -1,7 +1,7 @@
 import pytest
 from poker.db import get_pool
 
-TABLES = ["accounts", "balances", "game_events", "hand_summaries", "player_stats", "game_metadata", "streams"]
+TABLES = ["accounts", "balances", "game_events", "hand_summaries", "player_stats", "player_token_stats", "game_metadata", "streams"]
 
 
 @pytest.fixture(autouse=True)

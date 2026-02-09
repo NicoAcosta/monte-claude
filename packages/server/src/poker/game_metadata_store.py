@@ -105,7 +105,7 @@ class GameMetadataStore:
             ).fetchall()
         return [
             GameMetadata(
-                game_id=r[0], mode=r[1], buy_in=r[2], max_players=r[3],
+                game_id=r[0], mode=r[1], buy_in=int(r[2]), max_players=r[3],
                 token=r[4], token_decimals=r[5], token_symbol=r[6],
                 player_count=r[7], player_names=list(r[8]) if r[8] else [],
                 started=r[9], game_over=r[10], winner=r[11],

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
@@ -30,6 +32,7 @@ from poker.models import (
     RecentHandsResponse,
     StreamListItem,
     StreamListResponse,
+    TokenStatsEntry,
 )
 from poker.stream_store import StreamStore
 
@@ -50,9 +53,18 @@ stream_store = StreamStore(_pool)
 
 require_auth = make_auth_dependency(lambda: account_store)
 
+# Game API URL — frontend needs this to poll live game state
+GAME_API_URL = os.environ.get("GAME_API_URL", "")
+
 # ── Default limits for read endpoints ────────────────────
 MAX_EVENTS = 200
 MAX_HANDS = 100
+
+
+# ── Config endpoint (tells frontend where Game API lives) ──
+@app.get("/api/config")
+def get_config():
+    return JSONResponse({"game_api_url": GAME_API_URL})
 
 
 # ── Static file routes ───────────────────────────────────
@@ -166,6 +178,10 @@ def hand_summaries(game_id: int, limit: int = Query(default=MAX_HANDS, ge=1, le=
                 pot=s.pot,
                 community_cards=s.community_cards,
                 timestamp=s.timestamp,
+                winner_names=list(s.winner_names),
+                winning_cards=json.loads(s.winning_cards) if isinstance(s.winning_cards, str) else s.winning_cards,
+                result_type=s.result_type,
+                token_symbol=s.token_symbol,
             )
             for s in summaries
         ],
@@ -177,6 +193,7 @@ def player_stats(username: str):
     stats = stats_store.get(username)
     if stats is None:
         raise HTTPException(status_code=404, detail="Player not found")
+    token_stats = stats_store.get_token_stats(username)
     return PlayerStatsResponse(
         username=stats.username,
         games_played=stats.games_played,
@@ -184,6 +201,7 @@ def player_stats(username: str):
         hands_won=stats.hands_won,
         total_winnings=stats.total_winnings,
         biggest_pot_won=stats.biggest_pot_won,
+        token_stats=[TokenStatsEntry(**ts) for ts in token_stats],
     )
 
 
@@ -194,6 +212,7 @@ MAX_RECENT_HANDS = 20
 @app.get("/api/leaderboard", response_model=LeaderboardResponse)
 def leaderboard(limit: int = Query(default=MAX_LEADERBOARD, ge=1, le=MAX_LEADERBOARD)):
     all_stats = stats_store.get_all(limit=limit)
+    all_token_stats = stats_store.get_all_token_stats()
     return LeaderboardResponse(
         players=[
             LeaderboardEntry(
@@ -204,6 +223,7 @@ def leaderboard(limit: int = Query(default=MAX_LEADERBOARD, ge=1, le=MAX_LEADERB
                 win_rate=round(s.hands_won / s.hands_played * 100, 1) if s.hands_played > 0 else 0.0,
                 total_winnings=s.total_winnings,
                 biggest_pot_won=s.biggest_pot_won,
+                token_stats=[TokenStatsEntry(**ts) for ts in all_token_stats.get(s.username, [])],
             )
             for i, s in enumerate(all_stats)
         ]
@@ -219,8 +239,12 @@ def recent_hands(limit: int = Query(default=MAX_RECENT_HANDS, ge=1, le=MAX_RECEN
                 game_id=h.game_id,
                 hand_number=h.hand_number,
                 winner_ids=list(h.winner_ids),
+                winner_names=list(h.winner_names),
                 pot=h.pot,
                 timestamp=h.timestamp,
+                winning_cards=json.loads(h.winning_cards) if isinstance(h.winning_cards, str) else h.winning_cards,
+                result_type=h.result_type,
+                token_symbol=h.token_symbol,
             )
             for h in hands
         ]

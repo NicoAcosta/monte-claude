@@ -792,15 +792,21 @@
 (function () {
   'use strict';
 
+  /* ── Game API base URL (resolved from /api/config) ──── */
+  var GAME_API_BASE = '';
+
   /* ── Game/Stream ID from URL ──────────────────────────── */
   const streamIdMatch = window.location.pathname.match(/\/stream\/(\d+)/);
   const gameIdMatch = window.location.pathname.match(/\/game\/(\d+)/);
   var GAME_ID = gameIdMatch ? gameIdMatch[1] : '1';
-  var POLL_URL;
-  if (streamIdMatch) {
-    POLL_URL = '/stream/' + streamIdMatch[1] + '/data';
-  } else {
-    POLL_URL = '/game/' + GAME_ID + '/spectator';
+  var POLL_URL = '';
+
+  function buildPollUrl() {
+    if (streamIdMatch) {
+      POLL_URL = GAME_API_BASE + '/stream/' + streamIdMatch[1] + '/data';
+    } else {
+      POLL_URL = GAME_API_BASE + '/game/' + GAME_ID + '/spectator';
+    }
   }
 
   /* ── Constants ──────────────────────────────────────── */
@@ -1390,7 +1396,7 @@
   }
 
   function pollFunding() {
-    fetch('/game/' + GAME_ID + '/funding')
+    fetch(GAME_API_BASE + '/game/' + GAME_ID + '/funding')
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (data) {
@@ -1443,9 +1449,21 @@
       });
   }
 
-  /* Initial poll + interval */
-  poll();
-  setInterval(poll, POLL_INTERVAL);
+  /* Fetch config then start polling */
+  fetch('/api/config')
+    .then(function (res) { return res.json(); })
+    .then(function (cfg) {
+      GAME_API_BASE = cfg.game_api_url || '';
+      buildPollUrl();
+      poll();
+      setInterval(poll, POLL_INTERVAL);
+    })
+    .catch(function () {
+      /* Fallback: assume same origin (Game API co-located) */
+      buildPollUrl();
+      poll();
+      setInterval(poll, POLL_INTERVAL);
+    });
 
 })();
 </script>

@@ -234,6 +234,8 @@
   .positive { color: var(--green); }
   .negative { color: var(--red); }
 
+  .lb-table td.wrap { white-space: normal; }
+
   /* ── Recent Hands ────────────────────────────────────── */
   .recent-section {
     margin-bottom: 48px;
@@ -297,6 +299,15 @@
   .rh-time {
     color: var(--text-dim);
   }
+
+  .rh-result {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .rh-result-showdown { color: var(--gold); }
+  .rh-result-fold { color: var(--text-dim); }
 
   /* ── Footer ──────────────────────────────────────────── */
   .footer {
@@ -408,6 +419,8 @@
               <th>Game</th>
               <th>Hand</th>
               <th>Winner</th>
+              <th>Cards</th>
+              <th>Result</th>
               <th class="right">Pot</th>
               <th class="right">Time</th>
             </tr>
@@ -471,6 +484,50 @@
     return Math.floor(hours / 24) + 'd ago';
   }
 
+  /* Card suit symbols with color */
+  var SUIT_MAP = { s: '\u2660', h: '\u2665', d: '\u2666', c: '\u2663' };
+  var RED_SUITS = { h: true, d: true };
+
+  function formatCard(card) {
+    if (!card || card.length < 2) return escapeHtml(card || '');
+    var rank = card.slice(0, -1).toUpperCase();
+    var suitChar = card.slice(-1).toLowerCase();
+    var symbol = SUIT_MAP[suitChar] || suitChar;
+    var color = RED_SUITS[suitChar] ? 'var(--red)' : 'var(--text-bright)';
+    return '<span style="color:' + color + '">' + rank + symbol + '</span>';
+  }
+
+  function formatCards(cards) {
+    if (!cards || !cards.length) return '--';
+    var parts = [];
+    for (var i = 0; i < cards.length; i++) {
+      parts.push(formatCard(cards[i]));
+    }
+    return parts.join(' ');
+  }
+
+  function formatWinningCards(cardsDict) {
+    if (!cardsDict || typeof cardsDict !== 'object') return '--';
+    var names = Object.keys(cardsDict);
+    if (!names.length) return '--';
+    var parts = [];
+    for (var i = 0; i < names.length; i++) {
+      parts.push(formatCards(cardsDict[names[i]]));
+    }
+    return parts.join(' | ');
+  }
+
+  function formatTokenStats(tokenStats) {
+    if (!tokenStats || !tokenStats.length) return '';
+    var parts = [];
+    for (var i = 0; i < tokenStats.length; i++) {
+      var ts = tokenStats[i];
+      var sign = ts.total_winnings >= 0 ? '+' : '';
+      parts.push(sign + ts.total_winnings.toLocaleString() + ' ' + escapeHtml(ts.token_symbol));
+    }
+    return parts.join(', ');
+  }
+
   /* ── Render Leaderboard ─────────────────────────────── */
   function renderLeaderboard(players) {
     var $body = document.getElementById('lb-body');
@@ -482,7 +539,9 @@
     for (var i = 0; i < players.length; i++) {
       var p = players[i];
       var netClass = winningsClass(p.total_winnings);
-      var netText = formatChips(p.total_winnings);
+      var netText = formatChips(p.total_winnings) + ' chips';
+      var tokenInfo = formatTokenStats(p.token_stats);
+      if (tokenInfo) netText += '<br><span style="font-size:11px;color:var(--text-dim)">' + tokenInfo + '</span>';
 
       html +=
         '<tr>' +
@@ -491,8 +550,8 @@
           '<td class="right">' + p.games_played + '</td>' +
           '<td class="right">' + p.hands_won + '</td>' +
           '<td class="right">' + p.win_rate.toFixed(1) + '%</td>' +
-          '<td class="right ' + netClass + '">' + netText + '</td>' +
-          '<td class="right">' + p.biggest_pot_won.toLocaleString() + '</td>' +
+          '<td class="right wrap ' + netClass + '">' + netText + '</td>' +
+          '<td class="right">' + p.biggest_pot_won.toLocaleString() + ' chips</td>' +
         '</tr>';
     }
     $body.innerHTML = html;
@@ -502,19 +561,28 @@
   function renderRecentHands(hands) {
     var $body = document.getElementById('rh-body');
     if (!hands.length) {
-      $body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:32px">No hands played yet</td></tr>';
+      $body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:32px">No hands played yet</td></tr>';
       return;
     }
     var html = '';
     for (var i = 0; i < hands.length; i++) {
       var h = hands[i];
-      var winnerText = h.winner_ids.length > 0 ? 'Player ' + h.winner_ids.join(', ') : '--';
+      var winnerText = (h.winner_names && h.winner_names.length > 0)
+        ? h.winner_names.join(', ')
+        : (h.winner_ids.length > 0 ? 'Player ' + h.winner_ids.join(', ') : '--');
+      var cardsHtml = formatWinningCards(h.winning_cards);
+      var resultType = h.result_type || 'fold';
+      var resultClass = resultType === 'showdown' ? 'rh-result-showdown' : 'rh-result-fold';
+      var resultLabel = resultType.charAt(0).toUpperCase() + resultType.slice(1);
+      var potLabel = h.pot.toLocaleString() + (h.token_symbol ? ' ' + escapeHtml(h.token_symbol) : ' chips');
       html +=
         '<tr>' +
           '<td><a href="/game/' + h.game_id + '" style="color:var(--text)">Game #' + h.game_id + '</a></td>' +
           '<td>#' + h.hand_number + '</td>' +
           '<td class="rh-winner">' + escapeHtml(winnerText) + '</td>' +
-          '<td class="right">' + h.pot.toLocaleString() + '</td>' +
+          '<td>' + cardsHtml + '</td>' +
+          '<td class="rh-result ' + resultClass + '">' + resultLabel + '</td>' +
+          '<td class="right">' + potLabel + '</td>' +
           '<td class="right rh-time">' + formatTimeAgoTs(h.timestamp) + '</td>' +
         '</tr>';
     }

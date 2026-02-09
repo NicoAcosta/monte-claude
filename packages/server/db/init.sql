@@ -31,9 +31,13 @@ CREATE TABLE hand_summaries (
     dealer_id       INTEGER NOT NULL,
     player_ids      TEXT NOT NULL,
     winner_ids      TEXT NOT NULL,
-    pot             INTEGER NOT NULL,
+    pot             NUMERIC NOT NULL,
     community_cards TEXT NOT NULL,
-    timestamp       DOUBLE PRECISION NOT NULL
+    timestamp       DOUBLE PRECISION NOT NULL,
+    winner_names    TEXT NOT NULL DEFAULT '[]',
+    winning_cards   TEXT NOT NULL DEFAULT '{}',
+    result_type     TEXT NOT NULL DEFAULT 'fold',
+    token_symbol    TEXT
 );
 CREATE INDEX idx_hand_summaries_game_id ON hand_summaries (game_id);
 
@@ -43,13 +47,13 @@ CREATE TABLE player_stats (
     hands_played    INTEGER NOT NULL DEFAULT 0,
     hands_won       INTEGER NOT NULL DEFAULT 0,
     total_winnings  BIGINT NOT NULL DEFAULT 0,
-    biggest_pot_won INTEGER NOT NULL DEFAULT 0
+    biggest_pot_won NUMERIC NOT NULL DEFAULT 0
 );
 
 CREATE TABLE game_metadata (
     game_id         SERIAL PRIMARY KEY,
     mode            TEXT NOT NULL DEFAULT 'offchain',
-    buy_in          INTEGER NOT NULL DEFAULT 0,
+    buy_in          NUMERIC NOT NULL DEFAULT 0,
     max_players     INTEGER NOT NULL DEFAULT 0,
     token           TEXT,
     token_decimals  INTEGER NOT NULL DEFAULT 0,
@@ -65,6 +69,16 @@ CREATE TABLE game_metadata (
     action_timeout  REAL,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE player_token_stats (
+    username        TEXT NOT NULL,
+    token_symbol    TEXT NOT NULL DEFAULT 'chips',
+    total_winnings  NUMERIC NOT NULL DEFAULT 0,
+    biggest_pot_won NUMERIC NOT NULL DEFAULT 0,
+    hands_played    INTEGER NOT NULL DEFAULT 0,
+    hands_won       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (username, token_symbol)
 );
 
 CREATE TABLE streams (

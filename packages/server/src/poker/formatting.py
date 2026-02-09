@@ -9,7 +9,7 @@ def format_buy_in(buy_in: int, token_decimals: int, token_symbol: str | None, mo
         return "Free"
     if token_decimals > 0:
         raw = buy_in / (10 ** token_decimals)
-        amount = f"{raw:g}"
+        amount = f"{raw:.{token_decimals}f}".rstrip("0").rstrip(".")
     else:
         amount = str(buy_in)
     symbol = token_symbol or ("credits" if mode == "offchain" else None)

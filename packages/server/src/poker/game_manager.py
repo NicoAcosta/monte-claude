@@ -71,6 +71,8 @@ class GameManager:
         meta = self._metadata_store
 
         def _event_callback(event_type: str, data: dict) -> None:
+            if event_type == "hand_completed" and config.token_symbol:
+                data["token_symbol"] = config.token_symbol
             if recorder:
                 recorder.on_event(event_type, data)
             if meta:
