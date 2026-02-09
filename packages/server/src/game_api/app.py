@@ -574,10 +574,9 @@ def extend(game_id: int, account: Account = Depends(require_auth)):
     if player is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
 
-    game._check_timeout()
-
     result = game.use_extension(player.id)
     if result is None:
+        game._check_timeout()
         raise HTTPException(status_code=400, detail="Cannot extend (not your turn or no extensions left)")
 
     new_deadline, remaining = result

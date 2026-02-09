@@ -55,14 +55,14 @@ class BalanceStore:
                 "SELECT amount, last_claim_at FROM balances WHERE username = %s FOR UPDATE",
                 (username,),
             ).fetchone()
-            current_amount = row[0] if row else 0
-            if current_amount < amount:
-                raise ValueError(
-                    f"Insufficient balance: have {current_amount}, need {amount}"
-                )
             if row is None:
                 raise ValueError(
                     f"Insufficient balance: have 0, need {amount}"
+                )
+            current_amount = row[0]
+            if current_amount < amount:
+                raise ValueError(
+                    f"Insufficient balance: have {current_amount}, need {amount}"
                 )
             new_amount = current_amount - amount
             conn.execute(

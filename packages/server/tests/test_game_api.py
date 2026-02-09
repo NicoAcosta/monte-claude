@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -663,6 +665,52 @@ class TestTimer:
         assert data["success"] is True
         assert data["extensions_remaining"] == 2
         assert data["new_deadline"] > 0
+
+    def test_extend_past_deadline_succeeds(self, client):
+        """SE-1: extend must apply before timeout check, so a player 1ms past deadline
+        can still extend instead of being auto-folded."""
+        gid, key_a, key_b = self._setup_started_game(client)
+        game = game_module.manager.get_game(gid)
+
+        s1 = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        right_key = key_a if s1["is_your_turn"] else key_b
+
+        # Move time to 1ms past the deadline
+        deadline = game.turn_deadline
+        with patch("poker.game.time.time", return_value=deadline + 0.001):
+            resp = client.post(f"/game/{gid}/extend", headers=auth_header(right_key))
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["extensions_remaining"] == 2
+
+    def test_extend_past_deadline_no_extensions_left_folds(self, client):
+        """SE-1: when extensions are exhausted and past deadline, the timeout check fires."""
+        gid, key_a, key_b = self._setup_started_game(client)
+        game = game_module.manager.get_game(gid)
+
+        s1 = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        right_key = key_a if s1["is_your_turn"] else key_b
+        player = game.get_player_by_name(
+            "Alice" if right_key == key_a else "Bob"
+        )
+
+        # Exhaust all extensions
+        for _ in range(game.extensions_per_player):
+            game.use_extension(player.id)
+
+        hand_before = game.hand_number
+        deadline = game.turn_deadline
+
+        # Now try to extend past deadline with no extensions left
+        with patch("poker.game.time.time", return_value=deadline + 0.001):
+            resp = client.post(f"/game/{gid}/extend", headers=auth_header(right_key))
+
+        # Should fail with 400 (no extensions left), and timeout check should have fired
+        assert resp.status_code == 400
+        # The timeout fold should have advanced the hand
+        assert game.hand_number > hand_before
 
 
 # ── Reason ─────────────────────────────────────────────

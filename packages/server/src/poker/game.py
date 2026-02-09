@@ -219,20 +219,21 @@ class Game:
             return "Already eliminated"
 
         player.resigned = True
-        self._state_version += 1
         self._notify("player_resigned", {
             "player_name": player.name,
             "player_id": player.id,
         })
 
         # Handle current hand participation
+        did_action = False
         if self.current_hand is not None:
             hand_player = self.current_hand._get_player(player_id)
             if hand_player is not None and not hand_player.is_folded:
                 if (self.current_hand.current_player is not None
                         and self.current_hand.current_player.id == player_id):
-                    # It's their turn — fold via do_action
+                    # It's their turn — fold via do_action (increments _state_version)
                     self.do_action(player_id, "fold", comment="[resigned]")
+                    did_action = True
                 else:
                     # Not their turn — force fold + check if hand should end
                     hand_player.is_folded = True
@@ -246,6 +247,9 @@ class Game:
                         self.current_hand.current_turn_index = None
                         self._extra_time = 0.0
                         self._finish_hand()
+
+        if not did_action:
+            self._state_version += 1
 
         # Check if game is over after resignation
         alive = self.alive_players
