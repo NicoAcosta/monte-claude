@@ -1,4 +1,4 @@
-.PHONY: run test install
+.PHONY: run test install db-up db-down
 
 install:
 	uv pip install -e ".[dev]"
@@ -8,3 +8,9 @@ run:
 
 test:
 	uv run pytest -v
+
+db-up:
+	docker compose -f ../../docker-compose.yml up -d postgres
+
+db-down:
+	docker compose -f ../../docker-compose.yml down

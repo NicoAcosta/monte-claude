@@ -1,12 +1,13 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from poker.balance_store import Balance, BalanceStore, FAUCET_COOLDOWN_SECONDS
+from poker.balance_store import BalanceStore, FAUCET_COOLDOWN_SECONDS
+from poker.db import get_pool
 
 
 @pytest.fixture
-def store(tmp_path):
-    return BalanceStore(tmp_path / "balances.csv")
+def store():
+    return BalanceStore(get_pool())
 
 
 class TestGet:
@@ -104,24 +105,24 @@ class TestFaucet:
 
 
 class TestPersistence:
-    def test_reload_from_csv(self, tmp_path):
-        path = tmp_path / "balances.csv"
-        store1 = BalanceStore(path)
+    def test_data_persists_across_instances(self):
+        pool = get_pool()
+        store1 = BalanceStore(pool)
         store1.credit("alice", 500)
         now = datetime(2025, 1, 1, tzinfo=timezone.utc)
         store1.try_claim_faucet("bob", 1000, now=now)
 
-        # Reload from same file
-        store2 = BalanceStore(path)
+        # New store instance reads from same pool
+        store2 = BalanceStore(pool)
         assert store2.get("alice").amount == 500
         assert store2.get("bob").amount == 1000
         assert store2.get("bob").last_claim_at == now.isoformat()
 
-    def test_unknown_user_not_persisted(self, tmp_path):
-        path = tmp_path / "balances.csv"
-        store1 = BalanceStore(path)
+    def test_unknown_user_not_persisted(self):
+        pool = get_pool()
+        store1 = BalanceStore(pool)
         store1.get("alice")  # just reading, no mutation
 
-        store2 = BalanceStore(path)
+        store2 = BalanceStore(pool)
         # Should still be zero (not persisted)
         assert store2.get("alice").amount == 0

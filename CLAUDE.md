@@ -17,10 +17,18 @@ See **[instructions.md](instructions.md)** for the complete game manual includin
 ### Quick Commands
 
 ```bash
+make db-up     # Start PostgreSQL (Docker)
 make install   # Install dependencies
 make run       # Start server at localhost:8000
 make test      # Run test suite (uv run pytest -v)
+make db-down   # Stop PostgreSQL
 ```
+
+### Prerequisites
+
+- **Docker** — PostgreSQL 16 runs in a Docker container
+- **Python 3.11+** with `uv` package manager
+- Start the database before running the server or tests: `make db-up`
 
 ### Architecture
 
@@ -31,8 +39,10 @@ make test      # Run test suite (uv run pytest -v)
 | Hand | `packages/server/src/poker/hand.py` | Single hand logic (betting rounds, actions, showdown) |
 | Models | `packages/server/src/poker/models.py` | Pydantic request/response models |
 | Auth | `packages/server/src/poker/auth.py` | API key authentication dependency |
-| Accounts | `packages/server/src/poker/account_store.py` | Account registration and key storage |
-| History | `packages/server/src/poker/history_store.py`, `game_recorder.py` | Event recording, hand summaries, player stats |
+| Database | `packages/server/src/poker/db.py` | PostgreSQL connection pool singleton |
+| Accounts | `packages/server/src/poker/account_store.py` | Account registration and key storage (PostgreSQL) |
+| Balance | `packages/server/src/poker/balance_store.py` | Off-chain balance, faucet, debit/credit (PostgreSQL) |
+| History | `packages/server/src/poker/history_store.py`, `game_recorder.py` | Event recording, hand summaries, player stats (PostgreSQL) |
 | Evaluator | `packages/server/src/poker/evaluator.py` | Hand ranking and comparison |
 | Deck | `packages/server/src/poker/deck.py` | Card and deck types |
 | Streams | `packages/server/src/poker/stream.py`, `stream_manager.py` | Stream lifecycle, commentary, duration tracking |
@@ -93,9 +103,24 @@ cd packages/contracts && forge test -vvv                    # unit + fuzz tests
 cd packages/contracts && forge test --fork-url <RPC> -vvv --match-contract E2E  # Base fork E2E
 ```
 
+### Database
+
+PostgreSQL 16 runs in Docker via `docker-compose.yml`. The server connects non-dockerized.
+
+| Component | Details |
+|-----------|---------|
+| Container | `postgres:16-alpine` on port 5432 |
+| Database | `claude_poker` |
+| Credentials | `poker` / `poker_dev` |
+| Schema | `packages/server/db/init.sql` (auto-applied on first start) |
+| Pool | `psycopg_pool.ConnectionPool` singleton in `db.py` |
+| DSN override | `DATABASE_URL` env var |
+
+Tables: `accounts`, `balances`, `game_events`, `hand_summaries`, `player_stats`.
+
 ### Concurrency
 
-**BalanceStore** uses per-user locks (`threading.Lock` per username) and atomic CSV writes (`os.replace` via temp file). Only concurrent ops on the same user block each other — unrelated users run in parallel.
+**BalanceStore** uses PostgreSQL row-level locking (`SELECT ... FOR UPDATE`) for debit and faucet operations. No application-level locks needed.
 
 **Game state nonce** (`Game._state_version`): monotonically increasing counter, incremented on every successful `do_action()` and `resign()`. Exposed in `PlayerStateResponse.state_version`. Clients can optionally send `expected_version` in `ActionRequest` — if it doesn't match, the server returns HTTP 409 Conflict. This catches stale-state submissions without requiring game-level locks.
 
@@ -103,14 +128,11 @@ cd packages/contracts && forge test --fork-url <RPC> -vvv --match-contract E2E  
 
 Tests mirror source structure: `packages/server/tests/test_hand.py`, `test_game.py`, `test_server.py`, `test_escrow.py`, etc.
 
+- **Requires Docker** — tests run against real PostgreSQL (`make db-up` first)
+- `conftest.py` auto-truncates all tables between tests for isolation
 - Module globals (`manager`, `account_store`) are swapped in test fixtures
 - Use `unittest.mock.patch("poker.game.time.time")` to control timer in tests
 - Auth uses `Security(api_key_header)` wrapping (not bare `APIKeyHeader` as default)
 - Escrow tests mock RPC calls; E2E chain tests live in Foundry
 - Timer extensions (`extensions_remaining`) are public to all players and spectators per-player
 - Streams track `created_at` for live duration display in the spectator UI
-
-### Data
-
-- Account data in `packages/server/data/accounts.csv` (gitignored)
-- Game events, hand summaries, player stats in `packages/server/data/` CSV files

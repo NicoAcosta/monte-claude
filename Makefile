@@ -1,4 +1,4 @@
-.PHONY: install test run build-contracts test-contracts test-all
+.PHONY: install test run build-contracts test-contracts test-all db-up db-down
 
 install:
 	cd packages/server && $(MAKE) install
@@ -16,3 +16,9 @@ test-contracts:
 	cd packages/contracts && $(MAKE) test
 
 test-all: test test-contracts
+
+db-up:
+	docker compose up -d postgres
+
+db-down:
+	docker compose down

@@ -1,23 +1,25 @@
 import json
 
+from poker.db import get_pool
 from poker.game import Game
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.replay import GameSnapshot, apply_event, replay_game, replay_to
 
 
-def _make_recorder(tmp_path, game_id=1):
-    event_store = GameEventStore(tmp_path / "events.csv")
-    summary_store = HandSummaryStore(tmp_path / "summaries.csv")
-    stats_store = PlayerStatsStore(tmp_path / "stats.csv")
+def _make_recorder(game_id=1):
+    pool = get_pool()
+    event_store = GameEventStore(pool)
+    summary_store = HandSummaryStore(pool)
+    stats_store = PlayerStatsStore(pool)
     recorder = GameRecorder(game_id, event_store, summary_store, stats_store)
     return recorder, event_store, summary_store, stats_store
 
 
 class TestReplay:
-    def test_replay_fold_hand(self, tmp_path):
+    def test_replay_fold_hand(self):
         """Record a hand with fold, replay it, verify final state."""
-        recorder, event_store, _, _ = _make_recorder(tmp_path)
+        recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -43,9 +45,9 @@ class TestReplay:
         folded = [p for p in final.players if p.is_folded]
         assert len(folded) == 1
 
-    def test_replay_full_hand_to_showdown(self, tmp_path):
+    def test_replay_full_hand_to_showdown(self):
         """Play a full hand through to showdown, replay it."""
-        recorder, event_store, _, _ = _make_recorder(tmp_path)
+        recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -75,9 +77,9 @@ class TestReplay:
         assert final.phase == "complete"
         assert len(final.community_cards) == 5
 
-    def test_replay_preserves_hole_cards(self, tmp_path):
+    def test_replay_preserves_hole_cards(self):
         """Verify hole cards are captured during replay."""
-        recorder, event_store, _, _ = _make_recorder(tmp_path)
+        recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -106,9 +108,9 @@ class TestReplay:
         for p in post_deal.players:
             assert list(p.hole_cards) == actual_cards[p.name]
 
-    def test_replay_to_specific_step(self, tmp_path):
+    def test_replay_to_specific_step(self):
         """replay_to should return state at a specific event index."""
-        recorder, event_store, _, _ = _make_recorder(tmp_path)
+        recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -130,9 +132,9 @@ class TestReplay:
         state_last = replay_to(hand1_events, len(hand1_events) - 1)
         assert state_last == full[-1]
 
-    def test_replay_pot_tracking(self, tmp_path):
+    def test_replay_pot_tracking(self):
         """Verify pot grows correctly during replay."""
-        recorder, event_store, _, _ = _make_recorder(tmp_path)
+        recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -156,9 +158,9 @@ class TestReplay:
             # If we didn't find 40, at least check pot is positive
             assert snapshots[-1].pot > 0
 
-    def test_replay_chips_conservation(self, tmp_path):
+    def test_replay_chips_conservation(self):
         """Total chips should be conserved during a hand."""
-        recorder, event_store, _, _ = _make_recorder(tmp_path)
+        recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
