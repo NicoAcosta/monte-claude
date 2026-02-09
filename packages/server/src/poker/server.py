@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
@@ -69,6 +69,7 @@ app = FastAPI(title="Claude Poker", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
+INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"
 
 event_store = GameEventStore(DATA_DIR / "events.csv")
 summary_store = HandSummaryStore(DATA_DIR / "hand_summaries.csv")
@@ -153,6 +154,13 @@ def register_account(req: AccountRegisterRequest):
     return AccountRegisterResponse(api_key=api_key, username=req.username)
 
 
+@app.get("/api/instructions", response_class=PlainTextResponse)
+def instructions():
+    if not INSTRUCTIONS_PATH.is_file():
+        raise HTTPException(status_code=404, detail="Instructions file not found")
+    return PlainTextResponse(INSTRUCTIONS_PATH.read_text())
+
+
 # ── Lobby routes ─────────────────────────────────────────
 
 @app.get("/")
@@ -197,6 +205,7 @@ def create_game(req: CreateGameRequest):
     game_id, game, config = game_service.create_game(
         manager, req.max_players, req.token, req.buy_in, mode,
         on_game_over=_on_game_over,
+        action_timeout=req.action_timeout,
     )
     return CreateGameResponse(
         game_id=game_id,
@@ -518,6 +527,9 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
             buy_in=config.buy_in,
             escrow_address=config.escrow_address,
             mode=config.mode or GameMode.OFFCHAIN,
+            max_players=config.max_players,
+            starting_players=len(game._players),
+            action_timeout=game.action_timeout,
         )
         base.update(overrides)
         return SpectatorResponse(**base)
@@ -560,6 +572,9 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
         buy_in=config.buy_in,
         escrow_address=config.escrow_address,
         mode=config.mode or GameMode.OFFCHAIN,
+        max_players=config.max_players,
+        starting_players=len(game._players),
+        action_timeout=game.action_timeout,
     )
     base.update(overrides)
     return SpectatorResponse(**base)
@@ -576,7 +591,7 @@ def spectator(game_id: int):
 
 @app.post("/game/{game_id}/chat", response_model=ChatResponse)
 def chat(game_id: int, req: ChatRequest, account: Account = Depends(require_auth)):
-    game, _config = _get_game_or_404(game_id)
+    game, _ = _get_game_or_404(game_id)
     player = game.get_player_by_name(account.username)
     if player is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
@@ -591,7 +606,7 @@ def chat(game_id: int, req: ChatRequest, account: Account = Depends(require_auth
 
 @app.post("/game/{game_id}/extend", response_model=ExtendResponse)
 def extend(game_id: int, account: Account = Depends(require_auth)):
-    game, _config = _get_game_or_404(game_id)
+    game, _ = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 

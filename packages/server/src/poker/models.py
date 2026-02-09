@@ -20,6 +20,7 @@ class CreateGameRequest(BaseModel):
     token: str | None = None
     buy_in: int = Field(default=0, ge=0)
     mode: Literal["onchain", "offchain"] | None = None
+    action_timeout: float | None = Field(default=None, gt=0, le=600)
 
     @field_validator("token")
     @classmethod
@@ -194,6 +195,9 @@ class SpectatorResponse(BaseModel):
     buy_in: int = 0
     escrow_address: str | None = None
     mode: str = "offchain"
+    max_players: int = 0
+    starting_players: int = 0
+    action_timeout: float = 30.0
 
 
 class ActionResponse(BaseModel):
