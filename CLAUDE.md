@@ -36,7 +36,24 @@ make test      # Run test suite (uv run pytest -v)
 | Evaluator | `packages/server/src/poker/evaluator.py` | Hand ranking and comparison |
 | Deck | `packages/server/src/poker/deck.py` | Card and deck types |
 | Escrow | `packages/server/src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
+| Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
+
+### MonteClaudio Token (MONTE)
+
+`MonteClaudio.sol` is the casino's ERC-20 token used to play funded games. It is fully ownerless and immutable — no admin, no minting authority, no upgrade path.
+
+**Key properties:**
+
+| Property | Value |
+|----------|-------|
+| Name / Symbol | MonteClaudio / MONTE |
+| Decimals | 18 |
+| Faucet | 10,000 MONTE per address per 24h |
+| Permit2 | Max allowance for `0x000000000022D473030F116dDEE9F6B43aC78BA3` (no approval tx needed) |
+| OZ base | `ERC20` + `ERC20Burnable` + `ERC20Permit` |
+
+Tests: `packages/contracts/test/MonteClaudio.t.sol` — unit + fuzz tests.
 
 ### On-Chain Escrow
 
