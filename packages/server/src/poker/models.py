@@ -19,6 +19,8 @@ class CreateGameRequest(BaseModel):
     max_players: int = Field(default=0, ge=0, le=10)
     token: str | None = None
     buy_in: int = Field(default=0, ge=0)
+    token_decimals: int = Field(default=0, ge=0, le=18)
+    token_symbol: str | None = None
     mode: Literal["onchain", "offchain"] | None = None
     action_timeout: float | None = Field(default=None, gt=0, le=600)
 
@@ -193,6 +195,8 @@ class SpectatorResponse(BaseModel):
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
     buy_in: int = 0
+    buy_in_display: str = ""
+    token_symbol: str | None = None
     escrow_address: str | None = None
     mode: str = "offchain"
     max_players: int = 0
@@ -214,6 +218,8 @@ class CreateGameResponse(BaseModel):
     max_players: int
     token: str | None
     buy_in: int
+    buy_in_display: str = ""
+    token_symbol: str | None = None
     mode: str
 
 
@@ -228,6 +234,8 @@ class GameListItem(BaseModel):
     max_players: int = 0
     token: str | None = None
     buy_in: int = 0
+    buy_in_display: str = ""
+    token_symbol: str | None = None
     funded: bool = False
     mode: str = "offchain"
 

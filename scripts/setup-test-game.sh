@@ -16,9 +16,7 @@ SERVER_DIR="$REPO_ROOT/packages/server"
 CONTRACTS_DIR="$REPO_ROOT/packages/contracts"
 
 BASE_RPC="https://lb.routeme.sh/rpc/8453/3bd2e340-f97c-46b3-80ed-17975de5af89"
-USDC="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-BUY_IN=100000000      # 100 USDC (6 decimals)
-USDC_SEED=1000000000  # 1000 USDC per player
+BUY_IN="1000000000000000000000"  # 1000 MONTE (18 decimals)
 ANVIL_PORT=8545
 SERVER_PORT=8000
 RPC="http://localhost:$ANVIL_PORT"
@@ -108,7 +106,14 @@ if [ ! -d "$CONTRACTS_DIR/lib/forge-std" ]; then
   (cd "$CONTRACTS_DIR" && forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts Vectorized/solady --no-git 2>&1 | tail -3)
 fi
 
-# ── Step 4: Deploy EscrowFactory ────────────────────────
+# ── Step 4: Deploy MonteClaudio token + EscrowFactory ────
+log "DEPLOY" "Deploying MonteClaudio (MONTE) token..."
+MONTE_OUTPUT=$(cd "$CONTRACTS_DIR" && forge create src/MonteClaudio.sol:MonteClaudio \
+  --rpc-url "$RPC" --private-key "$ADMIN_KEY" --broadcast 2>&1)
+MONTE_ADDRESS=$(echo "$MONTE_OUTPUT" | grep "Deployed to:" | awk '{print $NF}')
+[ -z "$MONTE_ADDRESS" ] && die "Failed to parse MONTE address from deploy output"
+log "DEPLOY" "MonteClaudio (MONTE): $MONTE_ADDRESS"
+
 log "DEPLOY" "Deploying EscrowFactory..."
 DEPLOY_OUTPUT=$(cd "$CONTRACTS_DIR" && forge script script/Deploy.s.sol \
   --rpc-url "$RPC" --private-key "$ADMIN_KEY" --broadcast 2>&1)
@@ -117,14 +122,13 @@ FACTORY_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep "EscrowFactory:" | awk '{print $N
 [ -z "$FACTORY_ADDRESS" ] && die "Failed to parse factory address from deploy output"
 log "DEPLOY" "EscrowFactory: $FACTORY_ADDRESS"
 
-# ── Step 5: Seed USDC to player wallets ─────────────────
-log "USDC" "Seeding $NUM_PLAYERS wallets with $(( USDC_SEED / 1000000 )) USDC each..."
-VALUE=$(cast to-uint256 $USDC_SEED)
+# ── Step 5: Claim MONTE from faucet for player wallets ───
+log "MONTE" "Claiming 10,000 MONTE per player from faucet..."
 for i in $(seq 0 $((NUM_PLAYERS - 1))); do
-  SLOT=$(cast index address "${WALLETS[$i]}" 9)
-  cast rpc anvil_setStorageAt "$USDC" "$SLOT" "$VALUE" --rpc-url "$RPC" >/dev/null
+  cast send "$MONTE_ADDRESS" "faucet()" \
+    --private-key "${PRIVATE_KEYS[$i]}" --rpc-url "$RPC" >/dev/null 2>&1
 done
-log "USDC" "Done"
+log "MONTE" "Done"
 
 # ── Step 6: Set up Python venv if needed ────────────────
 if [ ! -d "$SERVER_DIR/.venv" ]; then
@@ -152,10 +156,10 @@ wait_for_http $SERVER_PORT 15
 log "SERVER" "Running on port $SERVER_PORT"
 
 # ── Step 8: Create funded game ──────────────────────────
-log "GAME" "Creating funded game for $NUM_PLAYERS players (buy-in: $(( BUY_IN / 1000000 )) USDC)..."
+log "GAME" "Creating funded game for $NUM_PLAYERS players (buy-in: 1000 MONTE)..."
 GAME_RESP=$(curl -s -X POST "$SERVER/api/games" \
   -H "Content-Type: application/json" \
-  -d "{\"max_players\": $NUM_PLAYERS, \"token\": \"$USDC\", \"buy_in\": $BUY_IN}")
+  -d "{\"max_players\": $NUM_PLAYERS, \"token\": \"$MONTE_ADDRESS\", \"buy_in\": $BUY_IN, \"token_decimals\": 18, \"token_symbol\": \"MONTE\"}")
 GAME_ID=$(echo "$GAME_RESP" | jq -r .game_id)
 log "GAME" "Game ID: $GAME_ID"
 
@@ -196,7 +200,7 @@ log "ESCROW" "Escrow address: $ESCROW_ADDR"
 
 # First player: approve factory + createAndDeposit
 log "ESCROW" "Player 1 depositing (createAndDeposit)..."
-cast send "$USDC" "approve(address,uint256)" "$FACTORY_ADDRESS" "$BUY_IN" \
+cast send "$MONTE_ADDRESS" "approve(address,uint256)" "$FACTORY_ADDRESS" "$BUY_IN" \
   --private-key "${PRIVATE_KEYS[0]}" --rpc-url "$RPC" >/dev/null 2>&1
 cast send "$FACTORY_ADDRESS" "$CALLDATA_CREATE" \
   --private-key "${PRIVATE_KEYS[0]}" --rpc-url "$RPC" >/dev/null 2>&1
@@ -205,7 +209,7 @@ cast send "$FACTORY_ADDRESS" "$CALLDATA_CREATE" \
 for i in $(seq 1 $((NUM_PLAYERS - 1))); do
   CALLDATA=$(echo "$ESCROW_INFO" | jq -r ".calldata_deposit[\"${WALLETS[$i]}\"]")
   log "ESCROW" "Player $((i+1)) depositing..."
-  cast send "$USDC" "approve(address,uint256)" "$ESCROW_ADDR" "$BUY_IN" \
+  cast send "$MONTE_ADDRESS" "approve(address,uint256)" "$ESCROW_ADDR" "$BUY_IN" \
     --private-key "${PRIVATE_KEYS[$i]}" --rpc-url "$RPC" >/dev/null 2>&1
   cast send "$ESCROW_ADDR" "$CALLDATA" \
     --private-key "${PRIVATE_KEYS[$i]}" --rpc-url "$RPC" >/dev/null 2>&1
@@ -256,11 +260,12 @@ PLAYERS_JSON+="]"
 SUMMARY=$(jq -n \
   --arg server "$SERVER" \
   --argjson game_id "$GAME_ID" \
+  --arg monte "$MONTE_ADDRESS" \
   --arg escrow "$ESCROW_ADDR" \
   --argjson stream_id "$STREAM_ID" \
   --arg comm_key "$COMM_KEY" \
   --argjson players "$PLAYERS_JSON" \
-  '{server: $server, game_id: $game_id, escrow_address: $escrow, stream_id: $stream_id, commentator_key: $comm_key, players: $players}')
+  '{server: $server, game_id: $game_id, monte_address: $monte, escrow_address: $escrow, stream_id: $stream_id, commentator_key: $comm_key, players: $players}')
 
 echo "Players:"
 echo "$SUMMARY" | jq -r '.players[] | "  \(.name) (id=\(.id)) key=\(.api_key)"'
