@@ -1,42 +1,47 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import poker.server as server_module
+import game_api.app as game_module
 from poker.account_store import AccountStore
 from poker.balance_store import BalanceStore
 from poker.db import get_pool
 from poker.game_manager import GameManager
+from poker.game_metadata_store import GameMetadataStore
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
-from poker.stream_manager import StreamManager
+from poker.stream_store import StreamStore
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
     """Reset global game manager, account store, balance store, and history stores before each test."""
     pool = get_pool()
-    server_module.event_store = GameEventStore(pool)
-    server_module.summary_store = HandSummaryStore(pool)
-    server_module.stats_store = PlayerStatsStore(pool)
+    game_module.event_store = GameEventStore(pool)
+    game_module.summary_store = HandSummaryStore(pool)
+    game_module.stats_store = PlayerStatsStore(pool)
+    game_module.metadata_store = GameMetadataStore(pool)
+    game_module.stream_store = StreamStore(pool)
 
     def make_recorder(game_id: int) -> GameRecorder:
         return GameRecorder(
             game_id,
-            server_module.event_store,
-            server_module.summary_store,
-            server_module.stats_store,
+            game_module.event_store,
+            game_module.summary_store,
+            game_module.stats_store,
         )
 
-    server_module.manager = GameManager(recorder_factory=make_recorder)
-    server_module.account_store = AccountStore(pool)
-    server_module.balance_store = BalanceStore(pool)
-    server_module.stream_manager = StreamManager()
+    game_module.manager = GameManager(
+        recorder_factory=make_recorder,
+        metadata_store=game_module.metadata_store,
+    )
+    game_module.account_store = AccountStore(pool)
+    game_module.balance_store = BalanceStore(pool)
     yield
 
 
 @pytest.fixture
 def client():
-    return TestClient(server_module.app)
+    return TestClient(game_module.app)
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -86,42 +91,6 @@ class TestAccountRegistration:
     def test_register_empty_username(self, client):
         resp = client.post("/api/register", json={"username": ""})
         assert resp.status_code == 400
-
-
-# ── Lobby ────────────────────────────────────────────────
-
-class TestLobby:
-    def test_list_games_empty(self, client):
-        resp = client.get("/api/games")
-        assert resp.status_code == 200
-        assert resp.json()["games"] == []
-
-    def test_create_game(self, client):
-        resp = client.post("/api/games", json={"max_players": 2})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["game_id"] == 1
-
-    def test_list_games_after_create(self, client):
-        create_game(client)
-        resp = client.get("/api/games")
-        games = resp.json()["games"]
-        assert len(games) == 1
-        assert games[0]["id"] == 1
-        assert games[0]["started"] is False
-
-    def test_lobby_page(self, client):
-        resp = client.get("/")
-        assert resp.status_code in (200, 404)
-
-    def test_game_page_404(self, client):
-        resp = client.get("/game/999")
-        assert resp.status_code == 404
-
-    def test_game_page_exists(self, client):
-        gid = create_game(client)
-        resp = client.get(f"/game/{gid}")
-        assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
 
 # ── Join Game ────────────────────────────────────────────
@@ -540,103 +509,6 @@ class TestGameIsolation:
         w2 = client.get(f"/game/{g2}/waiting").json()
         assert w2["started"] is False
 
-    def test_lobby_reflects_multiple_games(self, client):
-        g1 = create_game(client)
-        g2 = create_game(client)
-
-        key_a = register_account(client, "Alice")
-        key_b = register_account(client, "Bob")
-        join_game(client, g1, key_a)
-        join_game(client, g1, key_b)
-        client.post(f"/game/{g1}/start", headers=auth_header(key_a))
-
-        games = client.get("/api/games").json()["games"]
-        assert len(games) == 2
-
-        started_game = next(g for g in games if g["id"] == g1)
-        waiting_game = next(g for g in games if g["id"] == g2)
-        assert started_game["started"] is True
-        assert waiting_game["started"] is False
-
-
-# ── History Endpoints ───────────────────────────────────
-
-class TestHistory:
-    def _setup_started_game(self, client):
-        gid = create_game(client)
-        key_a = register_account(client, "Alice")
-        key_b = register_account(client, "Bob")
-        join_game(client, gid, key_a)
-        join_game(client, gid, key_b)
-        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
-        return gid, key_a, key_b
-
-    def test_game_history_endpoint(self, client):
-        gid, key_a, key_b = self._setup_started_game(client)
-
-        # Fold to complete a hand
-        s1 = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
-        first_key = key_a if s1["is_your_turn"] else key_b
-        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
-
-        resp = client.get(f"/api/games/{gid}/history")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["game_id"] == gid
-        assert len(data["events"]) > 0
-
-        event_types = [e["event_type"] for e in data["events"]]
-        assert "player_joined" in event_types
-        assert "game_started" in event_types
-        assert "hand_started" in event_types
-        assert "action" in event_types
-        assert "hand_completed" in event_types
-
-    def test_game_history_404(self, client):
-        resp = client.get("/api/games/999/history")
-        assert resp.status_code == 404
-
-    def test_hand_summaries_endpoint(self, client):
-        gid, key_a, key_b = self._setup_started_game(client)
-
-        s1 = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
-        first_key = key_a if s1["is_your_turn"] else key_b
-        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
-
-        resp = client.get(f"/api/games/{gid}/hands")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["game_id"] == gid
-        assert len(data["hands"]) >= 1
-        hand = data["hands"][0]
-        assert hand["hand_number"] == 1
-        assert hand["pot"] > 0
-        assert len(hand["winner_ids"]) >= 1
-
-    def test_player_stats_endpoint(self, client):
-        gid, key_a, key_b = self._setup_started_game(client)
-
-        s1 = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
-        first_key = key_a if s1["is_your_turn"] else key_b
-        client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
-
-        resp_alice = client.get("/api/stats/Alice")
-        assert resp_alice.status_code == 200
-        alice = resp_alice.json()
-        assert alice["username"] == "Alice"
-        assert alice["games_played"] == 1
-        assert alice["hands_played"] >= 1
-
-        resp_bob = client.get("/api/stats/Bob")
-        assert resp_bob.status_code == 200
-        bob = resp_bob.json()
-        assert bob["username"] == "Bob"
-        assert bob["games_played"] == 1
-
-    def test_player_stats_404(self, client):
-        resp = client.get("/api/stats/Nobody")
-        assert resp.status_code == 404
-
 
 # ── Chat ────────────────────────────────────────────────
 
@@ -867,28 +739,6 @@ class TestReason:
         reasons = [a["reason"] for a in spec["recent_actions"] if a.get("reason")]
         assert "I think they're bluffing" in reasons
 
-    def test_reason_persisted_in_history(self, client):
-        gid, key_a, key_b = self._setup_started_game(client)
-        first_key, second_key = self._who_acts_first(client, gid, key_a, key_b)
-
-        client.post(
-            f"/game/{gid}/action",
-            json={"action": "call", "reason": "Testing history persistence"},
-            headers=auth_header(first_key),
-        )
-        client.post(
-            f"/game/{gid}/action",
-            json={"action": "fold"},
-            headers=auth_header(second_key),
-        )
-        resp = client.get(f"/api/games/{gid}/history")
-        assert resp.status_code == 200
-        events = resp.json()["events"]
-        action_events = [e for e in events if e["event_type"] == "action"]
-        # At least one action event should contain the reason in its data
-        reason_found = any("Testing history persistence" in e["data"] for e in action_events)
-        assert reason_found
-
 
 # ── Streams ────────────────────────────────────────────
 
@@ -911,7 +761,7 @@ class TestStreams:
             headers=auth_header(key),
         )
         assert resp.status_code == 200
-        assert resp.json()["stream_id"] == 1
+        assert resp.json()["stream_id"] >= 1
 
     def test_create_stream_requires_auth(self, client):
         gid = create_game(client)
@@ -961,43 +811,6 @@ class TestStreams:
             headers=auth_header(key),
         )
         assert resp.status_code == 400
-
-    def test_list_streams_for_game(self, client):
-        gid = create_game(client)
-        key_a = register_account(client, "Alice")
-        key_b = register_account(client, "Bob")
-        client.post(f"/game/{gid}/streams", json={"title": "Stream A"}, headers=auth_header(key_a))
-        client.post(f"/game/{gid}/streams", json={"title": "Stream B"}, headers=auth_header(key_b))
-
-        resp = client.get(f"/game/{gid}/streams")
-        assert resp.status_code == 200
-        streams = resp.json()["streams"]
-        assert len(streams) == 2
-        hosts = {s["host"] for s in streams}
-        assert hosts == {"Alice", "Bob"}
-
-    def test_list_streams_empty(self, client):
-        gid = create_game(client)
-        resp = client.get(f"/game/{gid}/streams")
-        assert resp.status_code == 200
-        assert resp.json()["streams"] == []
-
-    def test_list_all_streams(self, client):
-        g1 = create_game(client)
-        g2 = create_game(client)
-        key_a = register_account(client, "Alice")
-        key_b = register_account(client, "Bob")
-        client.post(f"/game/{g1}/streams", json={"title": "G1 Stream"}, headers=auth_header(key_a))
-        client.post(f"/game/{g2}/streams", json={"title": "G2 Stream"}, headers=auth_header(key_b))
-
-        resp = client.get("/api/streams")
-        assert resp.status_code == 200
-        assert len(resp.json()["streams"]) == 2
-
-    def test_list_all_streams_empty(self, client):
-        resp = client.get("/api/streams")
-        assert resp.status_code == 200
-        assert resp.json()["streams"] == []
 
     def test_stream_commentate(self, client):
         gid = create_game(client)
@@ -1052,23 +865,6 @@ class TestStreams:
             json={"text": "No stream"},
             headers=auth_header(key),
         )
-        assert resp.status_code == 404
-
-    def test_stream_page_returns_html(self, client):
-        gid = create_game(client)
-        key = register_account(client, "Alice")
-        sid = client.post(
-            f"/game/{gid}/streams",
-            json={"title": "Alice's Stream"},
-            headers=auth_header(key),
-        ).json()["stream_id"]
-
-        resp = client.get(f"/stream/{sid}")
-        assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-
-    def test_stream_page_not_found(self, client):
-        resp = client.get("/stream/999")
         assert resp.status_code == 404
 
     def test_stream_data(self, client):
@@ -1164,12 +960,12 @@ class TestStreams:
         """The base spectator endpoint should always have commentary_text=None."""
         gid = create_game(client)
         key = register_account(client, "Alice")
-        client.post(
+        resp = client.post(
             f"/game/{gid}/streams",
             json={"title": "Alice's Stream"},
             headers=auth_header(key),
         )
-        sid = 1
+        sid = resp.json()["stream_id"]
         client.post(f"/stream/{sid}/commentate", json={"text": "Hello!"}, headers=auth_header(key))
 
         # Raw spectator should have no commentary
@@ -1249,20 +1045,6 @@ class TestEscrowGameCreation:
         assert data["max_players"] == 0
         assert data["token"] is None
         assert data["buy_in"] == 0
-
-    def test_funded_game_in_list(self, client):
-        client.post("/api/games", json={
-            "max_players": 3,
-            "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-            "buy_in": 50_000_000,
-        })
-        resp = client.get("/api/games")
-        games = resp.json()["games"]
-        assert len(games) == 1
-        g = games[0]
-        assert g["max_players"] == 3
-        assert g["buy_in"] == 50_000_000
-        assert g["funded"] is False
 
     def test_join_funded_game_requires_wallet(self, client):
         resp = client.post("/api/games", json={
@@ -1486,7 +1268,7 @@ class TestEscrowEndpoints:
         gid = resp.json()["game_id"]
 
         # Manually set game_over to bypass normal flow for this edge case
-        game = server_module.manager.get_game(gid)
+        game = game_module.manager.get_game(gid)
         game.game_over = True
 
         resp = client.get(f"/game/{gid}/settlement")

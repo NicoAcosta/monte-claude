@@ -8,6 +8,7 @@ from poker.balance_store import BalanceStore
 from poker.game import Game, RegisteredPlayer
 from poker.game_config import GameConfig
 from poker.game_manager import GameManager
+from poker.game_metadata_store import GameMetadataStore
 from poker.game_mode import GameMode
 from poker.game_recorder import GameRecorder
 
@@ -55,6 +56,8 @@ def join_game(
     wallet_address: str | None,
     balance_store: BalanceStore,
     recorder: GameRecorder | None,
+    metadata_store: GameMetadataStore | None = None,
+    game_id: int = 0,
 ) -> RegisteredPlayer:
     """Join a game: check capacity/mode, debit balance, register player, record event.
 
@@ -87,6 +90,9 @@ def join_game(
             "player_id": player.id,
         })
 
+    if metadata_store and game_id:
+        metadata_store.update_player_joined(game_id, player.name)
+
     return player
 
 
@@ -94,6 +100,8 @@ def start_game(
     game: Game,
     config: GameConfig,
     recorder: GameRecorder | None,
+    metadata_store: GameMetadataStore | None = None,
+    game_id: int = 0,
 ) -> int:
     """Check funding, mark funded (for offchain), and start the game.
 
@@ -105,6 +113,9 @@ def start_game(
     elif config.buy_in > 0 and not config.funded:
         raise ValueError("Deposits not confirmed")
 
+    if metadata_store and game_id and config.funded:
+        metadata_store.update_funded(game_id)
+
     hand_num = game.start()
 
     if recorder:
@@ -112,5 +123,8 @@ def start_game(
             "player_count": game.player_count,
             "player_names": [p.name for p in game._players],
         })
+
+    if metadata_store and game_id:
+        metadata_store.update_started(game_id)
 
     return hand_num

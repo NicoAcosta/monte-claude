@@ -1,10 +1,13 @@
-.PHONY: run test install db-up db-down
+.PHONY: run-game run-data test install db-up db-down
 
 install:
 	uv pip install -e ".[dev]"
 
-run:
-	uv run uvicorn poker.server:app --host 0.0.0.0 --port 8000 --reload
+run-game:
+	uv run uvicorn game_api.app:app --host 0.0.0.0 --port 8001 --reload
+
+run-data:
+	uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --reload
 
 test:
 	uv run pytest -v

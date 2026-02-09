@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from poker.game import Game
 from poker.game_config import GameConfig
+from poker.game_metadata_store import GameMetadataStore
 from poker.game_recorder import GameRecorder
 
 
@@ -30,12 +31,14 @@ class GameManager:
     def __init__(
         self,
         recorder_factory: Callable[[int], GameRecorder] | None = None,
+        metadata_store: GameMetadataStore | None = None,
     ) -> None:
         self._games: dict[int, Game] = {}
         self._configs: dict[int, GameConfig] = {}
         self._recorders: dict[int, GameRecorder] = {}
         self._next_id = 1
         self._recorder_factory = recorder_factory
+        self._metadata_store = metadata_store
 
     def create_game(
         self,
@@ -65,9 +68,18 @@ class GameManager:
             recorder = self._recorder_factory(game_id)
             self._recorders[game_id] = recorder
 
+        meta = self._metadata_store
+
         def _event_callback(event_type: str, data: dict) -> None:
             if recorder:
                 recorder.on_event(event_type, data)
+            if meta:
+                if event_type == "game_started":
+                    meta.update_started(game_id)
+                elif event_type == "hand_started":
+                    meta.update_hand_number(game_id, data.get("hand_number", 0))
+                elif event_type == "game_over":
+                    meta.update_game_over(game_id, data.get("winner"))
             if event_type == "game_over" and on_game_over is not None:
                 on_game_over(game, config)
 
@@ -78,6 +90,19 @@ class GameManager:
 
         self._games[game_id] = game
         self._configs[game_id] = config
+
+        if meta:
+            meta.create(
+                game_id=game_id,
+                mode=config.mode,
+                buy_in=config.buy_in,
+                max_players=config.max_players,
+                token=config.token,
+                token_decimals=config.token_decimals,
+                token_symbol=config.token_symbol,
+                action_timeout=action_timeout,
+            )
+
         return game_id, game, config
 
     def get_recorder(self, game_id: int) -> GameRecorder | None:

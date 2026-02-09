@@ -72,6 +72,24 @@ class HandSummaryStore:
             for r in rows
         ]
 
+    def get_recent(self, limit: int = 20) -> list[HandSummary]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT game_id, hand_number, dealer_id, player_ids, winner_ids, "
+                "pot, community_cards, timestamp "
+                "FROM hand_summaries ORDER BY timestamp DESC LIMIT %s",
+                (limit,),
+            ).fetchall()
+        return [
+            HandSummary(
+                game_id=r[0], hand_number=r[1], dealer_id=r[2],
+                player_ids=tuple(json.loads(r[3])),
+                winner_ids=tuple(json.loads(r[4])),
+                pot=r[5], community_cards=r[6], timestamp=r[7],
+            )
+            for r in rows
+        ]
+
 
 class PlayerStatsStore:
     def __init__(self, pool: ConnectionPool) -> None:
@@ -90,6 +108,22 @@ class PlayerStatsStore:
             username=row[0], games_played=row[1], hands_played=row[2],
             hands_won=row[3], total_winnings=row[4], biggest_pot_won=row[5],
         )
+
+    def get_all(self, limit: int = 50) -> list[PlayerStats]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT username, games_played, hands_played, hands_won, "
+                "total_winnings, biggest_pot_won FROM player_stats "
+                "ORDER BY total_winnings DESC LIMIT %s",
+                (limit,),
+            ).fetchall()
+        return [
+            PlayerStats(
+                username=r[0], games_played=r[1], hands_played=r[2],
+                hands_won=r[3], total_winnings=r[4], biggest_pot_won=r[5],
+            )
+            for r in rows
+        ]
 
     def update(self, stats: PlayerStats) -> None:
         with self._pool.connection() as conn:

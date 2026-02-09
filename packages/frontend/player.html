@@ -371,78 +371,62 @@
     return n.toLocaleString();
   }
 
-  /* ── Mock Data ─────────────────────────────────────── */
-  var mockStats = {
-    games_played: 42,
-    hands_played: 847,
-    hands_won: 213,
-    net_winnings: 12450,
-    biggest_pot: 4800,
-    member_since: 'Jan 15, 2026'
-  };
-
-  var mockHands = [
-    { game: 38, hand: 12, won: true,  pot: 2400, date: 'Feb 8, 2026' },
-    { game: 38, hand: 11, won: false, pot: 800,  date: 'Feb 8, 2026' },
-    { game: 38, hand: 10, won: true,  pot: 1600, date: 'Feb 8, 2026' },
-    { game: 37, hand: 8,  won: false, pot: 3200, date: 'Feb 7, 2026' },
-    { game: 37, hand: 7,  won: true,  pot: 4800, date: 'Feb 7, 2026' },
-    { game: 37, hand: 5,  won: false, pot: 600,  date: 'Feb 7, 2026' },
-    { game: 35, hand: 14, won: true,  pot: 1200, date: 'Feb 5, 2026' },
-    { game: 35, hand: 13, won: false, pot: 2000, date: 'Feb 5, 2026' },
-    { game: 34, hand: 3,  won: true,  pot: 900,  date: 'Feb 4, 2026' },
-    { game: 34, hand: 1,  won: false, pot: 400,  date: 'Feb 4, 2026' }
-  ];
-
-  /* ── Render Player Header ─────────────────────────── */
-  $username.textContent = username;
-  $meta.textContent = 'Member since ' + mockStats.member_since;
-
   /* ── Render Stats ─────────────────────────────────── */
-  var winRate = mockStats.hands_played > 0
-    ? ((mockStats.hands_won / mockStats.hands_played) * 100).toFixed(1) + '%'
-    : '0%';
+  function renderStats(data) {
+    $username.textContent = data.username;
+    $meta.textContent = data.games_played + ' games played';
 
-  var netPrefix = mockStats.net_winnings >= 0 ? '+' : '';
-  var netClass = mockStats.net_winnings >= 0 ? 'positive' : 'negative';
+    var winRate = data.hands_played > 0
+      ? ((data.hands_won / data.hands_played) * 100).toFixed(1) + '%'
+      : '0%';
 
-  var stats = [
-    { label: 'Games Played',   value: formatNumber(mockStats.games_played) },
-    { label: 'Hands Played',   value: formatNumber(mockStats.hands_played) },
-    { label: 'Hands Won',      value: formatNumber(mockStats.hands_won) },
-    { label: 'Win Rate',       value: winRate },
-    { label: 'Net Winnings',   value: netPrefix + formatNumber(mockStats.net_winnings), className: netClass },
-    { label: 'Biggest Pot Won', value: formatNumber(mockStats.biggest_pot) }
-  ];
+    var netPrefix = data.total_winnings >= 0 ? '+' : '';
+    var netClass = data.total_winnings >= 0 ? 'positive' : 'negative';
 
-  var statsHtml = '';
-  for (var i = 0; i < stats.length; i++) {
-    var s = stats[i];
-    var valueClass = 'stat-value' + (s.className ? ' ' + s.className : '');
-    statsHtml +=
-      '<div class="stat-card fade-in" style="animation-delay:' + (i * 0.04) + 's">' +
-        '<div class="stat-label">' + escapeHtml(s.label) + '</div>' +
-        '<div class="' + valueClass + '">' + escapeHtml(s.value) + '</div>' +
-      '</div>';
+    var stats = [
+      { label: 'Games Played',    value: formatNumber(data.games_played) },
+      { label: 'Hands Played',    value: formatNumber(data.hands_played) },
+      { label: 'Hands Won',       value: formatNumber(data.hands_won) },
+      { label: 'Win Rate',        value: winRate },
+      { label: 'Net Winnings',    value: netPrefix + formatNumber(data.total_winnings), className: netClass },
+      { label: 'Biggest Pot Won', value: formatNumber(data.biggest_pot_won) }
+    ];
+
+    var statsHtml = '';
+    for (var i = 0; i < stats.length; i++) {
+      var s = stats[i];
+      var valueClass = 'stat-value' + (s.className ? ' ' + s.className : '');
+      statsHtml +=
+        '<div class="stat-card fade-in" style="animation-delay:' + (i * 0.04) + 's">' +
+          '<div class="stat-label">' + escapeHtml(s.label) + '</div>' +
+          '<div class="' + valueClass + '">' + escapeHtml(s.value) + '</div>' +
+        '</div>';
+    }
+    $statsGrid.innerHTML = statsHtml;
   }
-  $statsGrid.innerHTML = statsHtml;
 
-  /* ── Render Recent Hands ──────────────────────────── */
-  var handsHtml = '';
-  for (var j = 0; j < mockHands.length; j++) {
-    var h = mockHands[j];
-    var resultClass = h.won ? 'result-won' : 'result-lost';
-    var resultText  = h.won ? 'Won' : 'Lost';
-    handsHtml +=
-      '<tr class="fade-in" style="animation-delay:' + ((j + stats.length) * 0.03) + 's">' +
-        '<td>#' + h.game + '</td>' +
-        '<td>#' + h.hand + '</td>' +
-        '<td class="' + resultClass + '">' + resultText + '</td>' +
-        '<td>' + formatNumber(h.pot) + '</td>' +
-        '<td>' + escapeHtml(h.date) + '</td>' +
-      '</tr>';
+  function renderNotFound() {
+    $username.textContent = username;
+    $meta.textContent = 'Player not found';
+    $statsGrid.innerHTML = '';
+    $handsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:32px">No data</td></tr>';
   }
-  $handsBody.innerHTML = handsHtml;
+
+  /* ── Fetch stats from Data API ──────────────────── */
+  $username.textContent = username;
+
+  fetch('/api/stats/' + encodeURIComponent(username))
+    .then(function(r) {
+      if (!r.ok) { renderNotFound(); return null; }
+      return r.json();
+    })
+    .then(function(data) {
+      if (data) renderStats(data);
+    })
+    .catch(function() { renderNotFound(); });
+
+  /* ── Hands section: placeholder until per-player hand history API exists ── */
+  $handsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:32px">Hand history coming soon</td></tr>';
 
 })();
 </script>

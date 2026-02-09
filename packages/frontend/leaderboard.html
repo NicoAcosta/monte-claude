@@ -433,33 +433,6 @@
 (function () {
   'use strict';
 
-  /* ── Mock Data ──────────────────────────────────────── */
-  var PLAYERS = [
-    { name: 'SonnetSlinger',  games: 42, handsWon: 187, winRate: 28.4, net:  4820, biggestPot: 1600 },
-    { name: 'HaikuHustler',   games: 38, handsWon: 156, winRate: 26.1, net:  3150, biggestPot: 2200 },
-    { name: 'The Professor',  games: 51, handsWon: 203, winRate: 24.7, net:  2480, biggestPot: 1400 },
-    { name: 'Wild Bill',      games: 33, handsWon: 121, winRate: 23.2, net:  1290, biggestPot: 1800 },
-    { name: 'Lady Luck',      games: 29, handsWon: 104, winRate: 22.8, net:   760, biggestPot: 950 },
-    { name: 'DeepBluff',      games: 44, handsWon: 148, winRate: 21.5, net:   310, biggestPot: 1100 },
-    { name: 'OpusOracle',     games: 26, handsWon:  78, winRate: 19.3, net:  -120, biggestPot: 700 },
-    { name: 'FoldBot9000',    games: 35, handsWon:  89, winRate: 16.8, net:  -580, biggestPot: 450 },
-    { name: 'PromptShark',    games: 22, handsWon:  51, winRate: 15.2, net: -1340, biggestPot: 900 },
-    { name: 'AllInAlice',     games: 19, handsWon:  38, winRate: 13.6, net: -2100, biggestPot: 3200 }
-  ];
-
-  var RECENT_HANDS = [
-    { gameId: 7, handNum: 14, winner: 'SonnetSlinger',  pot: 480,  minutesAgo: 2 },
-    { gameId: 7, handNum: 13, winner: 'HaikuHustler',   pot: 220,  minutesAgo: 5 },
-    { gameId: 6, handNum: 22, winner: 'The Professor',  pot: 950,  minutesAgo: 8 },
-    { gameId: 7, handNum: 12, winner: 'Wild Bill',      pot: 340,  minutesAgo: 11 },
-    { gameId: 6, handNum: 21, winner: 'SonnetSlinger',  pot: 600,  minutesAgo: 15 },
-    { gameId: 5, handNum: 30, winner: 'DeepBluff',      pot: 1100, minutesAgo: 23 },
-    { gameId: 6, handNum: 20, winner: 'Lady Luck',      pot: 280,  minutesAgo: 31 },
-    { gameId: 5, handNum: 29, winner: 'AllInAlice',     pot: 3200, minutesAgo: 38 },
-    { gameId: 5, handNum: 28, winner: 'The Professor',  pot: 440,  minutesAgo: 44 },
-    { gameId: 4, handNum: 18, winner: 'HaikuHustler',   pot: 760,  minutesAgo: 52 }
-  ];
-
   /* ── Helpers ────────────────────────────────────────── */
   function escapeHtml(str) {
     if (!str) return '';
@@ -488,56 +461,76 @@
     return '';
   }
 
-  /* ── Render Leaderboard ─────────────────────────────── */
-  function renderLeaderboard() {
-    var $body = document.getElementById('lb-body');
-    var html = '';
+  function formatTimeAgoTs(ts) {
+    var diff = Math.floor((Date.now() / 1000) - ts);
+    if (diff < 60) return diff + 's ago';
+    var minutes = Math.floor(diff / 60);
+    if (minutes < 60) return minutes + 'm ago';
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + 'h ago';
+    return Math.floor(hours / 24) + 'd ago';
+  }
 
-    for (var i = 0; i < PLAYERS.length; i++) {
-      var p = PLAYERS[i];
-      var rank = i + 1;
-      var netClass = winningsClass(p.net);
-      var netText = formatChips(p.net);
+  /* ── Render Leaderboard ─────────────────────────────── */
+  function renderLeaderboard(players) {
+    var $body = document.getElementById('lb-body');
+    if (!players.length) {
+      $body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:32px">No players yet</td></tr>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      var netClass = winningsClass(p.total_winnings);
+      var netText = formatChips(p.total_winnings);
 
       html +=
         '<tr>' +
-          '<td class="rank' + rankClass(rank) + '">' + rank + '</td>' +
-          '<td><a class="player-link" href="/player/' + encodeURIComponent(p.name) + '">' + escapeHtml(p.name) + '</a></td>' +
-          '<td class="right">' + p.games + '</td>' +
-          '<td class="right">' + p.handsWon + '</td>' +
-          '<td class="right">' + p.winRate.toFixed(1) + '%</td>' +
+          '<td class="rank' + rankClass(p.rank) + '">' + p.rank + '</td>' +
+          '<td><a class="player-link" href="/player/' + encodeURIComponent(p.username) + '">' + escapeHtml(p.username) + '</a></td>' +
+          '<td class="right">' + p.games_played + '</td>' +
+          '<td class="right">' + p.hands_won + '</td>' +
+          '<td class="right">' + p.win_rate.toFixed(1) + '%</td>' +
           '<td class="right ' + netClass + '">' + netText + '</td>' +
-          '<td class="right">' + p.biggestPot.toLocaleString() + '</td>' +
+          '<td class="right">' + p.biggest_pot_won.toLocaleString() + '</td>' +
         '</tr>';
     }
-
     $body.innerHTML = html;
   }
 
   /* ── Render Recent Hands ────────────────────────────── */
-  function renderRecentHands() {
+  function renderRecentHands(hands) {
     var $body = document.getElementById('rh-body');
+    if (!hands.length) {
+      $body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:32px">No hands played yet</td></tr>';
+      return;
+    }
     var html = '';
-
-    for (var i = 0; i < RECENT_HANDS.length; i++) {
-      var h = RECENT_HANDS[i];
-
+    for (var i = 0; i < hands.length; i++) {
+      var h = hands[i];
+      var winnerText = h.winner_ids.length > 0 ? 'Player ' + h.winner_ids.join(', ') : '--';
       html +=
         '<tr>' +
-          '<td><a href="/game/' + h.gameId + '" style="color:var(--text)">Game #' + h.gameId + '</a></td>' +
-          '<td>#' + h.handNum + '</td>' +
-          '<td class="rh-winner">' + escapeHtml(h.winner) + '</td>' +
+          '<td><a href="/game/' + h.game_id + '" style="color:var(--text)">Game #' + h.game_id + '</a></td>' +
+          '<td>#' + h.hand_number + '</td>' +
+          '<td class="rh-winner">' + escapeHtml(winnerText) + '</td>' +
           '<td class="right">' + h.pot.toLocaleString() + '</td>' +
-          '<td class="right rh-time">' + formatTimeAgo(h.minutesAgo) + '</td>' +
+          '<td class="right rh-time">' + formatTimeAgoTs(h.timestamp) + '</td>' +
         '</tr>';
     }
-
     $body.innerHTML = html;
   }
 
-  /* ── Init ───────────────────────────────────────────── */
-  renderLeaderboard();
-  renderRecentHands();
+  /* ── Fetch & Init ───────────────────────────────────── */
+  fetch('/api/leaderboard')
+    .then(function(r) { return r.json(); })
+    .then(function(data) { renderLeaderboard(data.players); })
+    .catch(function() { renderLeaderboard([]); });
+
+  fetch('/api/recent-hands')
+    .then(function(r) { return r.json(); })
+    .then(function(data) { renderRecentHands(data.hands); })
+    .catch(function() { renderRecentHands([]); });
 
 })();
 </script>

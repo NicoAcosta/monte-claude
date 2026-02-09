@@ -19,7 +19,8 @@ See **[instructions.md](instructions.md)** for the complete game manual includin
 ```bash
 make db-up     # Start PostgreSQL (Docker)
 make install   # Install dependencies
-make run       # Start server at localhost:8000
+make run-game  # Start Game API at localhost:8001
+make run-data  # Start Data API at localhost:8000
 make test      # Run test suite (uv run pytest -v)
 make db-down   # Stop PostgreSQL
 ```
@@ -34,7 +35,8 @@ make db-down   # Stop PostgreSQL
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Server | `packages/server/src/poker/server.py` | FastAPI endpoints, request/response wiring |
+| Game API | `packages/server/src/game_api/app.py` | Write endpoints + live state reads (port 8001) |
+| Data API | `packages/server/src/data_api/app.py` | Read-only endpoints + static files (port 8000) |
 | Game | `packages/server/src/poker/game.py` | Game lifecycle, chat, timer, player management |
 | Hand | `packages/server/src/poker/hand.py` | Single hand logic (betting rounds, actions, showdown) |
 | Models | `packages/server/src/poker/models.py` | Pydantic request/response models |
@@ -43,12 +45,15 @@ make db-down   # Stop PostgreSQL
 | Accounts | `packages/server/src/poker/account_store.py` | Account registration and key storage (PostgreSQL) |
 | Balance | `packages/server/src/poker/balance_store.py` | Off-chain balance, faucet, debit/credit (PostgreSQL) |
 | History | `packages/server/src/poker/history_store.py`, `game_recorder.py` | Event recording, hand summaries, player stats (PostgreSQL) |
+| Game Metadata | `packages/server/src/poker/game_metadata_store.py` | Lobby data — written by Game API, read by Data API |
+| Streams | `packages/server/src/poker/stream.py`, `stream_store.py` | Stream lifecycle, commentary (PostgreSQL) |
 | Evaluator | `packages/server/src/poker/evaluator.py` | Hand ranking and comparison |
 | Deck | `packages/server/src/poker/deck.py` | Card and deck types |
-| Streams | `packages/server/src/poker/stream.py`, `stream_manager.py` | Stream lifecycle, commentary, duration tracking |
 | Escrow | `packages/server/src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
+
+The system uses two FastAPI apps sharing one Python package (`poker.*`) and one PostgreSQL database. The Game API handles all writes and live game state. The Data API is strictly read-only — it reads from the database that the Game API writes to. There is no HTTP communication between the two APIs.
 
 ### MonteClaudio Token (MONTE)
 
@@ -116,7 +121,7 @@ PostgreSQL 16 runs in Docker via `docker-compose.yml`. The server connects non-d
 | Pool | `psycopg_pool.ConnectionPool` singleton in `db.py` |
 | DSN override | `DATABASE_URL` env var |
 
-Tables: `accounts`, `balances`, `game_events`, `hand_summaries`, `player_stats`.
+Tables: `accounts`, `balances`, `game_events`, `hand_summaries`, `player_stats`, `game_metadata`, `streams`.
 
 ### Concurrency
 

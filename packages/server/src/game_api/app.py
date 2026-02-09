@@ -1,9 +1,8 @@
+"""Game API — all writes + live state reads (port 8001)."""
+
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
 
 from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
@@ -13,6 +12,7 @@ from poker.game import Game
 from poker.game_config import GameConfig
 from poker.game_mode import GameMode
 from poker.game_manager import GameManager
+from poker.game_metadata_store import GameMetadataStore
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.models import (
@@ -20,7 +20,6 @@ from poker.models import (
     AccountRegisterResponse,
     ActionRequest,
     ActionResponse,
-    BalanceResponse,
     ChatMessage,
     ChatRequest,
     ChatResponse,
@@ -36,12 +35,6 @@ from poker.models import (
     ExtendResponse,
     FaucetResponse,
     FundingStatusResponse,
-    GameEventResponse,
-    GameHistoryResponse,
-    GameListItem,
-    GameListResponse,
-    HandSummariesResponse,
-    HandSummaryResponse,
     JoinGameRequest,
     JoinGameResponse,
     OffchainPayout,
@@ -51,7 +44,6 @@ from poker.models import (
     PlayerComment,
     PlayerPublicState,
     PlayerStateResponse,
-    PlayerStatsResponse,
     RecentAction,
     SettlementResponse,
     SidePotInfo,
@@ -63,29 +55,27 @@ from poker.models import (
     TimerInfo,
     WaitingResponse,
 )
-from poker.stream_manager import StreamManager
+from poker.stream_store import StreamStore
 from poker import balance_service, escrow_service, game_service, settlement_service
 
-app = FastAPI(title="Claude Poker", version="0.1.0")
-
-STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
-INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"
+app = FastAPI(title="Claude Poker — Game API", version="0.1.0")
 
 _pool = get_pool()
 
 event_store = GameEventStore(_pool)
 summary_store = HandSummaryStore(_pool)
 stats_store = PlayerStatsStore(_pool)
+metadata_store = GameMetadataStore(_pool)
+stream_store = StreamStore(_pool)
 
 
 def _make_recorder(game_id: int) -> GameRecorder:
     return GameRecorder(game_id, event_store, summary_store, stats_store)
 
 
-manager = GameManager(recorder_factory=_make_recorder)
+manager = GameManager(recorder_factory=_make_recorder, metadata_store=metadata_store)
 account_store = AccountStore(_pool)
 balance_store = BalanceStore(_pool)
-stream_manager = StreamManager()
 
 FAUCET_AMOUNT = 10_000
 
@@ -156,55 +146,7 @@ def register_account(req: AccountRegisterRequest):
     return AccountRegisterResponse(api_key=api_key, username=req.username)
 
 
-@app.get("/api/instructions", response_class=PlainTextResponse)
-def instructions():
-    if not INSTRUCTIONS_PATH.is_file():
-        raise HTTPException(status_code=404, detail="Instructions file not found")
-    return PlainTextResponse(INSTRUCTIONS_PATH.read_text())
-
-
-# ── Lobby routes ─────────────────────────────────────────
-
-@app.get("/")
-def lobby_page():
-    return FileResponse(STATIC_DIR / "lobby.html")
-
-
-@app.get("/leaderboard")
-def leaderboard_page():
-    return FileResponse(STATIC_DIR / "leaderboard.html")
-
-
-@app.get("/player/{username}")
-def player_page(username: str):
-    return FileResponse(STATIC_DIR / "player.html")
-
-
-@app.get("/api/games", response_model=GameListResponse)
-def list_games():
-    summaries = manager.list_games()
-    return GameListResponse(
-        games=[
-            GameListItem(
-                id=s.id,
-                player_count=s.player_count,
-                player_names=list(s.player_names),
-                started=s.started,
-                game_over=s.game_over,
-                winner=s.winner,
-                hand_number=s.hand_number,
-                max_players=s.max_players,
-                token=s.token,
-                buy_in=s.buy_in,
-                buy_in_display=s.buy_in_display,
-                token_symbol=s.token_symbol,
-                funded=s.funded,
-                mode=s.mode or GameMode.OFFCHAIN,
-            )
-            for s in summaries
-        ]
-    )
-
+# ── Game CRUD routes ─────────────────────────────────────
 
 @app.post("/api/games", response_model=CreateGameResponse)
 def create_game(req: CreateGameRequest):
@@ -236,12 +178,6 @@ def create_game(req: CreateGameRequest):
 
 # ── Game-specific routes ─────────────────────────────────
 
-@app.get("/game/{game_id}")
-def game_page(game_id: int):
-    _get_game_or_404(game_id)
-    return FileResponse(STATIC_DIR / "spectator.html")
-
-
 @app.post("/game/{game_id}/join", response_model=JoinGameResponse)
 def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(require_auth)):
     game, config = _get_game_or_404(game_id)
@@ -253,6 +189,8 @@ def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(req
             wallet_address=req.wallet_address,
             balance_store=balance_store,
             recorder=manager.get_recorder(game_id),
+            metadata_store=metadata_store,
+            game_id=game_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -283,6 +221,8 @@ def start(game_id: int, account: Account = Depends(require_auth)):
             game=game,
             config=config,
             recorder=manager.get_recorder(game_id),
+            metadata_store=metadata_store,
+            game_id=game_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -644,65 +584,6 @@ def extend(game_id: int, account: Account = Depends(require_auth)):
     return ExtendResponse(success=True, new_deadline=new_deadline, extensions_remaining=remaining)
 
 
-# ── History routes ──────────────────────────────────────
-
-@app.get("/api/games/{game_id}/history", response_model=GameHistoryResponse)
-def game_history(game_id: int):
-    _get_game_or_404(game_id)
-    events = event_store.get_by_game(game_id)
-    return GameHistoryResponse(
-        game_id=game_id,
-        events=[
-            GameEventResponse(
-                game_id=e.game_id,
-                event_type=e.event_type,
-                timestamp=e.timestamp,
-                hand_number=e.hand_number,
-                data=e.data,
-                sequence=e.sequence,
-            )
-            for e in events
-        ],
-    )
-
-
-@app.get("/api/games/{game_id}/hands", response_model=HandSummariesResponse)
-def hand_summaries(game_id: int):
-    _get_game_or_404(game_id)
-    summaries = summary_store.get_by_game(game_id)
-    return HandSummariesResponse(
-        game_id=game_id,
-        hands=[
-            HandSummaryResponse(
-                game_id=s.game_id,
-                hand_number=s.hand_number,
-                dealer_id=s.dealer_id,
-                player_ids=list(s.player_ids),
-                winner_ids=list(s.winner_ids),
-                pot=s.pot,
-                community_cards=s.community_cards,
-                timestamp=s.timestamp,
-            )
-            for s in summaries
-        ],
-    )
-
-
-@app.get("/api/stats/{username}", response_model=PlayerStatsResponse)
-def player_stats(username: str):
-    stats = stats_store.get(username)
-    if stats is None:
-        raise HTTPException(status_code=404, detail="Player not found")
-    return PlayerStatsResponse(
-        username=stats.username,
-        games_played=stats.games_played,
-        hands_played=stats.hands_played,
-        hands_won=stats.hands_won,
-        total_winnings=stats.total_winnings,
-        biggest_pot_won=stats.biggest_pot_won,
-    )
-
-
 # ── Stream routes ─────────────────────────────────────
 
 @app.post("/game/{game_id}/streams", response_model=CreateStreamResponse)
@@ -714,57 +595,26 @@ def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Dep
     if len(title) > 100:
         raise HTTPException(status_code=400, detail="Title too long (max 100 chars)")
     try:
-        stream = stream_manager.create_stream(game_id, account.username, title)
+        stream = stream_store.create(game_id, account.username, title)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return CreateStreamResponse(stream_id=stream.id)
 
 
-@app.get("/game/{game_id}/streams", response_model=StreamListResponse)
-def list_streams_for_game(game_id: int):
-    _get_game_or_404(game_id)
-    summaries = stream_manager.list_streams_for_game(game_id)
-    return StreamListResponse(
-        streams=[
-            StreamListItem(id=s.id, game_id=s.game_id, host=s.host_username, title=s.title)
-            for s in summaries
-        ]
-    )
-
-
-@app.get("/api/streams", response_model=StreamListResponse)
-def list_all_streams():
-    summaries = stream_manager.list_all_streams()
-    return StreamListResponse(
-        streams=[
-            StreamListItem(id=s.id, game_id=s.game_id, host=s.host_username, title=s.title)
-            for s in summaries
-        ]
-    )
-
-
 @app.post("/stream/{stream_id}/commentate", response_model=CommentateResponse)
 def stream_commentate(stream_id: int, req: CommentateRequest, account: Account = Depends(require_auth)):
-    stream = stream_manager.get_stream(stream_id)
+    stream = stream_store.get(stream_id)
     if stream is None:
         raise HTTPException(status_code=404, detail="Stream not found")
     if stream.host_username != account.username:
         raise HTTPException(status_code=403, detail="Only the stream host can commentate")
-    stream.commentary_text = req.text
+    stream_store.update_commentary(stream_id, req.text)
     return CommentateResponse(success=True)
-
-
-@app.get("/stream/{stream_id}")
-def stream_page(stream_id: int):
-    stream = stream_manager.get_stream(stream_id)
-    if stream is None:
-        raise HTTPException(status_code=404, detail="Stream not found")
-    return FileResponse(STATIC_DIR / "spectator.html")
 
 
 @app.get("/stream/{stream_id}/data", response_model=SpectatorResponse)
 def stream_view(stream_id: int):
-    stream = stream_manager.get_stream(stream_id)
+    stream = stream_store.get(stream_id)
     if stream is None:
         raise HTTPException(status_code=404, detail="Stream not found")
     game = manager.get_game(stream.game_id)
@@ -798,12 +648,6 @@ def faucet(account: Account = Depends(require_auth)):
         new_balance=bal.amount,
         next_claim_at=next_claim_at,
     )
-
-
-@app.get("/api/balance", response_model=BalanceResponse)
-def get_balance(account: Account = Depends(require_auth)):
-    bal = balance_store.get(account.username)
-    return BalanceResponse(username=account.username, balance=bal.amount)
 
 
 @app.get("/game/{game_id}/offchain-settlement", response_model=OffchainSettlementResponse)
