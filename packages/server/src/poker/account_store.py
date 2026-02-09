@@ -4,6 +4,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 
+from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
 
 KEY_PREFIX = "pk_"
@@ -40,18 +41,15 @@ class AccountStore:
         key_h = hash_key(api_key)
 
         with self._pool.connection() as conn:
-            # Check for duplicate username
-            row = conn.execute(
-                "SELECT 1 FROM accounts WHERE username = %s", (username,)
-            ).fetchone()
-            if row is not None:
+            try:
+                conn.execute(
+                    "INSERT INTO accounts (username, key_hash, created_at) VALUES (%s, %s, %s)",
+                    (username, key_h, now),
+                )
+                conn.commit()
+            except UniqueViolation:
+                conn.rollback()
                 raise ValueError(f"Username '{username}' already taken")
-
-            conn.execute(
-                "INSERT INTO accounts (username, key_hash, created_at) VALUES (%s, %s, %s)",
-                (username, key_h, now),
-            )
-            conn.commit()
 
         return api_key
 

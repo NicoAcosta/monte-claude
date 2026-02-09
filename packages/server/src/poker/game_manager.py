@@ -114,6 +114,20 @@ class GameManager:
     def get_config(self, game_id: int) -> GameConfig | None:
         return self._configs.get(game_id)
 
+    def cleanup_completed(self, keep_recent: int = 5) -> int:
+        """Remove completed games from memory, keeping the N most recent. Returns count removed."""
+        completed = [
+            gid for gid, game in self._games.items()
+            if game.game_over
+        ]
+        completed.sort()
+        to_remove = completed[:-keep_recent] if len(completed) > keep_recent else []
+        for gid in to_remove:
+            del self._games[gid]
+            self._configs.pop(gid, None)
+            self._recorders.pop(gid, None)
+        return len(to_remove)
+
     def list_games(self) -> list[GameSummary]:
         return [
             GameSummary(

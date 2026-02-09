@@ -157,6 +157,7 @@ def create_game(req: CreateGameRequest):
 
     def _on_game_over(g: Game, c: GameConfig) -> None:
         settlement_service.settle_offchain_game(g, c, balance_store)
+        manager.cleanup_completed()
 
     game_id, game, config = game_service.create_game(
         manager, req.max_players, req.token, req.buy_in, mode,
