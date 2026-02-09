@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+
+_ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 from poker.hand import ActionRecord, Hand, PlayerInHand
 
@@ -140,6 +143,9 @@ class Game:
                 raise ValueError(f"Name '{name}' already taken")
             if wallet_address and p.wallet_address and p.wallet_address.lower() == wallet_address.lower():
                 raise ValueError("Wallet address already registered in this game")
+
+        if wallet_address and not _ETH_ADDRESS_RE.match(wallet_address):
+            raise ValueError("Invalid Ethereum address format")
 
         player = RegisteredPlayer(id=self._next_id, name=name, wallet_address=wallet_address)
         self._next_id += 1

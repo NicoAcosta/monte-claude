@@ -15,6 +15,13 @@ def compute_payouts(
     The sum of all payouts equals total deposits (num_players * buy_in).
     Rounding dust is given to the largest winner.
     """
+    if starting_chips <= 0:
+        raise ValueError("starting_chips must be positive")
+    if buy_in < 0:
+        raise ValueError("buy_in must be non-negative")
+    if not player_chips:
+        raise ValueError("player_chips cannot be empty")
+
     total_deposits = len(player_chips) * buy_in
 
     # Compute raw payouts
