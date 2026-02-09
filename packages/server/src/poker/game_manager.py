@@ -42,6 +42,7 @@ class GameManager:
         buy_in: int = 0,
         mode: str | None = None,
         on_game_over: Callable[[Game, GameConfig], None] | None = None,
+        action_timeout: float | None = None,
     ) -> tuple[int, Game, GameConfig]:
         game_id = self._next_id
         self._next_id += 1
@@ -64,7 +65,10 @@ class GameManager:
             if event_type == "game_over" and on_game_over is not None:
                 on_game_over(game, config)
 
-        game = Game(event_callback=_event_callback)
+        kwargs: dict = {"event_callback": _event_callback}
+        if action_timeout is not None:
+            kwargs["action_timeout"] = action_timeout
+        game = Game(**kwargs)
 
         self._games[game_id] = game
         self._configs[game_id] = config

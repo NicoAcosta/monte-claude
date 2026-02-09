@@ -3,7 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Poker Spectator</title>
+<title>Claude Poker -- Live Game Spectator</title>
+<meta name="description" content="Watch AI agents play No-Limit Texas Hold'em in real time. Live spectator view with community cards, pot tracking, action log, and audio commentary.">
+<meta name="keywords" content="AI poker spectator, live poker stream, texas holdem viewer, AI poker game, claude poker">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Claude Poker">
+<meta name="theme-color" content="#0f2d1a">
+
+<!-- Open Graph -->
+<meta property="og:title" content="Claude Poker -- Live Game Spectator">
+<meta property="og:description" content="Watch AI agents play No-Limit Texas Hold'em in real time. Live table view with commentary.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Claude Poker">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Claude Poker -- Live Game Spectator">
+<meta name="twitter:description" content="Watch AI agents play No-Limit Texas Hold'em in real time. Live table view with commentary.">
+
+<!-- Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Claude Poker Spectator",
+  "description": "Live spectator view for AI poker games. Watch community cards, pot size, player actions, and commentary in real time.",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Any",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
 <style>
   /* ── Reset & Base ─────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -573,6 +606,8 @@
     word-wrap: break-word;
     box-shadow: 0 2px 8px rgba(0,0,0,.25);
     z-index: 5;
+  }
+  .speech-bubble.new {
     animation: fadeIn .3s ease;
   }
   .speech-bubble::before {
@@ -607,6 +642,21 @@
   .audio-toggle:hover { border-color: var(--gold); color: var(--gold); }
   .audio-toggle.active { border-color: var(--gold); color: var(--gold); }
 
+  /* ── Game Info Badges ─────────────────────────────────── */
+  .game-info-pills {
+    display: inline-flex;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .game-info-pill {
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.06);
+    color: var(--text-dim);
+    border: 1px solid rgba(255,255,255,.08);
+    white-space: nowrap;
+  }
+
   /* ── Utilities ────────────────────────────────────────── */
   .hidden { display: none !important; }
 </style>
@@ -616,17 +666,18 @@
 <div class="app" id="app">
 
   <!-- Header -->
-  <div class="header">
-    <a href="/" style="text-decoration:none;color:var(--text-dim);font-size:13px;margin-right:12px;">&larr; Lobby</a>
-    <div class="header-title">Poker Spectator</div>
+  <header class="header">
+    <a href="/" style="text-decoration:none;color:var(--text-dim);font-size:13px;margin-right:12px;" aria-label="Back to lobby">&larr; Lobby</a>
+    <h1 class="header-title">Poker Spectator</h1>
     <div class="header-meta">
       <span id="hand-info"></span>
       <span id="phase-info"></span>
       <span class="hidden" id="stream-duration-wrap">Live: <span id="stream-duration">0:00</span></span>
+      <span id="game-info"></span>
       <span><span class="conn-dot loading" id="conn-dot"></span><span id="conn-text">Connecting</span></span>
       <button class="audio-toggle" id="audio-toggle" title="Toggle audio commentary">Sound: OFF</button>
     </div>
-  </div>
+  </header>
 
   <!-- Table Area -->
   <div class="table-area">
@@ -661,10 +712,10 @@
   </div>
 
   <!-- Footer: Action Log -->
-  <div class="footer">
+  <footer class="footer">
     <div class="footer-title">Action Log</div>
     <div class="action-log" id="action-log"></div>
-  </div>
+  </footer>
 </div>
 
 <!-- Winner Overlay (hidden by default) -->
@@ -774,6 +825,7 @@
   const $commentaryText   = document.getElementById('commentary-text');
   const $streamDurationWrap = document.getElementById('stream-duration-wrap');
   const $streamDuration   = document.getElementById('stream-duration');
+  const $gameInfo         = document.getElementById('game-info');
 
   /* ── State ──────────────────────────────────────────── */
   let lastHandNumber = null;
@@ -791,6 +843,18 @@
   /* Funding poll state */
   let fundingInterval = null;
   let lastFundingData = null;
+
+  /* Track speech bubbles to avoid re-animating unchanged comments */
+  let lastPlayerComments = {};
+
+  /* Track community cards to avoid DOM rebuild when unchanged */
+  let lastCommunityCardsKey = '';
+
+  /* Track side pots to avoid DOM rebuild when unchanged */
+  let lastSidePotsKey = '';
+
+  /* Game info rendered flag */
+  let gameInfoRendered = false;
 
   /* ── Text-to-Speech ──────────────────────────────────── */
   const $audioToggle = document.getElementById('audio-toggle');
@@ -920,6 +984,20 @@
     $pokerTable.classList.remove('hidden');
     stopFundingPoll();
 
+    /* Game info (render once) */
+    if (!gameInfoRendered) {
+      var playersText = state.starting_players + ' players';
+      var buyInText = state.buy_in > 0 ? formatChips(state.buy_in) + ' buy-in' : 'Free';
+      var timerText = state.action_timeout + 's timer';
+      $gameInfo.innerHTML =
+        '<span class="game-info-pills">' +
+          '<span class="game-info-pill">' + escapeHtml(playersText) + '</span>' +
+          '<span class="game-info-pill">' + escapeHtml(buyInText) + '</span>' +
+          '<span class="game-info-pill">' + escapeHtml(timerText) + '</span>' +
+        '</span>';
+      gameInfoRendered = true;
+    }
+
     /* Header info */
     $handInfo.textContent = 'Hand #' + (state.hand_number || 1);
     $phaseInfo.innerHTML = '<span class="phase-badge">' + escapeHtml(state.phase || 'pre-flop') + '</span>';
@@ -938,25 +1016,33 @@
       startStreamDuration(state.stream_created_at);
     }
 
-    /* Community cards */
+    /* Community cards — only rebuild DOM when cards actually change */
     var cc = state.community_cards || [];
-    var ccHtml = '';
-    for (var i = 0; i < 5; i++) {
-      ccHtml += (i < cc.length) ? renderCard(cc[i], false) : renderCardPlaceholder();
+    var ccKey = cc.join(',');
+    if (ccKey !== lastCommunityCardsKey) {
+      lastCommunityCardsKey = ccKey;
+      var ccHtml = '';
+      for (var i = 0; i < 5; i++) {
+        ccHtml += (i < cc.length) ? renderCard(cc[i], false) : renderCardPlaceholder();
+      }
+      $communityCards.innerHTML = ccHtml;
     }
-    $communityCards.innerHTML = ccHtml;
 
     /* Pot */
     $potAmount.textContent = formatChips(state.pot);
 
-    /* Side pots */
+    /* Side pots — only rebuild DOM when pots actually change */
     var sp = state.side_pots || [];
-    if (sp.length > 0) {
-      $sidePots.innerHTML = sp.map(function (pot, idx) {
-        return '<span class="side-pot">Side ' + (idx + 1) + ': ' + formatChips(pot.amount) + '</span>';
-      }).join('');
-    } else {
-      $sidePots.innerHTML = '';
+    var spKey = sp.map(function (pot) { return pot.amount; }).join(',');
+    if (spKey !== lastSidePotsKey) {
+      lastSidePotsKey = spKey;
+      if (sp.length > 0) {
+        $sidePots.innerHTML = sp.map(function (pot, idx) {
+          return '<span class="side-pot">Side ' + (idx + 1) + ': ' + formatChips(pot.amount) + '</span>';
+        }).join('');
+      } else {
+        $sidePots.innerHTML = '';
+      }
     }
 
     /* Players */
@@ -1034,83 +1120,138 @@
   }
 
   /* ── Render: Players Around Table ───────────────────── */
+  /* Build the inner HTML for a player seat (cards + info + comment) */
+  function buildSeatContent(p, state) {
+    /* Badges */
+    var badges = '';
+    if (state.dealer === p.id)             badges += '<span class="badge badge-dealer">D</span>';
+    if (state.small_blind_player === p.id) badges += '<span class="badge badge-sb">SB</span>';
+    if (state.big_blind_player === p.id)   badges += '<span class="badge badge-bb">BB</span>';
+    if (p.is_all_in)                       badges += '<span class="badge badge-allin">All-In</span>';
+    if (p.is_folded)                       badges += '<span class="badge badge-folded">Folded</span>';
+    if (p.is_resigned)                     badges += '<span class="badge badge-resigned">Resigned</span>';
+    if (p.extensions_remaining > 0)        badges += '<span class="badge badge-ext">\u23F1\u00D7' + p.extensions_remaining + '</span>';
+
+    /* Hole cards */
+    var cardsHtml = '';
+    if (p.cards && p.cards.length > 0 && !p.is_folded) {
+      cardsHtml = p.cards.map(function (c) { return renderCard(c, true); }).join('');
+    } else if (!p.is_folded) {
+      cardsHtml = renderCardBack(true) + renderCardBack(true);
+    }
+
+    /* Bet display */
+    var betHtml = (p.current_bet > 0) ? '<div class="player-bet">Bet: ' + formatChips(p.current_bet) + '</div>' : '';
+
+    /* Timer for current turn player */
+    var timerHtml = '';
+    if (state.current_turn === p.id) {
+      timerHtml = '<div class="player-timer" id="active-timer"></div>';
+    }
+
+    /* Build speech bubble if player has a recent comment */
+    var commentHtml = '';
+    var actions = state.recent_actions || [];
+    var latestComment = null;
+    for (var j = actions.length - 1; j >= 0; j--) {
+      if (actions[j].player === p.name && actions[j].comment) {
+        latestComment = actions[j].comment;
+        break;
+      }
+    }
+    if (latestComment) {
+      var isNew = lastPlayerComments[p.name] !== latestComment;
+      var newClass = isNew ? ' new' : '';
+      commentHtml = '<div class="speech-bubble' + newClass + '">' + escapeHtml(latestComment) + '</div>';
+      lastPlayerComments[p.name] = latestComment;
+    }
+
+    return '<div class="player-cards">' + cardsHtml + '</div>' +
+      '<div class="player-info">' +
+        '<div class="player-name">' + escapeHtml(p.name) + '</div>' +
+        '<div class="player-chips">' + formatChips(p.chips) + '</div>' +
+        betHtml +
+        timerHtml +
+        (badges ? '<div class="player-badges">' + badges + '</div>' : '') +
+      '</div>' +
+      commentHtml;
+  }
+
+  /* Build a snapshot key for a player to detect actual data changes */
+  function playerSeatKey(p, state) {
+    var cardKey = (p.cards && p.cards.length > 0 && !p.is_folded) ? p.cards.join(',') : (p.is_folded ? 'folded' : 'backs');
+    var commentKey = '';
+    var actions = state.recent_actions || [];
+    for (var j = actions.length - 1; j >= 0; j--) {
+      if (actions[j].player === p.name && actions[j].comment) {
+        commentKey = actions[j].comment;
+        break;
+      }
+    }
+    return [
+      p.id, p.chips, p.current_bet, p.is_folded, p.is_all_in, p.is_resigned,
+      state.current_turn === p.id, state.dealer === p.id,
+      state.small_blind_player === p.id, state.big_blind_player === p.id,
+      p.extensions_remaining, cardKey, commentKey
+    ].join('|');
+  }
+
   function renderPlayers(state) {
     var players = state.players || [];
     var count = Math.max(2, Math.min(8, players.length));
     var positions = SEAT_LAYOUTS[count] || SEAT_LAYOUTS[8];
 
-    /* Remove old seats */
+    /* Build a set of current player IDs for cleanup */
+    var currentIds = {};
+    for (var i = 0; i < players.length; i++) {
+      currentIds[players[i].id] = true;
+    }
+
+    /* Remove seats for players no longer at the table */
     var oldSeats = $pokerTable.querySelectorAll('.player-seat');
     for (var i = 0; i < oldSeats.length; i++) {
-      oldSeats[i].remove();
+      if (!currentIds[oldSeats[i].getAttribute('data-player-id')]) {
+        oldSeats[i].remove();
+      }
     }
 
     players.forEach(function (p, idx) {
       var pos = positions[idx] || positions[positions.length - 1];
-      var seat = document.createElement('div');
-      seat.className = 'player-seat';
-      if (p.is_folded) seat.classList.add('folded');
-      if (p.is_all_in) seat.classList.add('all-in');
-      if (p.is_resigned) seat.classList.add('resigned');
-      if (state.current_turn === p.id) seat.classList.add('current-turn');
+      var existing = $pokerTable.querySelector('.player-seat[data-player-id="' + p.id + '"]');
+      var key = playerSeatKey(p, state);
 
-      seat.style.top = pos.top + '%';
-      seat.style.left = pos.left + '%';
-      seat.style.transform = 'translate(-50%, -50%)';
+      if (existing) {
+        /* Update position (may shift when players leave) */
+        existing.style.top = pos.top + '%';
+        existing.style.left = pos.left + '%';
 
-      /* Badges */
-      var badges = '';
-      if (state.dealer === p.id)             badges += '<span class="badge badge-dealer">D</span>';
-      if (state.small_blind_player === p.id) badges += '<span class="badge badge-sb">SB</span>';
-      if (state.big_blind_player === p.id)   badges += '<span class="badge badge-bb">BB</span>';
-      if (p.is_all_in)                       badges += '<span class="badge badge-allin">All-In</span>';
-      if (p.is_folded)                       badges += '<span class="badge badge-folded">Folded</span>';
-      if (p.is_resigned)                     badges += '<span class="badge badge-resigned">Resigned</span>';
-      if (p.extensions_remaining > 0)        badges += '<span class="badge badge-ext">\u23F1\u00D7' + p.extensions_remaining + '</span>';
+        /* Update state classes via classList toggle (no DOM rebuild, preserves transitions) */
+        existing.classList.toggle('folded', !!p.is_folded);
+        existing.classList.toggle('all-in', !!p.is_all_in);
+        existing.classList.toggle('resigned', !!p.is_resigned);
+        existing.classList.toggle('current-turn', state.current_turn === p.id);
 
-      /* Hole cards */
-      var cardsHtml = '';
-      if (p.cards && p.cards.length > 0 && !p.is_folded) {
-        cardsHtml = p.cards.map(function (c) { return renderCard(c, true); }).join('');
-      } else if (!p.is_folded) {
-        cardsHtml = renderCardBack(true) + renderCardBack(true);
-      }
-
-      /* Bet display */
-      var betHtml = (p.current_bet > 0) ? '<div class="player-bet">Bet: ' + formatChips(p.current_bet) + '</div>' : '';
-
-      /* Timer for current turn player */
-      var timerHtml = '';
-      if (state.current_turn === p.id) {
-        timerHtml = '<div class="player-timer" id="active-timer"></div>';
-      }
-
-      /* Build speech bubble if player has a recent comment */
-      var commentHtml = '';
-      var actions = state.recent_actions || [];
-      var latestComment = null;
-      for (var j = actions.length - 1; j >= 0; j--) {
-        if (actions[j].player === p.name && actions[j].comment) {
-          latestComment = actions[j].comment;
-          break;
+        /* Only rebuild inner content if data actually changed */
+        if (existing.getAttribute('data-seat-key') !== key) {
+          existing.setAttribute('data-seat-key', key);
+          existing.innerHTML = buildSeatContent(p, state);
         }
+      } else {
+        /* First time seeing this player — create the seat */
+        var seat = document.createElement('div');
+        seat.className = 'player-seat';
+        seat.setAttribute('data-player-id', p.id);
+        seat.setAttribute('data-seat-key', key);
+        if (p.is_folded) seat.classList.add('folded');
+        if (p.is_all_in) seat.classList.add('all-in');
+        if (p.is_resigned) seat.classList.add('resigned');
+        if (state.current_turn === p.id) seat.classList.add('current-turn');
+        seat.style.top = pos.top + '%';
+        seat.style.left = pos.left + '%';
+        seat.style.transform = 'translate(-50%, -50%)';
+        seat.innerHTML = buildSeatContent(p, state);
+        $pokerTable.appendChild(seat);
       }
-      if (latestComment) {
-        commentHtml = '<div class="speech-bubble">' + escapeHtml(latestComment) + '</div>';
-      }
-
-      seat.innerHTML =
-        '<div class="player-cards">' + cardsHtml + '</div>' +
-        '<div class="player-info">' +
-          '<div class="player-name">' + escapeHtml(p.name) + '</div>' +
-          '<div class="player-chips">' + formatChips(p.chips) + '</div>' +
-          betHtml +
-          timerHtml +
-          (badges ? '<div class="player-badges">' + badges + '</div>' : '') +
-        '</div>' +
-        commentHtml;
-
-      $pokerTable.appendChild(seat);
     });
   }
 
@@ -1118,11 +1259,14 @@
   function renderActions(state) {
     var actions = state.recent_actions || [];
 
-    /* On new hand, reset log */
+    /* On new hand, reset log and cached keys */
     if (state.hand_number !== lastHandNumber) {
       $actionLog.innerHTML = '';
       seenActionCount = 0;
       lastHandNumber = state.hand_number;
+      lastPlayerComments = {};
+      lastCommunityCardsKey = '';
+      lastSidePotsKey = '';
     }
 
     /* Only render new actions */
