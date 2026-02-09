@@ -16,6 +16,7 @@ class CreateGameRequest(BaseModel):
     max_players: int = 0
     token: str | None = None
     buy_in: int = 0
+    mode: str | None = None
 
 
 class JoinGameRequest(BaseModel):
@@ -176,6 +177,7 @@ class SpectatorResponse(BaseModel):
     timer: TimerInfo | None = None
     buy_in: int = 0
     escrow_address: str | None = None
+    mode: str = "offchain"
 
 
 class ActionResponse(BaseModel):
@@ -192,6 +194,7 @@ class CreateGameResponse(BaseModel):
     max_players: int
     token: str | None
     buy_in: int
+    mode: str
 
 
 class GameListItem(BaseModel):
@@ -206,6 +209,7 @@ class GameListItem(BaseModel):
     token: str | None = None
     buy_in: int = 0
     funded: bool = False
+    mode: str = "offchain"
 
 
 class GameListResponse(BaseModel):
@@ -318,3 +322,25 @@ class SettlementResponse(BaseModel):
     payouts: list[PayoutEntry]
     signature: str
     escrow_address: str
+
+
+# ── Off-chain bankroll models ─────────────────────────
+
+class FaucetResponse(BaseModel):
+    success: bool
+    new_balance: int
+    next_claim_at: str
+
+
+class BalanceResponse(BaseModel):
+    username: str
+    balance: int
+
+
+class OffchainPayout(BaseModel):
+    username: str
+    amount: int
+
+
+class OffchainSettlementResponse(BaseModel):
+    payouts: list[OffchainPayout]

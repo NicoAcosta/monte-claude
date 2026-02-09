@@ -1,0 +1,127 @@
+import pytest
+from datetime import datetime, timedelta, timezone
+
+from poker.balance_store import Balance, BalanceStore, FAUCET_COOLDOWN_SECONDS
+
+
+@pytest.fixture
+def store(tmp_path):
+    return BalanceStore(tmp_path / "balances.csv")
+
+
+class TestGet:
+    def test_unknown_user_returns_zero(self, store):
+        bal = store.get("alice")
+        assert bal.username == "alice"
+        assert bal.amount == 0
+        assert bal.last_claim_at == ""
+
+    def test_returns_stored_balance(self, store):
+        store.credit("alice", 500)
+        bal = store.get("alice")
+        assert bal.amount == 500
+
+
+class TestCredit:
+    def test_credit_increases_balance(self, store):
+        bal = store.credit("alice", 100)
+        assert bal.amount == 100
+
+    def test_credit_stacks(self, store):
+        store.credit("alice", 100)
+        bal = store.credit("alice", 200)
+        assert bal.amount == 300
+
+    def test_credit_zero_is_noop(self, store):
+        store.credit("alice", 100)
+        bal = store.credit("alice", 0)
+        assert bal.amount == 100
+
+    def test_credit_negative_raises(self, store):
+        with pytest.raises(ValueError, match="non-negative"):
+            store.credit("alice", -1)
+
+
+class TestDebit:
+    def test_debit_decreases_balance(self, store):
+        store.credit("alice", 500)
+        bal = store.debit("alice", 200)
+        assert bal.amount == 300
+
+    def test_debit_exact_balance(self, store):
+        store.credit("alice", 100)
+        bal = store.debit("alice", 100)
+        assert bal.amount == 0
+
+    def test_debit_insufficient_raises(self, store):
+        store.credit("alice", 50)
+        with pytest.raises(ValueError, match="Insufficient balance"):
+            store.debit("alice", 100)
+
+    def test_debit_zero_balance_raises(self, store):
+        with pytest.raises(ValueError, match="Insufficient balance"):
+            store.debit("alice", 1)
+
+    def test_debit_negative_raises(self, store):
+        with pytest.raises(ValueError, match="non-negative"):
+            store.debit("alice", -1)
+
+
+class TestFaucet:
+    def test_first_claim_succeeds(self, store):
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        bal = store.try_claim_faucet("alice", 1000, now=now)
+        assert bal.amount == 1000
+        assert bal.last_claim_at == now.isoformat()
+
+    def test_second_claim_within_24h_raises(self, store):
+        t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        store.try_claim_faucet("alice", 1000, now=t0)
+
+        t1 = t0 + timedelta(hours=12)
+        with pytest.raises(ValueError, match="cooldown"):
+            store.try_claim_faucet("alice", 1000, now=t1)
+
+    def test_claim_after_24h_succeeds(self, store):
+        t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        store.try_claim_faucet("alice", 1000, now=t0)
+
+        t1 = t0 + timedelta(seconds=FAUCET_COOLDOWN_SECONDS)
+        bal = store.try_claim_faucet("alice", 1000, now=t1)
+        assert bal.amount == 2000
+
+    def test_faucet_stacks_with_existing_balance(self, store):
+        store.credit("alice", 500)
+        bal = store.try_claim_faucet("alice", 1000)
+        assert bal.amount == 1500
+
+    def test_preserves_last_claim_on_credit_debit(self, store):
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        store.try_claim_faucet("alice", 1000, now=now)
+        store.credit("alice", 100)
+        bal = store.debit("alice", 50)
+        assert bal.last_claim_at == now.isoformat()
+
+
+class TestPersistence:
+    def test_reload_from_csv(self, tmp_path):
+        path = tmp_path / "balances.csv"
+        store1 = BalanceStore(path)
+        store1.credit("alice", 500)
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        store1.try_claim_faucet("bob", 1000, now=now)
+
+        # Reload from same file
+        store2 = BalanceStore(path)
+        assert store2.get("alice").amount == 500
+        assert store2.get("bob").amount == 1000
+        assert store2.get("bob").last_claim_at == now.isoformat()
+
+    def test_unknown_user_not_persisted(self, tmp_path):
+        path = tmp_path / "balances.csv"
+        store1 = BalanceStore(path)
+        store1.get("alice")  # just reading, no mutation
+
+        store2 = BalanceStore(path)
+        # Should still be zero (not persisted)
+        assert store2.get("alice").amount == 0

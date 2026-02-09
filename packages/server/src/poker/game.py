@@ -33,6 +33,7 @@ class Game:
         token: str | None = None,
         buy_in: int = 0,
         first_hand_grace: float = 120.0,
+        mode: str | None = None,
     ) -> None:
         self._players: list[RegisteredPlayer] = []
         self._next_id = 1
@@ -63,6 +64,8 @@ class Game:
         self.escrow_salt: bytes | None = None
         self.escrow_address: str | None = None
         self.escrow_config: Any | None = None  # cached EscrowConfig
+        self.mode = mode
+        self.offchain_settlement: list[tuple[str, int]] | None = None
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
@@ -147,8 +150,8 @@ class Game:
             raise ValueError("Name cannot be empty")
         if self.is_full:
             raise ValueError("Game is full")
-        if self.buy_in > 0 and not wallet_address:
-            raise ValueError("Wallet address required for funded games")
+        if self.mode == "onchain" and not wallet_address:
+            raise ValueError("Wallet address required for on-chain games")
         for p in self._players:
             if p.name == name:
                 raise ValueError(f"Name '{name}' already taken")

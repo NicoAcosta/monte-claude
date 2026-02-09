@@ -20,6 +20,7 @@ class GameSummary:
     token: str | None = None
     buy_in: int = 0
     funded: bool = False
+    mode: str | None = None
 
 
 class GameManager:
@@ -37,6 +38,7 @@ class GameManager:
         max_players: int = 0,
         token: str | None = None,
         buy_in: int = 0,
+        mode: str | None = None,
     ) -> tuple[int, Game]:
         game_id = self._next_id
         self._next_id += 1
@@ -47,9 +49,10 @@ class GameManager:
             game = Game(
                 event_callback=recorder.on_event,
                 max_players=max_players, token=token, buy_in=buy_in,
+                mode=mode,
             )
         else:
-            game = Game(max_players=max_players, token=token, buy_in=buy_in)
+            game = Game(max_players=max_players, token=token, buy_in=buy_in, mode=mode)
 
         self._games[game_id] = game
         return game_id, game
@@ -74,6 +77,7 @@ class GameManager:
                 token=game.token,
                 buy_in=game.buy_in,
                 funded=game.funded,
+                mode=game.mode,
             )
             for gid, game in self._games.items()
         ]
