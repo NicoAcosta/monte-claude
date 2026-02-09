@@ -17,10 +17,11 @@ See **[instructions.md](instructions.md)** for the complete game manual includin
 ### Quick Commands
 
 ```bash
-make db-up     # Start PostgreSQL (Docker)
-make install   # Install dependencies
-make run-game  # Start Game API at localhost:8001
-make run-data  # Start Data API at localhost:8000
+make db-up          # Start PostgreSQL (Docker)
+make install        # Install dependencies
+make run-game       # Start Game API at localhost:8001
+make run-data       # Start Data API at localhost:8000 (dev, single worker + reload)
+make run-data-prod  # Start Data API at localhost:8000 (4 workers, no reload)
 make test      # Run test suite (uv run pytest -v)
 make db-down   # Stop PostgreSQL
 ```
@@ -53,7 +54,13 @@ make db-down   # Stop PostgreSQL
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
 
-The system uses two FastAPI apps sharing one Python package (`poker.*`) and one PostgreSQL database. The Game API handles all writes and live game state. The Data API is strictly read-only — it reads from the database that the Game API writes to. There is no HTTP communication between the two APIs.
+The system uses two FastAPI apps sharing one Python package (`poker.*`) and one PostgreSQL database. The Game API handles all writes and live game state (single worker only — game state lives in memory). The Data API is strictly read-only and scales to multiple workers (`make run-data-prod`, default 4). There is no HTTP communication between the two APIs.
+
+**Data API caching (two tiers):**
+- **Tier 1 — HTTP Cache-Control headers:** `CacheControlMiddleware` sets `max-age` per path prefix (3s lobby, 5s game data, 15–30s leaderboard/stats).
+- **Tier 2 — In-process TTL cache:** `poker.cache.TTLCache` keyed by endpoint + params. Each worker has its own cache. TTLs: lobby 3s, recent-hands 10s, leaderboard 15s, player stats 30s. Tests clear the cache via `conftest.py`.
+
+DB stores are initialised lazily at startup (via `lifespan`) so each uvicorn worker creates its own PostgreSQL connections after fork.
 
 ### MonteClaudio Token (MONTE)
 

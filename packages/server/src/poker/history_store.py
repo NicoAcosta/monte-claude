@@ -87,14 +87,19 @@ class HandSummaryStore:
             ).fetchall()
         return [self._row_to_summary(r) for r in rows]
 
-    def get_recent(self, limit: int = 20) -> list[HandSummary]:
+    def get_recent(self, limit: int = 20, offset: int = 0) -> list[HandSummary]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 f"SELECT {self._SUMMARY_COLS} "
-                "FROM hand_summaries ORDER BY timestamp DESC LIMIT %s",
-                (limit,),
+                "FROM hand_summaries ORDER BY timestamp DESC LIMIT %s OFFSET %s",
+                (limit, offset),
             ).fetchall()
         return [self._row_to_summary(r) for r in rows]
+
+    def count_all(self) -> int:
+        with self._pool.connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM hand_summaries").fetchone()
+        return row[0] if row else 0
 
 
 class PlayerStatsStore:
@@ -115,13 +120,13 @@ class PlayerStatsStore:
             hands_won=row[3], total_winnings=row[4], biggest_pot_won=int(row[5]),
         )
 
-    def get_all(self, limit: int = 50) -> list[PlayerStats]:
+    def get_all(self, limit: int = 50, offset: int = 0) -> list[PlayerStats]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 "SELECT username, games_played, hands_played, hands_won, "
                 "total_winnings, biggest_pot_won FROM player_stats "
-                "ORDER BY total_winnings DESC LIMIT %s",
-                (limit,),
+                "ORDER BY total_winnings DESC LIMIT %s OFFSET %s",
+                (limit, offset),
             ).fetchall()
         return [
             PlayerStats(
@@ -130,6 +135,11 @@ class PlayerStatsStore:
             )
             for r in rows
         ]
+
+    def count_all(self) -> int:
+        with self._pool.connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM player_stats").fetchone()
+        return row[0] if row else 0
 
     def update(self, stats: PlayerStats) -> None:
         with self._pool.connection() as conn:

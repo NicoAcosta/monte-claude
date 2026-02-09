@@ -9,7 +9,7 @@ from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
 from poker.db import get_pool
-from poker.game import Game
+from poker.game import BIG_BLIND, Game, SMALL_BLIND
 from poker.game_config import GameConfig
 from poker.game_mode import GameMode
 from poker.game_manager import GameManager
@@ -66,6 +66,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
 
 _pool = get_pool()
 
@@ -498,6 +504,8 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
             max_players=config.max_players,
             starting_players=len(game._players),
             action_timeout=game.action_timeout,
+            small_blind=SMALL_BLIND,
+            big_blind=BIG_BLIND,
         )
         base.update(overrides)
         return SpectatorResponse(**base)
@@ -545,6 +553,8 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
         max_players=config.max_players,
         starting_players=len(game._players),
         action_timeout=game.action_timeout,
+        small_blind=SMALL_BLIND,
+        big_blind=BIG_BLIND,
     )
     base.update(overrides)
     return SpectatorResponse(**base)

@@ -1,4 +1,6 @@
-.PHONY: run-game run-data test install db-up db-down
+.PHONY: run-game run-data run-data-prod test install db-up db-down
+
+DATA_WORKERS ?= 4
 
 install:
 	uv pip install -e ".[dev]"
@@ -8,6 +10,9 @@ run-game:
 
 run-data:
 	uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --reload
+
+run-data-prod:
+	uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --workers $(DATA_WORKERS)
 
 test:
 	uv run pytest -v

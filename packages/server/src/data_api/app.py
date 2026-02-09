@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
+from poker.cache import TTLCache
 from poker.db import get_pool
 from poker.formatting import format_buy_in
 from poker.game_metadata_store import GameMetadataStore
@@ -36,22 +40,84 @@ from poker.models import (
 )
 from poker.stream_store import StreamStore
 
-app = FastAPI(title="Monteclaude — Data API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+    _ensure_stores()
+    yield
+
+
+app = FastAPI(title="Monteclaude — Data API", version="0.1.0", lifespan=lifespan)
+
+
+# ── Tier 1: HTTP Cache-Control headers ──────────────────
+# Maps path prefixes to max-age seconds.  Checked first-match.
+_CACHE_RULES: list[tuple[str, int]] = [
+    ("/api/leaderboard", 30),
+    ("/api/recent-hands", 15),
+    ("/api/stats/", 30),
+    ("/api/games/", 5),
+    ("/api/games", 3),
+    ("/api/streams", 5),
+    ("/api/config", 300),
+    ("/api/instructions", 120),
+]
+
+
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        response: Response = await call_next(request)
+        path = request.url.path
+        for prefix, max_age in _CACHE_RULES:
+            if path.startswith(prefix):
+                response.headers["Cache-Control"] = f"public, max-age={max_age}"
+                break
+        return response
+
+
+app.add_middleware(CacheControlMiddleware)
+
+
+# ── Tier 2: in-process TTL cache ────────────────────────
+_cache = TTLCache()
+
+
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
 
 STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"
 
-_pool = get_pool()
-
-event_store = GameEventStore(_pool)
-summary_store = HandSummaryStore(_pool)
-stats_store = PlayerStatsStore(_pool)
-metadata_store = GameMetadataStore(_pool)
-account_store = AccountStore(_pool)
-balance_store = BalanceStore(_pool)
-stream_store = StreamStore(_pool)
-
+# Stores are initialised lazily at first request (not at import time) so that
+# each uvicorn worker creates its own DB connections after fork().
+event_store: GameEventStore | None = None
+summary_store: HandSummaryStore | None = None
+stats_store: PlayerStatsStore | None = None
+metadata_store: GameMetadataStore | None = None
+account_store: AccountStore | None = None
+balance_store: BalanceStore | None = None
+stream_store: StreamStore | None = None
 require_auth = make_auth_dependency(lambda: account_store)
+
+
+def _ensure_stores() -> None:
+    """Create stores on first call — safe to call after fork."""
+    global event_store, summary_store, stats_store, metadata_store
+    global account_store, balance_store, stream_store
+    if event_store is not None:
+        return
+    pool = get_pool()
+    event_store = GameEventStore(pool)
+    summary_store = HandSummaryStore(pool)
+    stats_store = PlayerStatsStore(pool)
+    metadata_store = GameMetadataStore(pool)
+    account_store = AccountStore(pool)
+    balance_store = BalanceStore(pool)
+    stream_store = StreamStore(pool)
+
+
 
 # Game API URL — frontend needs this to poll live game state
 GAME_API_URL = os.environ.get("GAME_API_URL", "")
@@ -110,8 +176,11 @@ def instructions():
 
 @app.get("/api/games", response_model=GameListResponse)
 def list_games():
+    cached = _cache.get("games")
+    if cached is not None:
+        return cached
     rows = metadata_store.list_all()
-    return GameListResponse(
+    result = GameListResponse(
         games=[
             GameListItem(
                 id=r.game_id,
@@ -132,6 +201,8 @@ def list_games():
             for r in rows
         ]
     )
+    _cache.set("games", result, ttl=3)
+    return result
 
 
 # ── History routes ──────────────────────────────────────
@@ -190,11 +261,15 @@ def hand_summaries(game_id: int, limit: int = Query(default=MAX_HANDS, ge=1, le=
 
 @app.get("/api/stats/{username}", response_model=PlayerStatsResponse)
 def player_stats(username: str):
+    cache_key = f"stats:{username}"
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
     stats = stats_store.get(username)
     if stats is None:
         raise HTTPException(status_code=404, detail="Player not found")
     token_stats = stats_store.get_token_stats(username)
-    return PlayerStatsResponse(
+    result = PlayerStatsResponse(
         username=stats.username,
         games_played=stats.games_played,
         hands_played=stats.hands_played,
@@ -203,6 +278,8 @@ def player_stats(username: str):
         biggest_pot_won=stats.biggest_pot_won,
         token_stats=[TokenStatsEntry(**ts) for ts in token_stats],
     )
+    _cache.set(cache_key, result, ttl=30)
+    return result
 
 
 MAX_LEADERBOARD = 50
@@ -210,13 +287,22 @@ MAX_RECENT_HANDS = 20
 
 
 @app.get("/api/leaderboard", response_model=LeaderboardResponse)
-def leaderboard(limit: int = Query(default=MAX_LEADERBOARD, ge=1, le=MAX_LEADERBOARD)):
-    all_stats = stats_store.get_all(limit=limit)
+def leaderboard(
+    limit: int = Query(default=MAX_LEADERBOARD, ge=1, le=MAX_LEADERBOARD),
+    offset: int = Query(default=0, ge=0),
+):
+    cache_key = f"leaderboard:{limit}:{offset}"
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
+    total = stats_store.count_all()
+    all_stats = stats_store.get_all(limit=limit, offset=offset)
     all_token_stats = stats_store.get_all_token_stats()
-    return LeaderboardResponse(
+    result = LeaderboardResponse(
+        total=total,
         players=[
             LeaderboardEntry(
-                rank=i + 1,
+                rank=offset + i + 1,
                 username=s.username,
                 games_played=s.games_played,
                 hands_won=s.hands_won,
@@ -226,14 +312,25 @@ def leaderboard(limit: int = Query(default=MAX_LEADERBOARD, ge=1, le=MAX_LEADERB
                 token_stats=[TokenStatsEntry(**ts) for ts in all_token_stats.get(s.username, [])],
             )
             for i, s in enumerate(all_stats)
-        ]
+        ],
     )
+    _cache.set(cache_key, result, ttl=15)
+    return result
 
 
 @app.get("/api/recent-hands", response_model=RecentHandsResponse)
-def recent_hands(limit: int = Query(default=MAX_RECENT_HANDS, ge=1, le=MAX_RECENT_HANDS)):
-    hands = summary_store.get_recent(limit=limit)
-    return RecentHandsResponse(
+def recent_hands(
+    limit: int = Query(default=MAX_RECENT_HANDS, ge=1, le=MAX_RECENT_HANDS),
+    offset: int = Query(default=0, ge=0),
+):
+    cache_key = f"recent-hands:{limit}:{offset}"
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
+    total = summary_store.count_all()
+    hands = summary_store.get_recent(limit=limit, offset=offset)
+    result = RecentHandsResponse(
+        total=total,
         hands=[
             RecentHandItem(
                 game_id=h.game_id,
@@ -247,8 +344,10 @@ def recent_hands(limit: int = Query(default=MAX_RECENT_HANDS, ge=1, le=MAX_RECEN
                 token_symbol=h.token_symbol,
             )
             for h in hands
-        ]
+        ],
     )
+    _cache.set(cache_key, result, ttl=10)
+    return result
 
 
 # ── Balance route ────────────────────────────────────────

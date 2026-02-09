@@ -260,6 +260,15 @@
     flex-shrink: 0;
   }
   .card:hover { transform: translateY(-3px); }
+  .card.dealing {
+    animation: dealCard 0.5s cubic-bezier(.4,0,.2,1) both;
+  }
+  .card.dealing:nth-child(2) { animation-delay: 0.12s; }
+  @keyframes dealCard {
+    0%   { opacity: 0; transform: translateY(-30px) scale(0.6) rotateY(90deg); }
+    60%  { opacity: 1; transform: translateY(2px) scale(1.03) rotateY(0deg); }
+    100% { opacity: 1; transform: translateY(0) scale(1) rotateY(0deg); }
+  }
   .card.red  { color: var(--red-suit); }
   .card.black { color: var(--black-suit); }
   .card .card-rank {
@@ -306,6 +315,10 @@
     color: transparent;
     box-shadow: 0 2px 8px var(--card-shadow);
   }
+  .card-back.dealing {
+    animation: dealCard 0.5s cubic-bezier(.4,0,.2,1) both;
+  }
+  .card-back.dealing:nth-child(2) { animation-delay: 0.12s; }
   .card-back::after {
     content: '';
     position: absolute;
@@ -736,6 +749,7 @@
       <div class="info-item"><span class="info-label">Buy-in</span><span class="info-value" id="info-buyin">--</span></div>
       <div class="info-item"><span class="info-label">Timer</span><span class="info-value" id="info-timer">--</span></div>
       <div class="info-item"><span class="info-label">Mode</span><span class="info-value" id="info-mode">--</span></div>
+      <div class="info-item"><span class="info-label">Blinds</span><span class="info-value" id="info-blinds">--</span></div>
       <div class="info-item hidden" id="info-duration-wrap"><span class="info-label">Live</span><span class="info-value" id="stream-duration">0:00</span></div>
     </div>
   </div>
@@ -896,6 +910,7 @@
   const $infoBuyin        = document.getElementById('info-buyin');
   const $infoTimer        = document.getElementById('info-timer');
   const $infoMode         = document.getElementById('info-mode');
+  const $infoBlinds       = document.getElementById('info-blinds');
   const $infoDurationWrap = document.getElementById('info-duration-wrap');
   const $streamDuration   = document.getElementById('stream-duration');
 
@@ -1067,6 +1082,7 @@
       $infoBuyin.textContent = state.buy_in_display || (state.buy_in > 0 ? formatChips(state.buy_in) : 'Free');
       $infoTimer.textContent = state.action_timeout + 's';
       $infoMode.textContent = (state.mode === 'onchain') ? 'On-chain' : 'Off-chain';
+      $infoBlinds.textContent = formatChips(state.small_blind || 10) + ' / ' + formatChips(state.big_blind || 20);
       gameInfoRendered = true;
     }
 
@@ -1339,6 +1355,15 @@
       lastPlayerComments = {};
       lastCommunityCardsKey = '';
       lastSidePotsKey = '';
+
+      /* Trigger card dealing animation */
+      setTimeout(function () {
+        var cards = $pokerTable.querySelectorAll('.player-cards .card, .player-cards .card-back');
+        for (var ci = 0; ci < cards.length; ci++) {
+          cards[ci].classList.add('dealing');
+          cards[ci].addEventListener('animationend', function () { this.classList.remove('dealing'); }, { once: true });
+        }
+      }, 50);
     }
 
     /* Only render new actions */

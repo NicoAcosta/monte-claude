@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-test-game.sh — Start Anvil, deploy contracts, seed wallets, start server, create a funded game.
+# setup-test-game.sh — Start Anvil, deploy contracts, seed wallets, start servers, create a funded game.
 #
 # Usage:
 #   ./scripts/setup-test-game.sh [NUM_PLAYERS]
@@ -18,9 +18,11 @@ CONTRACTS_DIR="$REPO_ROOT/packages/contracts"
 BASE_RPC="https://lb.routeme.sh/rpc/8453/3bd2e340-f97c-46b3-80ed-17975de5af89"
 BUY_IN="1000000000000000000000"  # 1000 MONTE (18 decimals)
 ANVIL_PORT=8545
-SERVER_PORT=8000
+GAME_API_PORT=8001
+DATA_API_PORT=8000
 RPC="http://localhost:$ANVIL_PORT"
-SERVER="http://localhost:$SERVER_PORT"
+GAME_API="http://localhost:$GAME_API_PORT"
+DATA_API="http://localhost:$DATA_API_PORT"
 
 # Anvil default accounts (standard mnemonic)
 ADMIN_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -61,8 +63,9 @@ die() { echo "ERROR: $1" >&2; exit 1; }
 
 cleanup() {
   log "CLEANUP" "Stopping background processes..."
-  lsof -ti:$SERVER_PORT | xargs kill -9 2>/dev/null || true
-  lsof -ti:$ANVIL_PORT  | xargs kill -9 2>/dev/null || true
+  lsof -ti:$GAME_API_PORT | xargs kill -9 2>/dev/null || true
+  lsof -ti:$DATA_API_PORT | xargs kill -9 2>/dev/null || true
+  lsof -ti:$ANVIL_PORT    | xargs kill -9 2>/dev/null || true
 }
 
 wait_for_rpc() {
@@ -75,17 +78,17 @@ wait_for_rpc() {
 }
 
 wait_for_http() {
-  local port=$1 max_wait=${2:-15} elapsed=0
-  while ! curl -sf "http://localhost:$port/api/games" >/dev/null 2>&1; do
+  local url=$1 max_wait=${2:-15} elapsed=0
+  while ! curl -sf "$url" >/dev/null 2>&1; do
     sleep 0.5
     elapsed=$((elapsed + 1))
-    (( elapsed >= max_wait * 2 )) && die "HTTP on port $port not ready after ${max_wait}s"
+    (( elapsed >= max_wait * 2 )) && die "$url not ready after ${max_wait}s"
   done
 }
 
 # ── Step 1: Kill existing processes ──────────────────────
-log "SETUP" "Cleaning up existing processes on ports $ANVIL_PORT and $SERVER_PORT..."
-for port in $SERVER_PORT $ANVIL_PORT; do
+log "SETUP" "Cleaning up existing processes on ports $ANVIL_PORT, $GAME_API_PORT, $DATA_API_PORT..."
+for port in $GAME_API_PORT $DATA_API_PORT $ANVIL_PORT; do
   PIDS=$(lsof -ti:"$port" 2>/dev/null || true)
   if [ -n "$PIDS" ]; then
     echo "$PIDS" | xargs kill -9 2>/dev/null || true
@@ -140,8 +143,8 @@ fi
 log "DATA" "Clearing previous session data..."
 rm -f "$SERVER_DIR"/data/*.csv 2>/dev/null || true
 
-# ── Step 7: Start poker server ──────────────────────────
-log "SERVER" "Starting poker server on port $SERVER_PORT..."
+# ── Step 7: Start Game API + Data API ────────────────────
+log "SERVER" "Starting Game API on port $GAME_API_PORT..."
 (cd "$SERVER_DIR" && \
   SERVER_PRIVATE_KEY="$ADMIN_KEY" \
   BASE_RPC_URL="$RPC" \
@@ -151,13 +154,20 @@ log "SERVER" "Starting poker server on port $SERVER_PORT..."
   CHAIN_ID=8453 \
   FUNDING_TIMEOUT=600 \
   SETTLEMENT_TIMEOUT=7200 \
-  .venv/bin/uvicorn poker.server:app --host 0.0.0.0 --port $SERVER_PORT &) 2>/dev/null
-wait_for_http $SERVER_PORT 15
-log "SERVER" "Running on port $SERVER_PORT"
+  uv run uvicorn game_api.app:app --host 0.0.0.0 --port $GAME_API_PORT &) 2>/dev/null
+wait_for_http "$GAME_API/ping" 15
+log "SERVER" "Game API running on port $GAME_API_PORT"
+
+log "SERVER" "Starting Data API on port $DATA_API_PORT..."
+(cd "$SERVER_DIR" && \
+  GAME_API_URL="$GAME_API" \
+  uv run uvicorn data_api.app:app --host 0.0.0.0 --port $DATA_API_PORT &) 2>/dev/null
+wait_for_http "$DATA_API/ping" 15
+log "SERVER" "Data API running on port $DATA_API_PORT"
 
 # ── Step 8: Create funded game ──────────────────────────
 log "GAME" "Creating funded game for $NUM_PLAYERS players (buy-in: 1000 MONTE)..."
-GAME_RESP=$(curl -s -X POST "$SERVER/api/games" \
+GAME_RESP=$(curl -s -X POST "$GAME_API/api/games" \
   -H "Content-Type: application/json" \
   -d "{\"max_players\": $NUM_PLAYERS, \"token\": \"$MONTE_ADDRESS\", \"buy_in\": $BUY_IN, \"token_decimals\": 18, \"token_symbol\": \"MONTE\"}")
 GAME_ID=$(echo "$GAME_RESP" | jq -r .game_id)
@@ -169,13 +179,13 @@ declare -a PLAYER_IDS=()
 
 for i in $(seq 0 $((NUM_PLAYERS - 1))); do
   NAME="${PLAYER_NAMES[$i]}"
-  REG=$(curl -s -X POST "$SERVER/api/register" \
+  REG=$(curl -s -X POST "$GAME_API/api/register" \
     -H "Content-Type: application/json" \
     -d "{\"username\": \"$NAME\"}")
   KEY=$(echo "$REG" | jq -r .api_key)
   API_KEYS+=("$KEY")
 
-  JOIN=$(curl -s -X POST "$SERVER/game/$GAME_ID/join" \
+  JOIN=$(curl -s -X POST "$GAME_API/game/$GAME_ID/join" \
     -H "Content-Type: application/json" \
     -H "X-API-Key: $KEY" \
     -d "{\"wallet_address\": \"${WALLETS[$i]}\"}")
@@ -185,7 +195,7 @@ for i in $(seq 0 $((NUM_PLAYERS - 1))); do
 done
 
 # Register commentator
-COMM_REG=$(curl -s -X POST "$SERVER/api/register" \
+COMM_REG=$(curl -s -X POST "$GAME_API/api/register" \
   -H "Content-Type: application/json" \
   -d '{"username": "PokerCast"}')
 COMM_KEY=$(echo "$COMM_REG" | jq -r .api_key)
@@ -193,7 +203,7 @@ log "PLAYER" "Registered commentator 'PokerCast'"
 
 # ── Step 10: Fund escrow ────────────────────────────────
 log "ESCROW" "Fetching escrow info..."
-ESCROW_INFO=$(curl -s "$SERVER/game/$GAME_ID/escrow")
+ESCROW_INFO=$(curl -s "$GAME_API/game/$GAME_ID/escrow")
 ESCROW_ADDR=$(echo "$ESCROW_INFO" | jq -r .escrow_address)
 CALLDATA_CREATE=$(echo "$ESCROW_INFO" | jq -r .calldata_create_and_deposit)
 log "ESCROW" "Escrow address: $ESCROW_ADDR"
@@ -216,18 +226,18 @@ for i in $(seq 1 $((NUM_PLAYERS - 1))); do
 done
 
 # Verify all deposited
-FUNDING=$(curl -s "$SERVER/game/$GAME_ID/funding")
+FUNDING=$(curl -s "$GAME_API/game/$GAME_ID/funding")
 ALL_DEP=$(echo "$FUNDING" | jq -r .all_deposited)
 [ "$ALL_DEP" != "true" ] && die "Not all deposits confirmed: $FUNDING"
 log "ESCROW" "All deposits confirmed"
 
 # ── Step 11: Start game ─────────────────────────────────
 log "GAME" "Starting game..."
-START_RESP=$(curl -s -X POST "$SERVER/game/$GAME_ID/start" -H "X-API-Key: ${API_KEYS[0]}")
+START_RESP=$(curl -s -X POST "$GAME_API/game/$GAME_ID/start" -H "X-API-Key: ${API_KEYS[0]}")
 log "GAME" "$(echo "$START_RESP" | jq -r .message)"
 
 # ── Step 12: Create commentary stream ───────────────────
-STREAM_RESP=$(curl -s -X POST "$SERVER/game/$GAME_ID/streams" \
+STREAM_RESP=$(curl -s -X POST "$GAME_API/game/$GAME_ID/streams" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $COMM_KEY" \
   -d '{"title": "PokerCast Live"}')
@@ -240,13 +250,14 @@ echo "=============================================="
 echo "  GAME READY"
 echo "=============================================="
 echo ""
-echo "Server:     $SERVER"
+echo "Game API:   $GAME_API"
+echo "Data API:   $DATA_API"
 echo "Game ID:    $GAME_ID"
 echo "Escrow:     $ESCROW_ADDR"
 echo "Stream ID:  $STREAM_ID"
 echo ""
-echo "Spectator UI:  $SERVER/game/$GAME_ID"
-echo "Stream UI:     $SERVER/stream/$STREAM_ID"
+echo "Spectator UI:  $DATA_API/game/$GAME_ID"
+echo "Stream UI:     $DATA_API/stream/$STREAM_ID"
 echo ""
 
 # Build JSON output
@@ -258,14 +269,15 @@ done
 PLAYERS_JSON+="]"
 
 SUMMARY=$(jq -n \
-  --arg server "$SERVER" \
+  --arg game_api "$GAME_API" \
+  --arg data_api "$DATA_API" \
   --argjson game_id "$GAME_ID" \
   --arg monte "$MONTE_ADDRESS" \
   --arg escrow "$ESCROW_ADDR" \
   --argjson stream_id "$STREAM_ID" \
   --arg comm_key "$COMM_KEY" \
   --argjson players "$PLAYERS_JSON" \
-  '{server: $server, game_id: $game_id, monte_address: $monte, escrow_address: $escrow, stream_id: $stream_id, commentator_key: $comm_key, players: $players}')
+  '{game_api: $game_api, data_api: $data_api, game_id: $game_id, monte_address: $monte, escrow_address: $escrow, stream_id: $stream_id, commentator_key: $comm_key, players: $players}')
 
 echo "Players:"
 echo "$SUMMARY" | jq -r '.players[] | "  \(.name) (id=\(.id)) key=\(.api_key)"'
@@ -278,5 +290,5 @@ SUMMARY_FILE="$REPO_ROOT/.game-session.json"
 echo "$SUMMARY" > "$SUMMARY_FILE"
 echo "Session saved to: $SUMMARY_FILE"
 echo ""
-echo "To stop everything: lsof -ti:$SERVER_PORT -ti:$ANVIL_PORT | xargs kill"
+echo "To stop everything: lsof -ti:$GAME_API_PORT -ti:$DATA_API_PORT -ti:$ANVIL_PORT | xargs kill"
 echo "=============================================="

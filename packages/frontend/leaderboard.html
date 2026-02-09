@@ -357,6 +357,48 @@
     .rh-table td { padding: 10px 12px; font-size: 12px; }
   }
 
+  /* ── Pagination ─────────────────────────────────────── */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .pagination-info {
+    white-space: nowrap;
+  }
+
+  .pagination-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .pagination-btn {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+  }
+
+  .pagination-btn:hover:not(:disabled) {
+    background: var(--border);
+    border-color: var(--border-hover);
+  }
+
+  .pagination-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
   /* ── Utilities ───────────────────────────────────────── */
   .hidden { display: none !important; }
 </style>
@@ -406,6 +448,13 @@
             <!-- Injected by JS -->
           </tbody>
         </table>
+        <div class="pagination" id="lb-pagination">
+          <span class="pagination-info" id="lb-page-info"></span>
+          <div class="pagination-buttons">
+            <button class="pagination-btn" id="lb-prev" disabled>Prev</button>
+            <button class="pagination-btn" id="lb-next" disabled>Next</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -429,6 +478,13 @@
             <!-- Injected by JS -->
           </tbody>
         </table>
+        <div class="pagination" id="rh-pagination">
+          <span class="pagination-info" id="rh-page-info"></span>
+          <div class="pagination-buttons">
+            <button class="pagination-btn" id="rh-prev" disabled>Prev</button>
+            <button class="pagination-btn" id="rh-next" disabled>Next</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -579,7 +635,7 @@
         '<tr>' +
           '<td><a href="/game/' + h.game_id + '" style="color:var(--text)">Game #' + h.game_id + '</a></td>' +
           '<td>#' + h.hand_number + '</td>' +
-          '<td class="rh-winner">' + escapeHtml(winnerText) + '</td>' +
+          '<td class="rh-winner">' + winnerText.split(', ').map(function(n) { return '<a href="/player/' + encodeURIComponent(n) + '" style="color:var(--text)">' + escapeHtml(n) + '</a>'; }).join(', ') + '</td>' +
           '<td>' + cardsHtml + '</td>' +
           '<td class="rh-result ' + resultClass + '">' + resultLabel + '</td>' +
           '<td class="right">' + potLabel + '</td>' +
@@ -589,16 +645,67 @@
     $body.innerHTML = html;
   }
 
-  /* ── Fetch & Init ───────────────────────────────────── */
-  fetch('/api/leaderboard')
-    .then(function(r) { return r.json(); })
-    .then(function(data) { renderLeaderboard(data.players); })
-    .catch(function() { renderLeaderboard([]); });
+  /* ── Pagination State ──────────────────────────────── */
+  var PAGE_SIZE = 50;
+  var RH_PAGE_SIZE = 20;
 
-  fetch('/api/recent-hands')
-    .then(function(r) { return r.json(); })
-    .then(function(data) { renderRecentHands(data.hands); })
-    .catch(function() { renderRecentHands([]); });
+  var lbPage = 0;
+  var lbTotal = 0;
+  var rhPage = 0;
+  var rhTotal = 0;
+
+  var $lbPrev = document.getElementById('lb-prev');
+  var $lbNext = document.getElementById('lb-next');
+  var $lbInfo = document.getElementById('lb-page-info');
+  var $rhPrev = document.getElementById('rh-prev');
+  var $rhNext = document.getElementById('rh-next');
+  var $rhInfo = document.getElementById('rh-page-info');
+
+  function updatePaginationUI(prefix, page, total, pageSize) {
+    var $prev = prefix === 'lb' ? $lbPrev : $rhPrev;
+    var $next = prefix === 'lb' ? $lbNext : $rhNext;
+    var $info = prefix === 'lb' ? $lbInfo : $rhInfo;
+    var start = page * pageSize + 1;
+    var end = Math.min((page + 1) * pageSize, total);
+    $info.textContent = total > 0 ? start + '–' + end + ' of ' + total : 'No results';
+    $prev.disabled = page === 0;
+    $next.disabled = end >= total;
+  }
+
+  /* ── Fetch Functions ─────────────────────────────────── */
+  function fetchLeaderboard() {
+    var offset = lbPage * PAGE_SIZE;
+    fetch('/api/leaderboard?limit=' + PAGE_SIZE + '&offset=' + offset)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        lbTotal = data.total || data.players.length;
+        renderLeaderboard(data.players);
+        updatePaginationUI('lb', lbPage, lbTotal, PAGE_SIZE);
+      })
+      .catch(function() { renderLeaderboard([]); updatePaginationUI('lb', 0, 0, PAGE_SIZE); });
+  }
+
+  function fetchRecentHands() {
+    var offset = rhPage * RH_PAGE_SIZE;
+    fetch('/api/recent-hands?limit=' + RH_PAGE_SIZE + '&offset=' + offset)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        rhTotal = data.total || data.hands.length;
+        renderRecentHands(data.hands);
+        updatePaginationUI('rh', rhPage, rhTotal, RH_PAGE_SIZE);
+      })
+      .catch(function() { renderRecentHands([]); updatePaginationUI('rh', 0, 0, RH_PAGE_SIZE); });
+  }
+
+  /* ── Button Handlers ─────────────────────────────────── */
+  $lbPrev.addEventListener('click', function() { if (lbPage > 0) { lbPage--; fetchLeaderboard(); } });
+  $lbNext.addEventListener('click', function() { if ((lbPage + 1) * PAGE_SIZE < lbTotal) { lbPage++; fetchLeaderboard(); } });
+  $rhPrev.addEventListener('click', function() { if (rhPage > 0) { rhPage--; fetchRecentHands(); } });
+  $rhNext.addEventListener('click', function() { if ((rhPage + 1) * RH_PAGE_SIZE < rhTotal) { rhPage++; fetchRecentHands(); } });
+
+  /* ── Init ────────────────────────────────────────────── */
+  fetchLeaderboard();
+  fetchRecentHands();
 
 })();
 </script>

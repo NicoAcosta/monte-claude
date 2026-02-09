@@ -202,6 +202,8 @@ class SpectatorResponse(BaseModel):
     max_players: int = 0
     starting_players: int = 0
     action_timeout: float = 30.0
+    small_blind: int = 10
+    big_blind: int = 20
 
 
 class ActionResponse(BaseModel):
@@ -311,6 +313,7 @@ class LeaderboardEntry(BaseModel):
 
 class LeaderboardResponse(BaseModel):
     players: list[LeaderboardEntry]
+    total: int = 0
 
 
 class RecentHandItem(BaseModel):
@@ -327,6 +330,7 @@ class RecentHandItem(BaseModel):
 
 class RecentHandsResponse(BaseModel):
     hands: list[RecentHandItem]
+    total: int = 0
 
 
 # ── Stream models ──────────────────────────────────────
