@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from poker.balance_store import BalanceStore
 from poker.game import Game, RegisteredPlayer
+from poker.game_config import GameConfig
 from poker.game_manager import GameManager
 from poker.game_mode import GameMode
 from poker.game_recorder import GameRecorder
@@ -27,7 +28,7 @@ def create_game(
     token: str | None,
     buy_in: int,
     mode: str,
-) -> tuple[int, Game]:
+) -> tuple[int, Game, GameConfig]:
     """Create a game via the manager."""
     return manager.create_game(
         max_players=max_players,
@@ -39,31 +40,35 @@ def create_game(
 
 def join_game(
     game: Game,
+    config: GameConfig,
     username: str,
     wallet_address: str | None,
     balance_store: BalanceStore,
-    buy_in: int,
-    mode: str | None,
     recorder: GameRecorder | None,
 ) -> RegisteredPlayer:
-    """Join a game: debit balance, register player, record event.
+    """Join a game: check capacity/mode, debit balance, register player, record event.
 
-    Raises ValueError on insufficient balance or registration failure.
+    Raises ValueError on insufficient balance, capacity, mode, or registration failure.
     Refunds on registration failure.
     """
+    if config.is_at_capacity(game.player_count):
+        raise ValueError("Game is full")
+    if config.mode == GameMode.ONCHAIN and not wallet_address:
+        raise ValueError("Wallet address required for on-chain games")
+
     # Off-chain: debit buy-in from balance before registering
-    if mode == GameMode.OFFCHAIN and buy_in > 0:
+    if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
         try:
-            balance_store.debit(username, buy_in)
+            balance_store.debit(username, config.buy_in)
         except ValueError:
-            raise ValueError(f"Insufficient balance (need {buy_in})")
+            raise ValueError(f"Insufficient balance (need {config.buy_in})")
 
     try:
         player = game.register(username, wallet_address=wallet_address)
     except ValueError:
         # Refund if registration failed
-        if mode == GameMode.OFFCHAIN and buy_in > 0:
-            balance_store.credit(username, buy_in)
+        if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
+            balance_store.credit(username, config.buy_in)
         raise
 
     if recorder:
@@ -77,17 +82,18 @@ def join_game(
 
 def start_game(
     game: Game,
-    mode: str | None,
-    buy_in: int,
+    config: GameConfig,
     recorder: GameRecorder | None,
 ) -> int:
-    """Mark funded (for offchain) and start the game.
+    """Check funding, mark funded (for offchain), and start the game.
 
     Raises ValueError if game can't start.
     Returns hand number.
     """
-    if mode == GameMode.OFFCHAIN and buy_in > 0:
-        game.funded = True
+    if config.mode == GameMode.OFFCHAIN and config.buy_in > 0:
+        config.funded = True
+    elif config.buy_in > 0 and not config.funded:
+        raise ValueError("Deposits not confirmed")
 
     hand_num = game.start()
 

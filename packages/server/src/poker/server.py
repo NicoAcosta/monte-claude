@@ -9,6 +9,7 @@ from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
 from poker.game import Game
+from poker.game_config import GameConfig
 from poker.game_mode import GameMode
 from poker.game_manager import GameManager
 from poker.game_recorder import GameRecorder
@@ -90,17 +91,17 @@ require_auth = make_auth_dependency(lambda: account_store)
 
 # ── Helpers ──────────────────────────────────────────────
 
-def _get_game_or_404(game_id: int) -> Game:
+def _get_game_or_404(game_id: int) -> tuple[Game, GameConfig]:
     game = manager.get_game(game_id)
-    if game is None:
+    config = manager.get_config(game_id)
+    if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return game
+    return game, config
 
 
-def _settle_if_over(game: Game) -> None:
-    """Settle offchain game if it just ended."""
+def _settle_if_over(game: Game, config: GameConfig) -> None:
     if game.game_over:
-        settlement_service.settle_offchain_game(game, balance_store, game.buy_in)
+        settlement_service.settle_offchain_game(game, config, balance_store)
 
 
 def _recent_actions(game: Game, include_reason: bool = False) -> list[RecentAction]:
@@ -195,15 +196,15 @@ def create_game(req: CreateGameRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    game_id, game = game_service.create_game(
+    game_id, game, config = game_service.create_game(
         manager, req.max_players, req.token, req.buy_in, mode,
     )
     return CreateGameResponse(
         game_id=game_id,
-        max_players=game.max_players,
-        token=game.token,
-        buy_in=game.buy_in,
-        mode=game.mode or GameMode.OFFCHAIN,
+        max_players=config.max_players,
+        token=config.token,
+        buy_in=config.buy_in,
+        mode=config.mode or GameMode.OFFCHAIN,
     )
 
 
@@ -217,15 +218,14 @@ def game_page(game_id: int):
 
 @app.post("/game/{game_id}/join", response_model=JoinGameResponse)
 def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
+    game, config = _get_game_or_404(game_id)
     try:
         player = game_service.join_game(
             game=game,
+            config=config,
             username=account.username,
             wallet_address=req.wallet_address,
             balance_store=balance_store,
-            buy_in=game.buy_in,
-            mode=game.mode,
             recorder=manager.get_recorder(game_id),
         )
     except ValueError as e:
@@ -235,7 +235,7 @@ def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(req
 
 @app.get("/game/{game_id}/waiting", response_model=WaitingResponse)
 def waiting(game_id: int):
-    game = _get_game_or_404(game_id)
+    game, _config = _get_game_or_404(game_id)
     return WaitingResponse(
         started=game.started,
         players=[
@@ -248,15 +248,14 @@ def waiting(game_id: int):
 
 @app.post("/game/{game_id}/start", response_model=StartResponse)
 def start(game_id: int, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
+    game, config = _get_game_or_404(game_id)
     if game.get_player_by_name(account.username) is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
 
     try:
         hand_num = game_service.start_game(
             game=game,
-            mode=game.mode,
-            buy_in=game.buy_in,
+            config=config,
             recorder=manager.get_recorder(game_id),
         )
     except ValueError as e:
@@ -269,12 +268,12 @@ def start(game_id: int, account: Account = Depends(require_auth)):
 
 @app.get("/game/{game_id}/escrow", response_model=EscrowInfoResponse)
 def escrow_info(game_id: int):
-    game = _get_game_or_404(game_id)
-    if game.mode != GameMode.ONCHAIN:
+    game, config = _get_game_or_404(game_id)
+    if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Escrow only available for on-chain games")
 
     try:
-        info = escrow_service.get_escrow_info(game)
+        info = escrow_service.get_escrow_info(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -304,12 +303,12 @@ def escrow_info(game_id: int):
 
 @app.get("/game/{game_id}/funding", response_model=FundingStatusResponse)
 def funding_status(game_id: int):
-    game = _get_game_or_404(game_id)
-    if game.mode != GameMode.ONCHAIN:
+    game, config = _get_game_or_404(game_id)
+    if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Funding status only available for on-chain games")
 
     try:
-        result = escrow_service.check_funding(game)
+        result = escrow_service.check_funding(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -328,12 +327,12 @@ def funding_status(game_id: int):
 
 @app.get("/game/{game_id}/settlement", response_model=SettlementResponse)
 def settlement(game_id: int):
-    game = _get_game_or_404(game_id)
-    if game.mode != GameMode.ONCHAIN:
+    game, config = _get_game_or_404(game_id)
+    if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Settlement only available for on-chain games")
 
     try:
-        result = escrow_service.get_settlement(game)
+        result = escrow_service.get_settlement(game, config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -350,7 +349,7 @@ def settlement(game_id: int):
 
 @app.get("/game/{game_id}/state/{player_id}", response_model=PlayerStateResponse)
 def state(game_id: int, player_id: int):
-    game = _get_game_or_404(game_id)
+    game, config = _get_game_or_404(game_id)
     rp = game.get_player(player_id)
     if rp is None:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -358,7 +357,7 @@ def state(game_id: int, player_id: int):
         raise HTTPException(status_code=400, detail="Game not started")
 
     game._check_timeout()
-    _settle_if_over(game)
+    _settle_if_over(game, config)
 
     hand = game.current_hand
 
@@ -439,7 +438,7 @@ def state(game_id: int, player_id: int):
 
 @app.post("/game/{game_id}/resign", response_model=ActionResponse)
 def resign(game_id: int, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
+    game, config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
@@ -449,7 +448,7 @@ def resign(game_id: int, account: Account = Depends(require_auth)):
 
     result = game.resign(player.id)
     if result == "ok":
-        _settle_if_over(game)
+        _settle_if_over(game, config)
         return ActionResponse(success=True, message="Resigned from game")
     else:
         raise HTTPException(status_code=400, detail=result)
@@ -457,7 +456,7 @@ def resign(game_id: int, account: Account = Depends(require_auth)):
 
 @app.post("/game/{game_id}/action", response_model=ActionResponse)
 def action(game_id: int, req: ActionRequest, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
+    game, config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
@@ -474,7 +473,7 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
 
     result = game.do_action(player.id, req.action, req.amount, comment=req.comment, reason=req.reason)
     if result == "ok":
-        _settle_if_over(game)
+        _settle_if_over(game, config)
         return ActionResponse(success=True, message="Action accepted")
     else:
         raise HTTPException(status_code=400, detail=result)
@@ -482,7 +481,7 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(require_
 
 # ── Spectator ────────────────────────────────────────────
 
-def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
+def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> SpectatorResponse:
     prev = game.previous_hand
 
     if prev is None:
@@ -511,9 +510,9 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
             started=game.started,
             chat_log=_chat_log(game),
             timer=_timer_info(game),
-            buy_in=game.buy_in,
-            escrow_address=game.escrow_address,
-            mode=game.mode or GameMode.OFFCHAIN,
+            buy_in=config.buy_in,
+            escrow_address=config.escrow_address,
+            mode=config.mode or GameMode.OFFCHAIN,
         )
         base.update(overrides)
         return SpectatorResponse(**base)
@@ -553,9 +552,9 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
         started=game.started,
         chat_log=_chat_log(game),
         timer=_timer_info(game),
-        buy_in=game.buy_in,
-        escrow_address=game.escrow_address,
-        mode=game.mode or GameMode.OFFCHAIN,
+        buy_in=config.buy_in,
+        escrow_address=config.escrow_address,
+        mode=config.mode or GameMode.OFFCHAIN,
     )
     base.update(overrides)
     return SpectatorResponse(**base)
@@ -563,17 +562,17 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
 
 @app.get("/game/{game_id}/spectator", response_model=SpectatorResponse)
 def spectator(game_id: int):
-    game = _get_game_or_404(game_id)
+    game, config = _get_game_or_404(game_id)
     game._check_timeout()
-    _settle_if_over(game)
-    return _build_spectator_response(game)
+    _settle_if_over(game, config)
+    return _build_spectator_response(game, config)
 
 
 # ── Chat & Timer routes ─────────────────────────────────
 
 @app.post("/game/{game_id}/chat", response_model=ChatResponse)
 def chat(game_id: int, req: ChatRequest, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
+    game, _config = _get_game_or_404(game_id)
     player = game.get_player_by_name(account.username)
     if player is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
@@ -588,7 +587,7 @@ def chat(game_id: int, req: ChatRequest, account: Account = Depends(require_auth
 
 @app.post("/game/{game_id}/extend", response_model=ExtendResponse)
 def extend(game_id: int, account: Account = Depends(require_auth)):
-    game = _get_game_or_404(game_id)
+    game, _config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
@@ -730,12 +729,13 @@ def stream_view(stream_id: int):
     if stream is None:
         raise HTTPException(status_code=404, detail="Stream not found")
     game = manager.get_game(stream.game_id)
-    if game is None:
+    config = manager.get_config(stream.game_id)
+    if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
     game._check_timeout()
-    _settle_if_over(game)
+    _settle_if_over(game, config)
     return _build_spectator_response(
-        game,
+        game, config,
         commentary_text=stream.commentary_text,
         stream_id=stream.id,
         stream_title=stream.title,
@@ -770,17 +770,17 @@ def get_balance(account: Account = Depends(require_auth)):
 
 @app.get("/game/{game_id}/offchain-settlement", response_model=OffchainSettlementResponse)
 def offchain_settlement(game_id: int):
-    game = _get_game_or_404(game_id)
-    if game.mode != GameMode.OFFCHAIN:
+    game, config = _get_game_or_404(game_id)
+    if config.mode != GameMode.OFFCHAIN:
         raise HTTPException(status_code=400, detail="Not an off-chain game")
     if not game.game_over:
         raise HTTPException(status_code=400, detail="Game is not over yet")
-    if game.offchain_settlement is None:
+    if config.offchain_settlement is None:
         raise HTTPException(status_code=400, detail="Settlement not yet computed")
 
     return OffchainSettlementResponse(
         payouts=[
             OffchainPayout(username=name, amount=amt)
-            for name, amt in game.offchain_settlement
+            for name, amt in config.offchain_settlement
         ]
     )
