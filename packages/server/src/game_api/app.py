@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
@@ -59,6 +60,12 @@ from poker.stream_store import StreamStore
 from poker import balance_service, escrow_service, game_service, settlement_service
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _pool = get_pool()
 
@@ -484,6 +491,8 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
             chat_log=_chat_log(game),
             timer=_timer_info(game),
             buy_in=config.buy_in,
+            buy_in_display=config.buy_in_display,
+            token_symbol=config.token_symbol,
             escrow_address=config.escrow_address,
             mode=config.mode or GameMode.OFFCHAIN,
             max_players=config.max_players,
@@ -496,7 +505,7 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides) -> Sp
     side_pots = prev.get_side_pots_info()
 
     base = dict(
-        hand_number=game.hand_number - 1,
+        hand_number=game.hand_number if game.game_over else game.hand_number - 1,
         phase=prev.phase,
         community_cards=[str(c) for c in prev.community_cards],
         pot=prev.pot,

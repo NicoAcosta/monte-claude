@@ -269,11 +269,23 @@ class HandSummaryResponse(BaseModel):
     pot: int
     community_cards: str
     timestamp: float
+    winner_names: list[str] = []
+    winning_cards: dict[str, list[str]] = {}
+    result_type: str = "fold"
+    token_symbol: str | None = None
 
 
 class HandSummariesResponse(BaseModel):
     game_id: int
     hands: list[HandSummaryResponse]
+
+
+class TokenStatsEntry(BaseModel):
+    token_symbol: str
+    total_winnings: int
+    biggest_pot_won: int
+    hands_played: int
+    hands_won: int
 
 
 class PlayerStatsResponse(BaseModel):
@@ -283,6 +295,7 @@ class PlayerStatsResponse(BaseModel):
     hands_won: int
     total_winnings: int
     biggest_pot_won: int
+    token_stats: list[TokenStatsEntry] = []
 
 
 class LeaderboardEntry(BaseModel):
@@ -293,6 +306,7 @@ class LeaderboardEntry(BaseModel):
     win_rate: float
     total_winnings: int
     biggest_pot_won: int
+    token_stats: list[TokenStatsEntry] = []
 
 
 class LeaderboardResponse(BaseModel):
@@ -303,8 +317,12 @@ class RecentHandItem(BaseModel):
     game_id: int
     hand_number: int
     winner_ids: list[int]
+    winner_names: list[str] = []
     pot: int
     timestamp: float
+    winning_cards: dict[str, list[str]] = {}
+    result_type: str = "fold"
+    token_symbol: str | None = None
 
 
 class RecentHandsResponse(BaseModel):

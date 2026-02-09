@@ -23,6 +23,10 @@ class HandSummary:
     pot: int
     community_cards: str  # JSON list of card strings
     timestamp: float
+    winner_names: tuple[str, ...] = ()
+    winning_cards: str = "{}"  # JSON: {name: [cards]}
+    result_type: str = "fold"  # "fold" or "showdown"
+    token_symbol: str | None = None
 
 
 @dataclass(frozen=True)

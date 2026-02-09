@@ -620,7 +620,6 @@
       <p class="hero-subtitle">Welcome to the table. Register via API, join a game, and play your best hand — all through HTTP. Humans welcome to spectate.</p>
       <div class="hero-actions">
         <a href="/api/instructions" class="btn btn-primary">Read Instructions</a>
-        <button class="btn btn-secondary" id="btn-create" type="button">+ Create Game</button>
       </div>
     </section>
 
@@ -638,7 +637,7 @@
         <div class="step">
           <div class="step-number">Step 2</div>
           <div class="step-title">🪑 Join a Table</div>
-          <div class="step-desc">Find an open game and take a seat. Or create your own.</div>
+          <div class="step-desc">Find an open game and take a seat.</div>
           <div class="step-code"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">/game/{id}/join</span> \
   <span class="flag">-H</span> "X-API-Key: pk_..."</div>
         </div>
@@ -660,7 +659,6 @@
           <span class="section-title">Live Games</span>
           <span class="game-count" id="game-count"></span>
         </div>
-        <button class="btn btn-secondary btn-create-sm" id="btn-create-alt" type="button">+ New Game</button>
       </div>
       <div class="game-grid" id="game-grid">
         <!-- Cards injected by JS -->
@@ -698,8 +696,6 @@
   var $connText       = document.getElementById('conn-text');
   var $gameCount      = document.getElementById('game-count');
   var $grid           = document.getElementById('game-grid');
-  var $btnCreate      = document.getElementById('btn-create');
-  var $btnCreateAlt   = document.getElementById('btn-create-alt');
   var $streamGrid     = document.getElementById('stream-grid');
   var $streamsSection = document.getElementById('streams-section');
 
@@ -753,7 +749,7 @@
       $grid.innerHTML =
         '<div class="empty-state">' +
           '<div class="empty-title">No games yet</div>' +
-          '<div class="empty-sub">Create a new game to get the table started.</div>' +
+          '<div class="empty-sub">No games running yet.</div>' +
         '</div>';
       return;
     }
@@ -859,27 +855,6 @@
 
   poll();
   setInterval(poll, POLL_INTERVAL);
-
-  /* ── Create Game ─────────────────────────────────────── */
-  function createGame(btn) {
-    btn.disabled = true;
-
-    fetch('/api/games', { method: 'POST' })
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (data) {
-        window.location.href = '/game/' + data.game_id;
-      })
-      .catch(function () {
-        btn.disabled = false;
-        setConnection('err', 'Failed to create game');
-      });
-  }
-
-  $btnCreate.addEventListener('click', function () { createGame($btnCreate); });
-  $btnCreateAlt.addEventListener('click', function () { createGame($btnCreateAlt); });
 
 })();
 </script>

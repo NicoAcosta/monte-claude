@@ -58,6 +58,18 @@ class GameRecorder:
                 if wid not in winner_ids:
                     winner_ids.append(wid)
 
+        w_names: list[str] = data.get("winner_names", [])
+        showdown_cards: dict[str, list[str]] = data.get("showdown_cards", {})
+
+        # Filter showdown_cards to only winners
+        winning_cards = {
+            name: cards for name, cards in showdown_cards.items()
+            if name in w_names
+        }
+
+        # Determine result type: if >1 non-folded player showed cards → showdown
+        result_type = "showdown" if len(showdown_cards) > 1 else "fold"
+
         summary = HandSummary(
             game_id=self._game_id,
             hand_number=data.get("hand_number", 0),
@@ -67,6 +79,10 @@ class GameRecorder:
             pot=data.get("pot", 0),
             community_cards=json.dumps(data.get("community_cards", [])),
             timestamp=time.time(),
+            winner_names=tuple(w_names),
+            winning_cards=json.dumps(winning_cards),
+            result_type=result_type,
+            token_symbol=data.get("token_symbol"),
         )
         self._summary_store.append(summary)
 
@@ -75,6 +91,7 @@ class GameRecorder:
         winner_names: list[str] = data.get("winner_names", [])
         pot: int = data.get("pot", 0)
         chip_deltas: dict[str, int] = data.get("chip_deltas", {})
+        token_symbol: str = data.get("token_symbol") or "chips"
 
         if player_names:
             self._stats_store.update_from_hand(
@@ -82,4 +99,5 @@ class GameRecorder:
                 winner_names=winner_names,
                 pot=pot,
                 chip_deltas=chip_deltas,
+                token_symbol=token_symbol,
             )
