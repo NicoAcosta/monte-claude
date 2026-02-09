@@ -25,11 +25,11 @@ resource "aws_security_group" "alb" {
   }
 }
 
-# ---------- App Security Group (Game API + Data API) ----------
+# ---------- App Security Group (Game API + Data API + Account API) ----------
 
 resource "aws_security_group" "app" {
   name_prefix = "monteclaude-app-"
-  description = "App tier — Game API (8001) + Data API (8000)"
+  description = "App tier — Game API (8001) + Data API (8000) + Account API (8002)"
   vpc_id      = module.vpc.vpc_id
 
   egress {
@@ -62,9 +62,9 @@ resource "aws_security_group" "db" {
 # ALB → App (egress)
 resource "aws_vpc_security_group_egress_rule" "alb_to_app" {
   security_group_id            = aws_security_group.alb.id
-  description                  = "To app instances"
+  description                  = "To app instances (Game 8001, Data 8000, Account 8002)"
   from_port                    = 8000
-  to_port                      = 8001
+  to_port                      = 8002
   ip_protocol                  = "tcp"
   referenced_security_group_id = aws_security_group.app.id
 }
@@ -85,6 +85,16 @@ resource "aws_vpc_security_group_ingress_rule" "app_from_alb_data" {
   description                  = "Data API from ALB"
   from_port                    = 8000
   to_port                      = 8000
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.alb.id
+}
+
+# App ← ALB (ingress: Account API — co-located on Data API EC2)
+resource "aws_vpc_security_group_ingress_rule" "app_from_alb_account" {
+  security_group_id            = aws_security_group.app.id
+  description                  = "Account API from ALB"
+  from_port                    = 8002
+  to_port                      = 8002
   ip_protocol                  = "tcp"
   referenced_security_group_id = aws_security_group.alb.id
 }

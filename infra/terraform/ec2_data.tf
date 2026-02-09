@@ -16,9 +16,10 @@ resource "aws_instance" "data_api" {
   }
 
   user_data = base64encode(templatefile("${path.module}/templates/data_api_userdata.sh.tpl", {
-    aws_region    = var.aws_region
-    ecr_repo      = aws_ecr_repository.data_api.repository_url
-    db_secret_arn = aws_secretsmanager_secret.db_credentials.arn
+    aws_region           = var.aws_region
+    ecr_repo             = aws_ecr_repository.data_api.repository_url
+    account_api_ecr_repo = aws_ecr_repository.account_api.repository_url
+    db_secret_arn        = aws_secretsmanager_secret.db_credentials.arn
   }))
 
   tags = { Name = "monteclaude-data-api-${var.environment}" }

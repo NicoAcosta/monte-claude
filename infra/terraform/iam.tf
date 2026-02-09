@@ -20,6 +20,16 @@ resource "aws_ecr_repository" "data_api" {
   }
 }
 
+resource "aws_ecr_repository" "account_api" {
+  name                 = "monteclaude/account-api"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 # Lifecycle: keep last 10 images, expire untagged after 7 days
 locals {
   ecr_lifecycle_policy = jsonencode({
@@ -57,6 +67,11 @@ resource "aws_ecr_lifecycle_policy" "game_api" {
 
 resource "aws_ecr_lifecycle_policy" "data_api" {
   repository = aws_ecr_repository.data_api.name
+  policy     = local.ecr_lifecycle_policy
+}
+
+resource "aws_ecr_lifecycle_policy" "account_api" {
+  repository = aws_ecr_repository.account_api.name
   policy     = local.ecr_lifecycle_policy
 }
 
@@ -104,8 +119,29 @@ resource "aws_iam_role_policy_attachment" "data_api_cw" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-# ECR pull for both
-data "aws_iam_policy_document" "ecr_pull" {
+# ECR pull — Game API role (only needs game-api repo)
+data "aws_iam_policy_document" "game_api_ecr_pull" {
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    actions = [
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+    ]
+    resources = [aws_ecr_repository.game_api.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "game_api_ecr" {
+  name   = "ecr-pull"
+  role   = aws_iam_role.game_api.id
+  policy = data.aws_iam_policy_document.game_api_ecr_pull.json
+}
+
+# ECR pull — Data API role (needs data-api + account-api repos, since Account API is co-located)
+data "aws_iam_policy_document" "data_api_ecr_pull" {
   statement {
     actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
@@ -116,22 +152,16 @@ data "aws_iam_policy_document" "ecr_pull" {
       "ecr:BatchGetImage",
     ]
     resources = [
-      aws_ecr_repository.game_api.arn,
       aws_ecr_repository.data_api.arn,
+      aws_ecr_repository.account_api.arn,
     ]
   }
-}
-
-resource "aws_iam_role_policy" "game_api_ecr" {
-  name   = "ecr-pull"
-  role   = aws_iam_role.game_api.id
-  policy = data.aws_iam_policy_document.ecr_pull.json
 }
 
 resource "aws_iam_role_policy" "data_api_ecr" {
   name   = "ecr-pull"
   role   = aws_iam_role.data_api.id
-  policy = data.aws_iam_policy_document.ecr_pull.json
+  policy = data.aws_iam_policy_document.data_api_ecr_pull.json
 }
 
 # Secrets Manager — Game API gets all secrets

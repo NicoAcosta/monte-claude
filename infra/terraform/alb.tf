@@ -51,6 +51,23 @@ resource "aws_lb_target_group" "data_api" {
   }
 }
 
+resource "aws_lb_target_group" "account_api" {
+  name     = "mc-account-${var.environment}"
+  port     = 8002
+  protocol = "HTTP"
+  vpc_id   = module.vpc.vpc_id
+
+  health_check {
+    path                = "/ping"
+    port                = "traffic-port"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 15
+    timeout             = 5
+    matcher             = "200"
+  }
+}
+
 resource "aws_lb_target_group_attachment" "game_api" {
   target_group_arn = aws_lb_target_group.game_api.arn
   target_id        = aws_instance.game_api.id
@@ -61,6 +78,13 @@ resource "aws_lb_target_group_attachment" "data_api" {
   target_group_arn = aws_lb_target_group.data_api.arn
   target_id        = aws_instance.data_api.id
   port             = 8000
+}
+
+# Account API runs co-located on the Data API EC2 instance
+resource "aws_lb_target_group_attachment" "account_api" {
+  target_group_arn = aws_lb_target_group.account_api.arn
+  target_id        = aws_instance.data_api.id
+  port             = 8002
 }
 
 # ---------- ACM certificate (only when domain is provided) ----------
@@ -129,17 +153,18 @@ resource "aws_lb_listener" "http" {
 }
 
 # ---------- ALB Routing Rules ----------
-# Game API handles: all POST endpoints, live state reads, spectator, streams
+# Account API handles: register, faucet, balance
+# Game API handles: game creation, game POST endpoints, live state reads, spectator, streams
 # Data API handles: everything else (default action above)
 
-# Rule 1: POST /api/register → Game API
-resource "aws_lb_listener_rule" "game_register" {
+# Rule 1: POST /api/register → Account API
+resource "aws_lb_listener_rule" "account_register" {
   listener_arn = local.main_listener_arn
   priority     = 100
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
+    target_group_arn = aws_lb_target_group.account_api.arn
   }
 
   condition {
@@ -170,14 +195,14 @@ resource "aws_lb_listener_rule" "game_create" {
   }
 }
 
-# Rule 3: POST /api/faucet → Game API
-resource "aws_lb_listener_rule" "game_faucet" {
+# Rule 3: POST /api/faucet → Account API
+resource "aws_lb_listener_rule" "account_faucet" {
   listener_arn = local.main_listener_arn
   priority     = 300
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
+    target_group_arn = aws_lb_target_group.account_api.arn
   }
 
   condition {
@@ -186,6 +211,25 @@ resource "aws_lb_listener_rule" "game_faucet" {
 
   condition {
     http_request_method { values = ["POST"] }
+  }
+}
+
+# Rule 3b: GET /api/balance → Account API
+resource "aws_lb_listener_rule" "account_balance" {
+  listener_arn = local.main_listener_arn
+  priority     = 350
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.account_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/api/balance"] }
+  }
+
+  condition {
+    http_request_method { values = ["GET"] }
   }
 }
 
@@ -298,5 +342,5 @@ resource "aws_lb_listener_rule" "stream_data_reads" {
 }
 
 # Everything else (/, /leaderboard, /player/*, /api/games (GET), /api/leaderboard,
-# /api/recent-hands, /api/stats/*, /api/balance, /api/streams, /api/config,
+# /api/recent-hands, /api/stats/*, /api/streams, /api/config,
 # /api/instructions, /game/*/streams (GET), static HTML) → Data API (default action)

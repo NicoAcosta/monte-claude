@@ -99,6 +99,18 @@ jobs:
           docker push $ECR_REGISTRY/monteclaude/data-api:$IMAGE_TAG
           docker push $ECR_REGISTRY/monteclaude/data-api:latest
 
+      - name: Build & push Account API image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f infra/docker/Dockerfile.account \
+            -t $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG \
+            -t $ECR_REGISTRY/monteclaude/account-api:latest \
+            .
+          docker push $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/monteclaude/account-api:latest
+
       - name: Deploy Game API via SSM
         env:
           IMAGE_TAG: ${{ github.sha }}
@@ -116,7 +128,7 @@ jobs:
             --timeout-seconds 120 \
             --output text
 
-      - name: Deploy Data API via SSM
+      - name: Deploy Data API + Account API via SSM
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
@@ -126,9 +138,13 @@ jobs:
             --parameters commands='[
               "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
+              "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'",
               "docker stop data-api || true",
               "docker rm data-api || true",
-              "docker run -d --name data-api --restart unless-stopped -p 8000:8000 --env-file /etc/monteclaude/data-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'"
+              "docker stop account-api || true",
+              "docker rm account-api || true",
+              "docker run -d --name data-api --restart unless-stopped -p 8000:8000 --env-file /etc/monteclaude/data-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
+              "docker run -d --name account-api --restart unless-stopped -p 8002:8002 --env-file /etc/monteclaude/account-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'"
             ]' \
             --timeout-seconds 120 \
             --output text
@@ -153,5 +169,13 @@ jobs:
             exit 1
           fi
           echo "Game API reachable (HTTP $HTTP_CODE)"
+
+          echo "Checking Account API (via routed endpoint)..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SCHEME://$ALB_DNS/api/balance")
+          if [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ]; then
+            echo "FAIL: Account API returned $HTTP_CODE (service unreachable)"
+            exit 1
+          fi
+          echo "Account API reachable (HTTP $HTTP_CODE)"
 
           echo "Deploy complete."

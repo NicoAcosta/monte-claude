@@ -38,6 +38,11 @@ output "ecr_data_repository_url" {
   value       = aws_ecr_repository.data_api.repository_url
 }
 
+output "ecr_account_repository_url" {
+  description = "ECR repository URL for Account API image"
+  value       = aws_ecr_repository.account_api.repository_url
+}
+
 output "nat_instance_public_ip" {
   description = "Public IP of the NAT instance"
   value       = aws_instance.nat.public_ip
