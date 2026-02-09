@@ -32,7 +32,7 @@ def reset_state():
 
     poker_materializer = make_poker_materializer(game_module.summary_store)
 
-    def make_recorder(game_id: int) -> GameRecorder:
+    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,

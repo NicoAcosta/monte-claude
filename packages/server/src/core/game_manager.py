@@ -33,7 +33,7 @@ class GameSummary:
 class GameManager:
     def __init__(
         self,
-        recorder_factory: Callable[[int], GameRecorder] | None = None,
+        recorder_factory: Callable[[int, str], GameRecorder] | None = None,
         metadata_store: GameMetadataStore | None = None,
     ) -> None:
         self._games: dict[int, GameProtocol] = {}
@@ -111,7 +111,7 @@ class GameManager:
 
         recorder: GameRecorder | None = None
         if self._recorder_factory:
-            recorder = self._recorder_factory(game_id)
+            recorder = self._recorder_factory(game_id, game_type)
             self._recorders[game_id] = recorder
 
         meta = self._metadata_store

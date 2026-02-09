@@ -36,6 +36,10 @@ from core.models import (
     StreamListResponse,
 )
 from core.stream_store import StreamStore
+from core.round_summary_store import RoundSummaryStore
+from dice.game import DiceGame
+from dice.recorder import make_dice_materializer
+from dice.router import router as dice_router, configure as configure_dice_router
 from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
@@ -102,16 +106,25 @@ summary_store = HandSummaryStore(_pool)
 stats_store = PlayerStatsStore(_pool)
 metadata_store = GameMetadataStore(_pool)
 stream_store = StreamStore(_pool)
+round_summary_store = RoundSummaryStore(_pool)
 
 _poker_materializer = make_poker_materializer(summary_store)
+_dice_materializer = make_dice_materializer(round_summary_store)
+
+_materializers = {
+    "poker": _poker_materializer,
+    "dice": _dice_materializer,
+}
 
 
-def _make_recorder(game_id: int) -> GameRecorder:
-    return GameRecorder(game_id, event_store, stats_store, summary_materializer=_poker_materializer)
+def _make_recorder(game_id: int, game_type: str) -> GameRecorder:
+    materializer = _materializers.get(game_type)
+    return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
 
 manager = GameManager(recorder_factory=_make_recorder, metadata_store=metadata_store)
 manager.register_game_type("poker", Game)
+manager.register_game_type("dice", DiceGame)
 
 # Apply env-based game type restrictions.
 # ENABLED_GAME_TYPES="poker,dice" → only those types accept new games.
@@ -142,6 +155,17 @@ configure_poker_router(
 )
 
 app.include_router(poker_router, prefix="/poker")
+
+# Wire up the dice router with shared stores
+configure_dice_router(
+    mgr=manager,
+    bal=balance_store,
+    acc=account_store,
+    meta=metadata_store,
+    auth_dep=require_auth,
+)
+
+app.include_router(dice_router, prefix="/dice")
 
 
 # ── Stream routes (game-type agnostic) ────────────────────
