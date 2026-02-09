@@ -1265,7 +1265,7 @@ class TestEscrowGameCreation:
     def test_join_funded_game_requires_wallet(self, client):
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1283,7 +1283,7 @@ class TestEscrowGameCreation:
     def test_join_funded_game_with_wallet(self, client):
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1329,7 +1329,7 @@ class TestEscrowGameCreation:
     def test_start_funded_game_before_funding_rejected(self, client):
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1365,7 +1365,7 @@ class TestEscrowGameCreation:
         """Two players cannot join with the same wallet address."""
         resp = client.post("/api/games", json={
             "max_players": 3,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1391,7 +1391,7 @@ class TestEscrowGameCreation:
         """Wallet address duplicate check is case-insensitive."""
         resp = client.post("/api/games", json={
             "max_players": 3,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1424,7 +1424,7 @@ class TestEscrowEndpoints:
     def test_escrow_not_full(self, client):
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1448,7 +1448,7 @@ class TestEscrowEndpoints:
     def test_funding_no_escrow_configured(self, client):
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1465,7 +1465,7 @@ class TestEscrowEndpoints:
     def test_settlement_game_not_over(self, client):
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
@@ -1478,7 +1478,7 @@ class TestEscrowEndpoints:
         """Settlement with game over but no escrow configured."""
         resp = client.post("/api/games", json={
             "max_players": 2,
-            "token": "0xtoken",
+            "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]

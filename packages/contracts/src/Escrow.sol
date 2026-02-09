@@ -131,7 +131,7 @@ contract Escrow is ReentrancyGuard {
         if (cfg.fundingDeadline <= block.timestamp) revert InvalidConfig();
         if (cfg.settlementDeadline <= cfg.fundingDeadline) revert InvalidConfig();
         if (cfg.depositAmount == 0) revert InvalidConfig();
-        if (cfg.rakeBps > MAX_BPS) revert InvalidConfig();
+        if (cfg.rakeBps >= MAX_BPS) revert InvalidConfig();
 
         initialized = true;
         factory = factory_;
@@ -147,6 +147,7 @@ contract Escrow is ReentrancyGuard {
         uint256 len = cfg.participants.length;
         // Invariant: participants must be sorted ascending by address (deterministic ordering)
         for (uint256 i; i < len; ++i) {
+            if (cfg.participants[i] == address(0)) revert InvalidConfig();
             if (i > 0 && uint160(cfg.participants[i]) <= uint160(cfg.participants[i - 1])) {
                 revert ParticipantsNotSorted();
             }
@@ -207,6 +208,7 @@ contract Escrow is ReentrancyGuard {
         if (status != Status.FUNDING && status != Status.ACTIVE) {
             revert InvalidStatus(status, Status.ACTIVE);
         }
+        if (payouts.length == 0) revert InvalidConfig();
 
         // Verify EIP-712 signature
         bytes32 structHash = _hashSettlement(payouts);

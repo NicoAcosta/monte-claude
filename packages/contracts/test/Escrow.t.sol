@@ -660,7 +660,7 @@ contract EscrowTest is BaseEscrowTest {
     }
 
     function testFuzz_rakeBps(uint16 bps) public {
-        bps = uint16(bound(bps, 0, 10_000));
+        bps = uint16(bound(bps, 0, 9_999));
 
         Escrow.Config memory cfg = Escrow.Config({
             token: address(token),

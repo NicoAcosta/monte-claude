@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import re
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class AccountRegisterRequest(BaseModel):
@@ -13,10 +16,19 @@ class AccountRegisterResponse(BaseModel):
 
 
 class CreateGameRequest(BaseModel):
-    max_players: int = 0
+    max_players: int = Field(default=0, ge=0, le=10)
     token: str | None = None
-    buy_in: int = 0
-    mode: str | None = None
+    buy_in: int = Field(default=0, ge=0)
+    mode: Literal["onchain", "offchain"] | None = None
+
+    @field_validator("token")
+    @classmethod
+    def validate_token_address(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not re.match(r"^0x[a-fA-F0-9]{40}$", v):
+            raise ValueError("Token must be a valid hex address (0x + 40 hex chars)")
+        return v
 
 
 class JoinGameRequest(BaseModel):
