@@ -1,0 +1,28 @@
+# Copy to terraform.tfvars and fill in values.
+# terraform.tfvars is gitignored — never commit secrets.
+
+aws_region  = "us-east-1"
+environment = "prod"
+
+# Domain — leave empty to use ALB DNS name
+domain_name = ""
+
+# EC2
+game_api_instance_type = "c6a.xlarge"
+data_api_instance_type = "t3.small"
+ssh_key_name           = ""
+
+# RDS
+db_instance_class    = "db.t3.medium"
+db_allocated_storage = 20
+
+# On-chain escrow
+server_private_key = "0x..."
+base_rpc_url       = "https://lb.routeme.sh/rpc/8453/..."
+factory_address    = "0x..."
+rake_bps           = "250"
+rake_beneficiary   = "0x..."
+chain_id           = "8453"
+
+# WAF
+waf_rate_limit = 2000

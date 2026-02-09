@@ -1,0 +1,15 @@
+# Docker builds run from repo root — exclude unnecessary files
+.git
+.github
+infra/terraform
+packages/contracts
+packages/server/tests
+packages/server/.pytest_cache
+packages/server/data
+**/__pycache__
+**/*.pyc
+*.egg-info
+.venv
+node_modules
+contracts/
+data/

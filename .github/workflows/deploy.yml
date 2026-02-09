@@ -1,0 +1,181 @@
+name: Deploy Monteclaude
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/server/**"
+      - "packages/frontend/**"
+      - "infra/docker/**"
+      - "instructions.md"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: monteclaude
+          POSTGRES_USER: poker
+          POSTGRES_PASSWORD: poker_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: packages/server
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Init database
+        run: PGPASSWORD=poker_dev psql -h localhost -U poker -d monteclaude -f packages/server/db/init.sql
+
+      - name: Run tests
+        working-directory: packages/server
+        run: uv run pytest -v
+        env:
+          DATABASE_URL: postgresql://poker:poker_dev@localhost:5432/monteclaude
+
+  build-and-deploy:
+    name: Build & Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push Game API image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f infra/docker/Dockerfile.game \
+            -t $ECR_REGISTRY/monteclaude/game-api:$IMAGE_TAG \
+            -t $ECR_REGISTRY/monteclaude/game-api:latest \
+            .
+          docker push $ECR_REGISTRY/monteclaude/game-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/monteclaude/game-api:latest
+
+      - name: Build & push Data API image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f infra/docker/Dockerfile.data \
+            -t $ECR_REGISTRY/monteclaude/data-api:$IMAGE_TAG \
+            -t $ECR_REGISTRY/monteclaude/data-api:latest \
+            .
+          docker push $ECR_REGISTRY/monteclaude/data-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/monteclaude/data-api:latest
+
+      - name: Build & push Account API image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f infra/docker/Dockerfile.account \
+            -t $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG \
+            -t $ECR_REGISTRY/monteclaude/account-api:latest \
+            .
+          docker push $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/monteclaude/account-api:latest
+
+      - name: Deploy Game API via SSM
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws ssm send-command \
+            --instance-ids ${{ secrets.GAME_API_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands='[
+              "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
+              "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/game-api:'"$IMAGE_TAG"'",
+              "docker stop game-api || true",
+              "docker rm game-api || true",
+              "docker run -d --name game-api --restart unless-stopped -p 8001:8001 --env-file /etc/monteclaude/game-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/game-api:'"$IMAGE_TAG"'"
+            ]' \
+            --timeout-seconds 120 \
+            --output text
+
+      - name: Deploy Data API + Account API via SSM
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws ssm send-command \
+            --instance-ids ${{ secrets.DATA_API_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands='[
+              "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
+              "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
+              "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'",
+              "docker stop data-api || true",
+              "docker rm data-api || true",
+              "docker stop account-api || true",
+              "docker rm account-api || true",
+              "docker run -d --name data-api --restart unless-stopped -p 8000:8000 --env-file /etc/monteclaude/data-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
+              "docker run -d --name account-api --restart unless-stopped -p 8002:8002 --env-file /etc/monteclaude/account-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'"
+            ]' \
+            --timeout-seconds 120 \
+            --output text
+
+      - name: Wait for deployment
+        run: sleep 15
+
+      - name: Health check
+        run: |
+          ALB_DNS="${{ secrets.ALB_DNS_NAME }}"
+          SCHEME="${{ secrets.ALB_SCHEME != '' && secrets.ALB_SCHEME || 'http' }}"
+
+          echo "Checking Data API (default route)..."
+          curl -sf "$SCHEME://$ALB_DNS/ping" | jq .
+
+          # Game API health: GET /game/*/state routes to Game API via ALB rule.
+          # A 404 from Game API confirms it's reachable (vs 502/503 from ALB if down).
+          echo "Checking Game API (via routed endpoint)..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SCHEME://$ALB_DNS/game/healthcheck/state")
+          if [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ]; then
+            echo "FAIL: Game API returned $HTTP_CODE (service unreachable)"
+            exit 1
+          fi
+          echo "Game API reachable (HTTP $HTTP_CODE)"
+
+          echo "Checking Account API (via routed endpoint)..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SCHEME://$ALB_DNS/api/balance")
+          if [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ]; then
+            echo "FAIL: Account API returned $HTTP_CODE (service unreachable)"
+            exit 1
+          fi
+          echo "Account API reachable (HTTP $HTTP_CODE)"
+
+          echo "Deploy complete."
