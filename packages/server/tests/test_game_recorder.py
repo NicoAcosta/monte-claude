@@ -1,21 +1,23 @@
 import json
 
+from poker.db import get_pool
 from poker.game import Game
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 
 
-def _make_recorder(tmp_path, game_id=1):
-    event_store = GameEventStore(tmp_path / "events.csv")
-    summary_store = HandSummaryStore(tmp_path / "summaries.csv")
-    stats_store = PlayerStatsStore(tmp_path / "stats.csv")
+def _make_recorder(game_id=1):
+    pool = get_pool()
+    event_store = GameEventStore(pool)
+    summary_store = HandSummaryStore(pool)
+    stats_store = PlayerStatsStore(pool)
     recorder = GameRecorder(game_id, event_store, summary_store, stats_store)
     return recorder, event_store, summary_store, stats_store
 
 
 class TestGameRecorderIntegration:
-    def test_fold_records_events(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_fold_records_events(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -35,8 +37,8 @@ class TestGameRecorderIntegration:
         assert "action" in event_types
         assert "hand_completed" in event_types
 
-    def test_hand_summary_created_on_completion(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_hand_summary_created_on_completion(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -50,8 +52,8 @@ class TestGameRecorderIntegration:
         assert summaries[0].hand_number == 1
         assert summaries[0].pot > 0
 
-    def test_player_stats_updated(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_player_stats_updated(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -66,8 +68,8 @@ class TestGameRecorderIntegration:
         assert bob_stats is not None
         assert alice_stats.hands_played + bob_stats.hands_played >= 2
 
-    def test_multiple_hands_accumulate(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_multiple_hands_accumulate(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -89,8 +91,8 @@ class TestGameRecorderIntegration:
         assert alice_stats.hands_played >= 3
         assert bob_stats.hands_played >= 3
 
-    def test_events_have_sequential_order(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_events_have_sequential_order(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
         game.register("Bob")
@@ -104,8 +106,8 @@ class TestGameRecorderIntegration:
         assert sequences == sorted(sequences)
         assert len(set(sequences)) == len(sequences)  # all unique
 
-    def test_community_dealt_events_on_full_hand(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_community_dealt_events_on_full_hand(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         # Use a deterministic seed so we can control the hand
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -137,8 +139,8 @@ class TestGameRecorderIntegration:
         phases = [json.loads(e.data)["phase"] for e in hand1_community]
         assert phases == ["flop", "turn", "river"]
 
-    def test_game_over_event(self, tmp_path):
-        recorder, event_store, summary_store, stats_store = _make_recorder(tmp_path)
+    def test_game_over_event(self):
+        recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         p1 = game.register("Alice")
         p2 = game.register("Bob")

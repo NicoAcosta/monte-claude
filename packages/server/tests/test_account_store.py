@@ -1,10 +1,11 @@
 import pytest
 from poker.account_store import AccountStore, KEY_PREFIX, hash_key
+from poker.db import get_pool
 
 
 @pytest.fixture
-def store(tmp_path):
-    return AccountStore(tmp_path / "accounts.csv")
+def store():
+    return AccountStore(get_pool())
 
 
 class TestCreateAccount:
@@ -49,29 +50,24 @@ class TestVerifyKey:
 
 
 class TestPersistence:
-    def test_reload_from_csv(self, tmp_path):
-        csv_path = tmp_path / "accounts.csv"
-        store1 = AccountStore(csv_path)
+    def test_data_persists_across_instances(self):
+        pool = get_pool()
+        store1 = AccountStore(pool)
         key = store1.create_account("Alice")
 
-        # New store instance reads from same CSV
-        store2 = AccountStore(csv_path)
+        # New store instance reads from same pool
+        store2 = AccountStore(pool)
         acct = store2.verify_key(key)
         assert acct is not None
         assert acct.username == "Alice"
 
-    def test_csv_created_on_init(self, tmp_path):
-        csv_path = tmp_path / "data" / "accounts.csv"
-        AccountStore(csv_path)
-        assert csv_path.exists()
-
-    def test_multiple_accounts_persist(self, tmp_path):
-        csv_path = tmp_path / "accounts.csv"
-        store1 = AccountStore(csv_path)
+    def test_multiple_accounts_persist(self):
+        pool = get_pool()
+        store1 = AccountStore(pool)
         key_a = store1.create_account("Alice")
         key_b = store1.create_account("Bob")
 
-        store2 = AccountStore(csv_path)
+        store2 = AccountStore(pool)
         assert store2.verify_key(key_a).username == "Alice"
         assert store2.verify_key(key_b).username == "Bob"
 

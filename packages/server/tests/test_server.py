@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 import poker.server as server_module
 from poker.account_store import AccountStore
 from poker.balance_store import BalanceStore
+from poker.db import get_pool
 from poker.game_manager import GameManager
 from poker.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
@@ -11,11 +12,12 @@ from poker.stream_manager import StreamManager
 
 
 @pytest.fixture(autouse=True)
-def reset_state(tmp_path):
+def reset_state():
     """Reset global game manager, account store, balance store, and history stores before each test."""
-    server_module.event_store = GameEventStore(tmp_path / "events.csv")
-    server_module.summary_store = HandSummaryStore(tmp_path / "summaries.csv")
-    server_module.stats_store = PlayerStatsStore(tmp_path / "stats.csv")
+    pool = get_pool()
+    server_module.event_store = GameEventStore(pool)
+    server_module.summary_store = HandSummaryStore(pool)
+    server_module.stats_store = PlayerStatsStore(pool)
 
     def make_recorder(game_id: int) -> GameRecorder:
         return GameRecorder(
@@ -26,8 +28,8 @@ def reset_state(tmp_path):
         )
 
     server_module.manager = GameManager(recorder_factory=make_recorder)
-    server_module.account_store = AccountStore(tmp_path / "accounts.csv")
-    server_module.balance_store = BalanceStore(tmp_path / "balances.csv")
+    server_module.account_store = AccountStore(pool)
+    server_module.balance_store = BalanceStore(pool)
     server_module.stream_manager = StreamManager()
     yield
 

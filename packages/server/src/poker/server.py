@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from poker.account_store import Account, AccountStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
+from poker.db import get_pool
 from poker.game import Game
 from poker.game_config import GameConfig
 from poker.game_mode import GameMode
@@ -68,12 +69,13 @@ from poker import balance_service, escrow_service, game_service, settlement_serv
 app = FastAPI(title="Claude Poker", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
 INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"
 
-event_store = GameEventStore(DATA_DIR / "events.csv")
-summary_store = HandSummaryStore(DATA_DIR / "hand_summaries.csv")
-stats_store = PlayerStatsStore(DATA_DIR / "player_stats.csv")
+_pool = get_pool()
+
+event_store = GameEventStore(_pool)
+summary_store = HandSummaryStore(_pool)
+stats_store = PlayerStatsStore(_pool)
 
 
 def _make_recorder(game_id: int) -> GameRecorder:
@@ -81,8 +83,8 @@ def _make_recorder(game_id: int) -> GameRecorder:
 
 
 manager = GameManager(recorder_factory=_make_recorder)
-account_store = AccountStore(DATA_DIR / "accounts.csv")
-balance_store = BalanceStore(DATA_DIR / "balances.csv")
+account_store = AccountStore(_pool)
+balance_store = BalanceStore(_pool)
 stream_manager = StreamManager()
 
 FAUCET_AMOUNT = 10_000
