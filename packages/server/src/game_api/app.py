@@ -213,6 +213,7 @@ def create_game(req: CreateGameRequest):
         token_symbol=req.token_symbol,
         on_game_over=_on_game_over,
         action_timeout=req.action_timeout,
+        extensions_per_player=req.extensions_per_player,
     )
     return CreateGameResponse(
         game_id=game_id,
