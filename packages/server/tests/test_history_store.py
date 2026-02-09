@@ -69,7 +69,8 @@ class TestHandSummaryStore:
 
 
 class TestPlayerStatsStore:
-    def test_update_and_get(self):
+    def test_update_and_get(self, make_account):
+        make_account("Alice")
         store = PlayerStatsStore(get_pool())
         stats = PlayerStats("Alice", games_played=1, hands_played=5,
                             hands_won=2, total_winnings=100, biggest_pot_won=80)
@@ -84,7 +85,9 @@ class TestPlayerStatsStore:
         store = PlayerStatsStore(get_pool())
         assert store.get("Nobody") is None
 
-    def test_update_from_hand(self):
+    def test_update_from_hand(self, make_account):
+        make_account("Alice")
+        make_account("Bob")
         store = PlayerStatsStore(get_pool())
         store.update_from_hand(
             player_names=["Alice", "Bob"],
@@ -106,7 +109,9 @@ class TestPlayerStatsStore:
         assert bob.hands_won == 0
         assert bob.total_winnings == -50
 
-    def test_update_from_hand_accumulates(self):
+    def test_update_from_hand_accumulates(self, make_account):
+        make_account("Alice")
+        make_account("Bob")
         store = PlayerStatsStore(get_pool())
         store.update_from_hand(["Alice", "Bob"], ["Alice"], 100, {"Alice": 50, "Bob": -50})
         store.update_from_hand(["Alice", "Bob"], ["Bob"], 60, {"Alice": -30, "Bob": 30})
@@ -117,7 +122,9 @@ class TestPlayerStatsStore:
         assert alice.hands_won == 1
         assert alice.total_winnings == 20  # 50 + (-30)
 
-    def test_increment_games_played(self):
+    def test_increment_games_played(self, make_account):
+        make_account("Alice")
+        make_account("Bob")
         store = PlayerStatsStore(get_pool())
         store.increment_games_played(["Alice", "Bob"])
 
@@ -128,7 +135,8 @@ class TestPlayerStatsStore:
         assert store.get("Alice").games_played == 2
         assert store.get("Bob").games_played == 1
 
-    def test_persistence(self):
+    def test_persistence(self, make_account):
+        make_account("Alice")
         pool = get_pool()
         store1 = PlayerStatsStore(pool)
         store1.update(PlayerStats("Alice", 1, 5, 2, 100, 80))

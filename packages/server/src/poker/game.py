@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+
+_log = logging.getLogger("poker.game")
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
@@ -176,6 +179,7 @@ class Game:
             self._time_extensions[p.id] = self.extensions_per_player
         self._start_new_hand()
         self._extra_time = self.first_hand_grace
+        _log.info("game_started players=%d", len(self._players))
         return self.hand_number
 
     def do_action(
@@ -197,6 +201,7 @@ class Game:
 
         if result == "ok":
             self._state_version += 1
+            _log.info("action player_id=%d action=%s amount=%s", player_id, action, amount)
             self._extra_time = 0.0
             if self.current_hand.is_complete:
                 self._finish_hand()
@@ -219,6 +224,7 @@ class Game:
             return "Already eliminated"
 
         player.resigned = True
+        _log.info("player_resigned player=%s player_id=%d", player.name, player.id)
         self._notify("player_resigned", {
             "player_name": player.name,
             "player_id": player.id,

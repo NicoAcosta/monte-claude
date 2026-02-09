@@ -8,9 +8,12 @@ CREATE TABLE accounts (
 CREATE INDEX idx_accounts_key_hash ON accounts (key_hash);
 
 CREATE TABLE balances (
-    username        TEXT PRIMARY KEY,
+    username        TEXT PRIMARY KEY REFERENCES accounts(username),
     amount          BIGINT NOT NULL DEFAULT 0,
-    last_claim_at   TEXT NOT NULL DEFAULT ''
+    last_claim_at   TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    CHECK (amount >= 0)
 );
 
 CREATE TABLE game_events (
@@ -23,6 +26,7 @@ CREATE TABLE game_events (
     sequence        INTEGER NOT NULL
 );
 CREATE INDEX idx_game_events_game_id ON game_events (game_id);
+CREATE INDEX idx_game_events_timestamp ON game_events (timestamp);
 
 CREATE TABLE hand_summaries (
     id              BIGSERIAL PRIMARY KEY,
@@ -40,14 +44,17 @@ CREATE TABLE hand_summaries (
     token_symbol    TEXT
 );
 CREATE INDEX idx_hand_summaries_game_id ON hand_summaries (game_id);
+CREATE INDEX idx_hand_summaries_timestamp ON hand_summaries (timestamp DESC);
 
 CREATE TABLE player_stats (
-    username        TEXT PRIMARY KEY,
+    username        TEXT PRIMARY KEY REFERENCES accounts(username),
     games_played    INTEGER NOT NULL DEFAULT 0,
     hands_played    INTEGER NOT NULL DEFAULT 0,
     hands_won       INTEGER NOT NULL DEFAULT 0,
     total_winnings  BIGINT NOT NULL DEFAULT 0,
-    biggest_pot_won NUMERIC NOT NULL DEFAULT 0
+    biggest_pot_won NUMERIC NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE game_metadata (
@@ -68,16 +75,21 @@ CREATE TABLE game_metadata (
     escrow_address  TEXT,
     action_timeout  REAL,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (buy_in >= 0),
+    CHECK (max_players >= 0)
 );
+CREATE INDEX idx_game_metadata_created_at ON game_metadata (created_at DESC);
 
 CREATE TABLE player_token_stats (
-    username        TEXT NOT NULL,
+    username        TEXT NOT NULL REFERENCES accounts(username),
     token_symbol    TEXT NOT NULL DEFAULT 'chips',
     total_winnings  NUMERIC NOT NULL DEFAULT 0,
     biggest_pot_won NUMERIC NOT NULL DEFAULT 0,
     hands_played    INTEGER NOT NULL DEFAULT 0,
     hands_won       INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (username, token_symbol)
 );
 
@@ -90,3 +102,35 @@ CREATE TABLE streams (
     created_at      REAL NOT NULL,
     UNIQUE(game_id, host_username)
 );
+
+-- ── Audit tables (append-only) ──────────────────────────
+
+CREATE TABLE balance_history (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT NOT NULL REFERENCES accounts(username),
+    amount          BIGINT NOT NULL,
+    balance_after   BIGINT NOT NULL,
+    reason          TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_balance_history_username ON balance_history (username);
+CREATE INDEX idx_balance_history_created_at ON balance_history (created_at);
+
+CREATE TABLE auth_events (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT,
+    event_type      TEXT NOT NULL,
+    ip_address      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_auth_events_created_at ON auth_events (created_at);
+
+CREATE TABLE escrow_operations (
+    id              BIGSERIAL PRIMARY KEY,
+    game_id         INTEGER NOT NULL,
+    operation       TEXT NOT NULL,
+    escrow_address  TEXT,
+    details         TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_escrow_operations_game_id ON escrow_operations (game_id);

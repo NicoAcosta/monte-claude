@@ -1,5 +1,6 @@
 import json
 
+from poker.account_store import AccountStore
 from poker.db import get_pool
 from poker.game import Game
 from poker.game_recorder import GameRecorder
@@ -15,8 +16,20 @@ def _make_recorder(game_id=1):
     return recorder, event_store, summary_store, stats_store
 
 
+def _ensure_accounts(*names):
+    """Create accounts for player names used in recorder tests."""
+    pool = get_pool()
+    store = AccountStore(pool)
+    for name in names:
+        try:
+            store.create_account(name)
+        except ValueError:
+            pass
+
+
 class TestGameRecorderIntegration:
     def test_fold_records_events(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -38,6 +51,7 @@ class TestGameRecorderIntegration:
         assert "hand_completed" in event_types
 
     def test_hand_summary_created_on_completion(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -53,6 +67,7 @@ class TestGameRecorderIntegration:
         assert summaries[0].pot > 0
 
     def test_player_stats_updated(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -69,6 +84,7 @@ class TestGameRecorderIntegration:
         assert alice_stats.hands_played + bob_stats.hands_played >= 2
 
     def test_multiple_hands_accumulate(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -92,6 +108,7 @@ class TestGameRecorderIntegration:
         assert bob_stats.hands_played >= 3
 
     def test_events_have_sequential_order(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -107,6 +124,7 @@ class TestGameRecorderIntegration:
         assert len(set(sequences)) == len(sequences)  # all unique
 
     def test_community_dealt_events_on_full_hand(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         # Use a deterministic seed so we can control the hand
         game = Game(event_callback=recorder.on_event)
@@ -140,6 +158,7 @@ class TestGameRecorderIntegration:
         assert phases == ["flop", "turn", "river"]
 
     def test_game_over_event(self):
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, summary_store, stats_store = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         p1 = game.register("Alice")

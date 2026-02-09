@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from dataclasses import dataclass
 
 from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
+
+_log = logging.getLogger("poker.account")
 
 KEY_PREFIX = "pk_"
 
@@ -47,8 +50,10 @@ class AccountStore:
                     (username, key_h, now),
                 )
                 conn.commit()
+                _log.info("account_created user=%s", username)
             except UniqueViolation:
                 conn.rollback()
+                _log.warning("account_duplicate user=%s", username)
                 raise ValueError(f"Username '{username}' already taken")
 
         return api_key

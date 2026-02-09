@@ -1,7 +1,12 @@
 import pytest
+from poker.account_store import AccountStore
 from poker.db import get_pool
 
-TABLES = ["accounts", "balances", "game_events", "hand_summaries", "player_stats", "player_token_stats", "game_metadata", "streams"]
+TABLES = [
+    "balance_history", "auth_events", "escrow_operations",
+    "accounts", "balances", "game_events", "hand_summaries",
+    "player_stats", "player_token_stats", "game_metadata", "streams",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -16,3 +21,22 @@ def clean_tables():
     from data_api.app import _cache
     _cache.clear()
     yield
+
+
+@pytest.fixture
+def make_account():
+    """Create a test account, return username."""
+    pool = get_pool()
+    store = AccountStore(pool)
+    created: set[str] = set()
+
+    def _make(username: str) -> str:
+        if username not in created:
+            try:
+                store.create_account(username)
+            except ValueError:
+                pass
+            created.add(username)
+        return username
+
+    return _make

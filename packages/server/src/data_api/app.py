@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -12,7 +13,16 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from prometheus_fastapi_instrumentator import Instrumentator
+
+from poker.logging_config import configure_logging, RequestContextMiddleware
+
+configure_logging()
+
+_log = logging.getLogger("poker.data_api")
+
 from poker.account_store import Account, AccountStore
+from poker.audit import AuthAuditStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
 from poker.cache import TTLCache
@@ -49,6 +59,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
 app = FastAPI(title="Monteclaude — Data API", version="0.1.0", lifespan=lifespan)
 
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
 
 # ── Tier 1: HTTP Cache-Control headers ──────────────────
 # Maps path prefixes to max-age seconds.  Checked first-match.
@@ -75,7 +87,14 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
         return response
 
 
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(CacheControlMiddleware)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    _log.exception("unhandled_exception path=%s", request.url.path)
+    return JSONResponse({"detail": "Internal server error"}, status_code=500)
 
 
 # ── Tier 2: in-process TTL cache ────────────────────────
@@ -85,6 +104,27 @@ _cache = TTLCache()
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
+
+
+@app.get("/health")
+def health():
+    pool = get_pool()
+    stats = pool.get_stats()
+    try:
+        with pool.connection() as conn:
+            conn.execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {
+        "status": "healthy" if db_ok else "degraded",
+        "db": db_ok,
+        "pool": {
+            "size": stats["pool_size"],
+            "available": stats["pool_available"],
+            "waiting": stats["requests_waiting"],
+        },
+    }
 
 
 STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
@@ -99,13 +139,14 @@ metadata_store: GameMetadataStore | None = None
 account_store: AccountStore | None = None
 balance_store: BalanceStore | None = None
 stream_store: StreamStore | None = None
-require_auth = make_auth_dependency(lambda: account_store)
+auth_audit: AuthAuditStore | None = None
+require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
 
 def _ensure_stores() -> None:
     """Create stores on first call — safe to call after fork."""
     global event_store, summary_store, stats_store, metadata_store
-    global account_store, balance_store, stream_store
+    global account_store, balance_store, stream_store, auth_audit
     if event_store is not None:
         return
     pool = get_pool()
@@ -116,6 +157,7 @@ def _ensure_stores() -> None:
     account_store = AccountStore(pool)
     balance_store = BalanceStore(pool)
     stream_store = StreamStore(pool)
+    auth_audit = AuthAuditStore(pool)
 
 
 

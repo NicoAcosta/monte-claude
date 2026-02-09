@@ -308,3 +308,17 @@ def get_env_config() -> dict:
         "settlement_timeout": int(os.environ.get("SETTLEMENT_TIMEOUT", "7200")),
         "chain_id": int(os.environ.get("CHAIN_ID", "8453")),
     }
+
+
+def validate_escrow_env() -> list[str]:
+    """Check for missing escrow env vars. Returns list of warnings (empty = all OK)."""
+    warnings: list[str] = []
+    required = {
+        "SERVER_PRIVATE_KEY": "Required for signing settlements",
+        "FACTORY_ADDRESS": "Required for escrow address computation",
+        "RAKE_BENEFICIARY": "Required for rake payouts",
+    }
+    for var, desc in required.items():
+        if not os.environ.get(var, ""):
+            warnings.append(f"Missing {var}: {desc}")
+    return warnings

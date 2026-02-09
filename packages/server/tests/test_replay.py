@@ -1,5 +1,6 @@
 import json
 
+from poker.account_store import AccountStore
 from poker.db import get_pool
 from poker.game import Game
 from poker.game_recorder import GameRecorder
@@ -16,9 +17,20 @@ def _make_recorder(game_id=1):
     return recorder, event_store, summary_store, stats_store
 
 
+def _ensure_accounts(*names):
+    pool = get_pool()
+    store = AccountStore(pool)
+    for name in names:
+        try:
+            store.create_account(name)
+        except ValueError:
+            pass
+
+
 class TestReplay:
     def test_replay_fold_hand(self):
         """Record a hand with fold, replay it, verify final state."""
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -47,6 +59,7 @@ class TestReplay:
 
     def test_replay_full_hand_to_showdown(self):
         """Play a full hand through to showdown, replay it."""
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -79,6 +92,7 @@ class TestReplay:
 
     def test_replay_preserves_hole_cards(self):
         """Verify hole cards are captured during replay."""
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -110,6 +124,7 @@ class TestReplay:
 
     def test_replay_to_specific_step(self):
         """replay_to should return state at a specific event index."""
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -134,6 +149,7 @@ class TestReplay:
 
     def test_replay_pot_tracking(self):
         """Verify pot grows correctly during replay."""
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")
@@ -160,6 +176,7 @@ class TestReplay:
 
     def test_replay_chips_conservation(self):
         """Total chips should be conserved during a hand."""
+        _ensure_accounts("Alice", "Bob")
         recorder, event_store, _, _ = _make_recorder()
         game = Game(event_callback=recorder.on_event)
         game.register("Alice")

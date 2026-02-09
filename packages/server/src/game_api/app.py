@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
+from prometheus_fastapi_instrumentator import Instrumentator
+
+from poker.logging_config import configure_logging, RequestContextMiddleware
+
+configure_logging()
+
+_log = logging.getLogger("poker.game_api")
 
 from poker.account_store import Account, AccountStore
+from poker.audit import AuthAuditStore, EscrowAuditStore
 from poker.auth import make_auth_dependency
 from poker.balance_store import BalanceStore
 from poker.db import get_pool
@@ -60,6 +73,7 @@ from poker.stream_store import StreamStore
 from poker import balance_service, escrow_service, game_service, settlement_service
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -68,12 +82,47 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    _log.exception("unhandled_exception path=%s", request.url.path)
+    return JSONResponse({"detail": "Internal server error"}, status_code=500)
+
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
 
 
+@app.get("/health")
+def health():
+    pool = get_pool()
+    stats = pool.get_stats()
+    try:
+        with pool.connection() as conn:
+            conn.execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {
+        "status": "healthy" if db_ok else "degraded",
+        "db": db_ok,
+        "pool": {
+            "size": stats["pool_size"],
+            "available": stats["pool_available"],
+            "waiting": stats["requests_waiting"],
+        },
+    }
+
+
 _pool = get_pool()
+
+# Validate escrow env (non-fatal: offchain games still work)
+from poker.escrow import validate_escrow_env
+for _warn in validate_escrow_env():
+    _log.warning("escrow_env: %s", _warn)
 
 event_store = GameEventStore(_pool)
 summary_store = HandSummaryStore(_pool)
@@ -89,10 +138,12 @@ def _make_recorder(game_id: int) -> GameRecorder:
 manager = GameManager(recorder_factory=_make_recorder, metadata_store=metadata_store)
 account_store = AccountStore(_pool)
 balance_store = BalanceStore(_pool)
+auth_audit = AuthAuditStore(_pool)
+escrow_audit = EscrowAuditStore(_pool)
 
 FAUCET_AMOUNT = 10_000
 
-require_auth = make_auth_dependency(lambda: account_store)
+require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -253,7 +304,7 @@ def escrow_info(game_id: int):
         raise HTTPException(status_code=400, detail="Escrow only available for on-chain games")
 
     try:
-        info = escrow_service.get_escrow_info(game, config)
+        info = escrow_service.get_escrow_info(game, config, audit=escrow_audit, game_id=game_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError:
@@ -288,7 +339,7 @@ def funding_status(game_id: int):
         raise HTTPException(status_code=400, detail="Funding status only available for on-chain games")
 
     try:
-        result = escrow_service.check_funding(game, config)
+        result = escrow_service.check_funding(game, config, audit=escrow_audit, game_id=game_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -312,7 +363,7 @@ def settlement(game_id: int):
         raise HTTPException(status_code=400, detail="Settlement only available for on-chain games")
 
     try:
-        result = escrow_service.get_settlement(game, config)
+        result = escrow_service.get_settlement(game, config, audit=escrow_audit, game_id=game_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError:

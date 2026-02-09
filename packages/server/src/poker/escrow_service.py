@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import time as _time
 from typing import Any
+
+_log = logging.getLogger("poker.escrow")
 
 from poker.escrow import (
     EscrowConfig,
@@ -16,12 +19,19 @@ from poker.escrow import (
     get_server_address,
     sign_settlement,
 )
+from poker.audit import EscrowAuditStore
 from poker.game import Game, STARTING_CHIPS
 from poker.game_config import GameConfig
 from poker.payout import compute_payouts
 
 
-def get_escrow_info(game: Game, config: GameConfig) -> dict[str, Any]:
+def get_escrow_info(
+    game: Game,
+    config: GameConfig,
+    *,
+    audit: EscrowAuditStore | None = None,
+    game_id: int = 0,
+) -> dict[str, Any]:
     """Generate or return cached escrow config for a full on-chain game.
 
     Raises ValueError for validation errors, RuntimeError for server config issues.
@@ -65,6 +75,9 @@ def get_escrow_info(game: Game, config: GameConfig) -> dict[str, Any]:
         )
 
     cfg = config.escrow_config
+    _log.info("escrow_config address=%s", config.escrow_address)
+    if audit and game_id:
+        audit.record(game_id, "config_created", escrow_address=config.escrow_address)
 
     calldata_create = build_create_and_deposit_calldata(cfg, config.escrow_salt)
     calldata_deposits = {
@@ -84,7 +97,13 @@ def get_escrow_info(game: Game, config: GameConfig) -> dict[str, Any]:
     }
 
 
-def check_funding(game: Game, config: GameConfig) -> dict[str, Any]:
+def check_funding(
+    game: Game,
+    config: GameConfig,
+    *,
+    audit: EscrowAuditStore | None = None,
+    game_id: int = 0,
+) -> dict[str, Any]:
     """Check deposit status for all participants.
 
     Raises ValueError for validation errors.
@@ -104,6 +123,10 @@ def check_funding(game: Game, config: GameConfig) -> dict[str, Any]:
     statuses = check_deposit_status(env["base_rpc_url"], config.escrow_address, wallets)
     all_deposited = all(deposited for _, deposited in statuses)
 
+    _log.info("funding_check all_deposited=%s count=%d", all_deposited, len(statuses))
+    if audit and game_id:
+        audit.record(game_id, "funding_checked", escrow_address=config.escrow_address,
+                     details=f"all_deposited={all_deposited}")
     if all_deposited:
         config.funded = True
 
@@ -119,7 +142,13 @@ def check_funding(game: Game, config: GameConfig) -> dict[str, Any]:
     }
 
 
-def get_settlement(game: Game, config: GameConfig) -> dict[str, Any]:
+def get_settlement(
+    game: Game,
+    config: GameConfig,
+    *,
+    audit: EscrowAuditStore | None = None,
+    game_id: int = 0,
+) -> dict[str, Any]:
     """Compute on-chain settlement payouts and sign them.
 
     Raises ValueError for validation errors, RuntimeError for server config issues.
@@ -149,6 +178,9 @@ def get_settlement(game: Game, config: GameConfig) -> dict[str, Any]:
         payouts,
     )
 
+    _log.info("settlement_signed address=%s payout_count=%d", config.escrow_address, len(payouts))
+    if audit and game_id:
+        audit.record(game_id, "settlement_signed", escrow_address=config.escrow_address)
     return {
         "payouts": payouts,
         "signature": sig,
