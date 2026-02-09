@@ -1177,6 +1177,53 @@ class TestStreams:
 
 # ── Escrow Integration ──────────────────────────────────
 
+class TestResign:
+    def _setup_3player_game(self, client):
+        gid = create_game(client)
+        key_a = register_account(client, "Alice")
+        key_b = register_account(client, "Bob")
+        key_c = register_account(client, "Charlie")
+        join_game(client, gid, key_a)
+        join_game(client, gid, key_b)
+        join_game(client, gid, key_c)
+        client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+        return gid, key_a, key_b, key_c
+
+    def test_resign_requires_auth(self, client):
+        gid = create_game(client)
+        resp = client.post(f"/game/{gid}/resign")
+        assert resp.status_code == 401
+
+    def test_resign_requires_player(self, client):
+        gid, key_a, key_b, _ = self._setup_3player_game(client)
+        key_d = register_account(client, "Dave")
+        resp = client.post(f"/game/{gid}/resign", headers=auth_header(key_d))
+        assert resp.status_code == 404
+
+    def test_resign_success(self, client):
+        gid, _, key_b, _ = self._setup_3player_game(client)
+        resp = client.post(f"/game/{gid}/resign", headers=auth_header(key_b))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["message"] == "Resigned from game"
+
+    def test_resign_visible_in_spectator(self, client):
+        gid, key_a, key_b, key_c = self._setup_3player_game(client)
+        client.post(f"/game/{gid}/resign", headers=auth_header(key_b))
+        spec = client.get(f"/game/{gid}/spectator").json()
+        bob = next(p for p in spec["players"] if p["name"] == "Bob")
+        assert bob["is_resigned"] is True
+
+    def test_resign_before_start(self, client):
+        gid = create_game(client)
+        key = register_account(client, "Alice")
+        join_game(client, gid, key)
+        resp = client.post(f"/game/{gid}/resign", headers=auth_header(key))
+        assert resp.status_code == 400
+        assert "not started" in resp.json()["detail"].lower()
+
+
 class TestEscrowGameCreation:
     """Test funded game creation, joining, and lifecycle."""
 

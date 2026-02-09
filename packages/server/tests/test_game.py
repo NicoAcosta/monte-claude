@@ -219,9 +219,121 @@ class TestActionReason:
         assert action_events[0][1]["reason"] == "My reasoning"
 
 
+class TestFirstHandGracePeriod:
+    def test_first_hand_grace_period(self):
+        game = Game(action_timeout=30.0, first_hand_grace=120.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        assert game._extra_time == 120.0
+        assert game.turn_deadline is not None
+        expected = game.current_hand.turn_started_at + 30.0 + 120.0
+        assert game.turn_deadline == expected
+
+    def test_grace_resets_after_first_action(self):
+        game = Game(action_timeout=30.0, first_hand_grace=120.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        assert game._extra_time == 120.0
+        cp = game.current_hand.current_player
+        game.do_action(cp.id, "call")
+        assert game._extra_time == 0.0
+
+    def test_grace_zero_by_default_is_120(self):
+        """Default grace period is 120 seconds."""
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        assert game._extra_time == 120.0
+
+
+class TestResign:
+    def test_resign_basic(self):
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        p2 = game.get_player_by_name("Bob")
+        result = game.resign(p2.id)
+        assert result == "ok"
+        assert p2.resigned is True
+
+    def test_resign_chips_redistributed(self):
+        """Total chips are conserved after resignation and redistribution."""
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        total_before = sum(p.chips for p in game._players)
+        bob = game.get_player_by_name("Bob")
+
+        game.resign(bob.id)
+        assert bob.resigned is True
+
+        # Complete current hand (fold remaining players)
+        hand_num = game.hand_number
+        for _ in range(10):
+            if game.hand_number > hand_num or game.game_over:
+                break
+            cp = game.current_hand.current_player if game.current_hand else None
+            if cp is None:
+                break
+            game.do_action(cp.id, "fold")
+
+        # After redistribution at new hand start, Bob should have 0 chips
+        assert bob.chips == 0
+        # Total chips remain conserved
+        total_after = sum(p.chips for p in game._players)
+        assert total_after == total_before
+
+    def test_resign_excluded_from_alive(self):
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        p2 = game.get_player_by_name("Bob")
+        game.resign(p2.id)
+        alive_names = [p.name for p in game.alive_players]
+        assert "Bob" not in alive_names
+
+    def test_resign_triggers_game_over(self):
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        p2 = game.get_player_by_name("Bob")
+        game.resign(p2.id)
+        assert game.game_over is True
+        assert game.winner == "Alice"
+
+    def test_resign_not_started(self):
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        p1 = game.get_player_by_name("Alice")
+        result = game.resign(p1.id)
+        assert result == "Game not started"
+
+    def test_resign_already_resigned(self):
+        game = Game(first_hand_grace=0.0)
+        game.register("Alice")
+        game.register("Bob")
+        game.register("Charlie")
+        game.start()
+        p2 = game.get_player_by_name("Bob")
+        game.resign(p2.id)
+        result = game.resign(p2.id)
+        assert result == "Already resigned"
+
+
 class TestActionTimer:
     def _make_started_game(self, action_timeout=15.0, extensions_per_player=3):
-        game = Game(action_timeout=action_timeout, extensions_per_player=extensions_per_player)
+        game = Game(action_timeout=action_timeout, extensions_per_player=extensions_per_player, first_hand_grace=0.0)
         game.register("Alice")
         game.register("Bob")
         game.start()

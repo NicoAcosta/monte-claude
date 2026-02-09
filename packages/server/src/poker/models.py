@@ -58,6 +58,7 @@ class PlayerPublicState(BaseModel):
     current_bet: int
     is_folded: bool
     is_all_in: bool
+    is_resigned: bool = False
 
 
 class RecentAction(BaseModel):
@@ -148,6 +149,8 @@ class SpectatorPlayerState(BaseModel):
     is_folded: bool
     is_all_in: bool
     cards: list[str]
+    extensions_remaining: int = 0
+    is_resigned: bool = False
 
 
 class SpectatorResponse(BaseModel):
@@ -171,6 +174,8 @@ class SpectatorResponse(BaseModel):
     stream_host: str | None = None
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
+    buy_in: int = 0
+    escrow_address: str | None = None
 
 
 class ActionResponse(BaseModel):
@@ -274,6 +279,7 @@ class StreamListResponse(BaseModel):
 class DepositStatus(BaseModel):
     address: str
     deposited: bool
+    player_name: str | None = None
 
 
 class EscrowConfigResponse(BaseModel):

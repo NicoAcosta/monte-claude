@@ -351,10 +351,19 @@ def funding_status(game_id: int):
     if all_deposited:
         game.funded = True
 
+    wallet_to_name: dict[str, str] = {}
+    for p in game._players:
+        if p.wallet_address:
+            wallet_to_name[p.wallet_address.lower()] = p.name
+
     return FundingStatusResponse(
         all_deposited=all_deposited,
         deposits=[
-            DepositStatus(address=addr, deposited=deposited)
+            DepositStatus(
+                address=addr,
+                deposited=deposited,
+                player_name=wallet_to_name.get(addr.lower()),
+            )
             for addr, deposited in statuses
         ],
     )
@@ -476,6 +485,7 @@ def state(game_id: int, player_id: int):
                 current_bet=p.current_bet,
                 is_folded=p.is_folded,
                 is_all_in=p.is_all_in,
+                is_resigned=getattr(game.get_player(p.id), 'resigned', False),
             )
             for p in hand.players
         ],
@@ -486,6 +496,23 @@ def state(game_id: int, player_id: int):
         chat_log=_chat_log(game),
         timer=_timer_info(game, player_id),
     )
+
+
+@app.post("/game/{game_id}/resign", response_model=ActionResponse)
+def resign(game_id: int, account: Account = Depends(require_auth)):
+    game = _get_game_or_404(game_id)
+    if not game.started:
+        raise HTTPException(status_code=400, detail="Game not started")
+
+    player = game.get_player_by_name(account.username)
+    if player is None:
+        raise HTTPException(status_code=404, detail="Not a player in this game")
+
+    result = game.resign(player.id)
+    if result == "ok":
+        return ActionResponse(success=True, message="Resigned from game")
+    else:
+        raise HTTPException(status_code=400, detail=result)
 
 
 @app.post("/game/{game_id}/action", response_model=ActionResponse)
@@ -531,6 +558,8 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
                 SpectatorPlayerState(
                     id=p.id, name=p.name, chips=p.chips,
                     current_bet=0, is_folded=False, is_all_in=False, cards=[],
+                    extensions_remaining=game.get_extensions_remaining(p.id) if game.started else 0,
+                    is_resigned=p.resigned,
                 )
                 for p in game._players
             ],
@@ -540,6 +569,8 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
             started=game.started,
             chat_log=_chat_log(game),
             timer=_timer_info(game),
+            buy_in=game.buy_in,
+            escrow_address=game.escrow_address,
         )
         base.update(overrides)
         return SpectatorResponse(**base)
@@ -568,6 +599,8 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
                 is_folded=p.is_folded,
                 is_all_in=p.is_all_in,
                 cards=[str(c) for c in p.hole_cards],
+                extensions_remaining=game.get_extensions_remaining(p.id),
+                is_resigned=getattr(game.get_player(p.id), 'resigned', False),
             )
             for p in prev.players
         ],
@@ -577,6 +610,8 @@ def _build_spectator_response(game: Game, **overrides) -> SpectatorResponse:
         started=game.started,
         chat_log=_chat_log(game),
         timer=_timer_info(game),
+        buy_in=game.buy_in,
+        escrow_address=game.escrow_address,
     )
     base.update(overrides)
     return SpectatorResponse(**base)

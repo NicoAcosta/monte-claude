@@ -20,6 +20,7 @@ class RegisteredPlayer:
     name: str
     chips: int = STARTING_CHIPS
     wallet_address: str | None = None
+    resigned: bool = False
 
 
 class Game:
@@ -31,6 +32,7 @@ class Game:
         max_players: int = 0,
         token: str | None = None,
         buy_in: int = 0,
+        first_hand_grace: float = 120.0,
     ) -> None:
         self._players: list[RegisteredPlayer] = []
         self._next_id = 1
@@ -52,6 +54,7 @@ class Game:
         self.extensions_per_player = extensions_per_player
         self._time_extensions: dict[int, int] = {}  # player_id → remaining
         self._extra_time: float = 0.0  # extensions used on current turn
+        self.first_hand_grace = first_hand_grace
         # Escrow
         self.max_players = max_players
         self.token = token
@@ -131,7 +134,7 @@ class Game:
 
     @property
     def alive_players(self) -> list[RegisteredPlayer]:
-        return [p for p in self._players if p.chips > 0]
+        return [p for p in self._players if p.chips > 0 and not p.resigned]
 
     @property
     def is_full(self) -> bool:
@@ -181,6 +184,7 @@ class Game:
         for p in self._players:
             self._time_extensions[p.id] = self.extensions_per_player
         self._start_new_hand()
+        self._extra_time = self.first_hand_grace
         return self.hand_number
 
     def do_action(
@@ -207,7 +211,74 @@ class Game:
 
         return result
 
+    def resign(self, player_id: int) -> str:
+        """Resign from the game. Forfeits chips to remaining players."""
+        if not self.started:
+            return "Game not started"
+        if self.game_over:
+            return "Game is over"
+
+        player = self.get_player(player_id)
+        if player is None:
+            return "Player not found"
+        if player.resigned:
+            return "Already resigned"
+        if player.chips <= 0:
+            return "Already eliminated"
+
+        player.resigned = True
+        self._notify("player_resigned", {
+            "player_name": player.name,
+            "player_id": player.id,
+        })
+
+        # Handle current hand participation
+        if self.current_hand is not None:
+            hand_player = self.current_hand._get_player(player_id)
+            if hand_player is not None and not hand_player.is_folded:
+                if (self.current_hand.current_player is not None
+                        and self.current_hand.current_player.id == player_id):
+                    # It's their turn — fold via do_action
+                    self.do_action(player_id, "fold", comment="[resigned]")
+                else:
+                    # Not their turn — force fold + check if hand should end
+                    hand_player.is_folded = True
+                    self.current_hand._record_action(hand_player.name, "fold", comment="[resigned]")
+                    active = self.current_hand.active_players
+                    if len(active) == 1:
+                        winner = active[0]
+                        winner.chips += self.current_hand.pot
+                        self.current_hand.winners_by_pot = [(self.current_hand.pot, [winner.id])]
+                        self.current_hand.phase = "complete"
+                        self.current_hand.current_turn_index = None
+                        self._extra_time = 0.0
+                        self._finish_hand()
+
+        # Check if game is over after resignation
+        alive = self.alive_players
+        if len(alive) <= 1 and not self.game_over:
+            self.game_over = True
+            if alive:
+                self.winner = alive[0].name
+            self._notify("game_over", {
+                "hand_number": self.hand_number,
+                "winner_name": self.winner,
+            })
+            self.current_hand = None
+
+        return "ok"
+
     def _start_new_hand(self) -> None:
+        # Redistribute resigned players' chips
+        alive = self.alive_players
+        for rp in self._players:
+            if rp.resigned and rp.chips > 0 and alive:
+                share = rp.chips // len(alive)
+                remainder = rp.chips % len(alive)
+                for i, recipient in enumerate(alive):
+                    recipient.chips += share + (1 if i < remainder else 0)
+                rp.chips = 0
+
         alive = self.alive_players
         if len(alive) < 2:
             self.game_over = True

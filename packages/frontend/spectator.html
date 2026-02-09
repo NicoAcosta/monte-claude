@@ -306,7 +306,8 @@
     transition: opacity var(--transition), filter var(--transition);
     z-index: 3;
   }
-  .player-seat.folded {
+  .player-seat.folded,
+  .player-seat.resigned {
     opacity: var(--folded-opacity);
     filter: grayscale(.6);
   }
@@ -371,6 +372,49 @@
   .badge-bb     { background: #8e44ad; color: #fff; }
   .badge-allin  { background: var(--allin-bg); color: #fff; }
   .badge-folded { background: rgba(255,255,255,.15); color: var(--text-dim); }
+  .badge-ext      { background: rgba(41,128,185,.5); color: #fff; }
+  .badge-resigned { background: rgba(231,76,60,.5); color: #fff; }
+
+  /* ── Player Timer ──────────────────────────────────── */
+  .player-timer {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gold);
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .player-timer.urgent {
+    color: #e74c3c;
+    animation: timerPulse 0.6s ease-in-out infinite;
+  }
+  @keyframes timerPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* ── Deposit Status ──────────────────────────────────── */
+  .deposit-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 11px;
+  }
+  .deposit-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .deposit-dot.deposited { background: #27ae60; box-shadow: 0 0 6px rgba(39,174,96,.5); }
+  .deposit-dot.pending   { background: #e74c3c; animation: dotPulse 1s infinite; }
+  .escrow-link {
+    display: block;
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--chip-blue);
+    text-decoration: none;
+  }
+  .escrow-link:hover { text-decoration: underline; }
 
   /* ── Waiting Screen ───────────────────────────────────── */
   .waiting-screen {
@@ -638,11 +682,11 @@
   /* ── Game/Stream ID from URL ──────────────────────────── */
   const streamIdMatch = window.location.pathname.match(/\/stream\/(\d+)/);
   const gameIdMatch = window.location.pathname.match(/\/game\/(\d+)/);
+  var GAME_ID = gameIdMatch ? gameIdMatch[1] : '1';
   var POLL_URL;
   if (streamIdMatch) {
     POLL_URL = '/stream/' + streamIdMatch[1] + '/data';
   } else {
-    var GAME_ID = gameIdMatch ? gameIdMatch[1] : '1';
     POLL_URL = '/game/' + GAME_ID + '/spectator';
   }
 
@@ -731,6 +775,15 @@
   /* ── State ──────────────────────────────────────────── */
   let lastHandNumber = null;
   let seenActionCount = 0;
+
+  /* Timer state */
+  let timerInterval = null;
+  let currentDeadline = null;
+  let currentTurnId = null;
+
+  /* Funding poll state */
+  let fundingInterval = null;
+  let lastFundingData = null;
 
   /* ── Text-to-Speech ──────────────────────────────────── */
   const $audioToggle = document.getElementById('audio-toggle');
@@ -823,20 +876,37 @@
     $waitingScreen.classList.remove('hidden');
     $pokerTable.classList.add('hidden');
     $winnerOverlay.classList.add('hidden');
+    stopTimer();
 
     const players = state.players || [];
+    var escrowHtml = '';
+    if (state.buy_in > 0 && !state.started) {
+      startFundingPoll();
+      escrowHtml = '<div id="funding-status" style="margin-top:12px;"></div>';
+      if (state.escrow_address) {
+        escrowHtml += '<a class="escrow-link" href="https://basescan.org/address/' +
+          escapeHtml(state.escrow_address) + '" target="_blank">View escrow on Basescan</a>';
+      }
+    } else {
+      stopFundingPoll();
+    }
+
     $waitingPlayers.innerHTML = players.map(function (p) {
       return '<div class="waiting-player">' +
         '<div class="waiting-player-name">' + escapeHtml(p.name) + '</div>' +
         '<div class="waiting-player-chips">' + formatChips(p.chips) + ' chips</div>' +
       '</div>';
-    }).join('');
+    }).join('') + escrowHtml;
+
+    /* Re-render funding data if available */
+    if (lastFundingData) renderFundingStatus();
   }
 
   /* ── Render: Active Game ────────────────────────────── */
   function renderGame(state) {
     $waitingScreen.classList.add('hidden');
     $pokerTable.classList.remove('hidden');
+    stopFundingPoll();
 
     /* Header info */
     $handInfo.textContent = 'Hand #' + (state.hand_number || 1);
@@ -875,6 +945,14 @@
     /* Players */
     renderPlayers(state);
 
+    /* Timer */
+    if (state.timer && state.timer.deadline && state.current_turn) {
+      startTimer(state.timer.deadline, state.current_turn);
+      updateTimer();
+    } else {
+      stopTimer();
+    }
+
     /* Winner overlay */
     if (state.game_over && state.winner != null) {
       renderWinner(state);
@@ -884,6 +962,36 @@
 
     /* Action log */
     renderActions(state);
+  }
+
+  /* ── Timer Update ──────────────────────────────────── */
+  function updateTimer() {
+    var el = document.getElementById('active-timer');
+    if (!el || currentDeadline == null) return;
+    var remaining = currentDeadline - Date.now() / 1000;
+    if (remaining < 0) remaining = 0;
+    var mins = Math.floor(remaining / 60);
+    var secs = Math.floor(remaining % 60);
+    var display = mins + ':' + (secs < 10 ? '0' : '') + secs;
+    el.textContent = display;
+    if (remaining < 10) {
+      el.classList.add('urgent');
+    } else {
+      el.classList.remove('urgent');
+    }
+  }
+
+  function startTimer(deadline, turnId) {
+    if (timerInterval) clearInterval(timerInterval);
+    currentDeadline = deadline;
+    currentTurnId = turnId;
+    timerInterval = setInterval(updateTimer, 100);
+  }
+
+  function stopTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    currentDeadline = null;
+    currentTurnId = null;
   }
 
   /* ── Render: Players Around Table ───────────────────── */
@@ -904,6 +1012,7 @@
       seat.className = 'player-seat';
       if (p.is_folded) seat.classList.add('folded');
       if (p.is_all_in) seat.classList.add('all-in');
+      if (p.is_resigned) seat.classList.add('resigned');
       if (state.current_turn === p.id) seat.classList.add('current-turn');
 
       seat.style.top = pos.top + '%';
@@ -917,6 +1026,8 @@
       if (state.big_blind_player === p.id)   badges += '<span class="badge badge-bb">BB</span>';
       if (p.is_all_in)                       badges += '<span class="badge badge-allin">All-In</span>';
       if (p.is_folded)                       badges += '<span class="badge badge-folded">Folded</span>';
+      if (p.is_resigned)                     badges += '<span class="badge badge-resigned">Resigned</span>';
+      if (p.extensions_remaining > 0)        badges += '<span class="badge badge-ext">\u23F1\u00D7' + p.extensions_remaining + '</span>';
 
       /* Hole cards */
       var cardsHtml = '';
@@ -928,6 +1039,12 @@
 
       /* Bet display */
       var betHtml = (p.current_bet > 0) ? '<div class="player-bet">Bet: ' + formatChips(p.current_bet) + '</div>' : '';
+
+      /* Timer for current turn player */
+      var timerHtml = '';
+      if (state.current_turn === p.id) {
+        timerHtml = '<div class="player-timer" id="active-timer"></div>';
+      }
 
       /* Build speech bubble if player has a recent comment */
       var commentHtml = '';
@@ -949,6 +1066,7 @@
           '<div class="player-name">' + escapeHtml(p.name) + '</div>' +
           '<div class="player-chips">' + formatChips(p.chips) + '</div>' +
           betHtml +
+          timerHtml +
           (badges ? '<div class="player-badges">' + badges + '</div>' : '') +
         '</div>' +
         commentHtml;
@@ -1008,6 +1126,45 @@
   function escapeHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* ── Funding Poll ──────────────────────────────────── */
+  function startFundingPoll() {
+    if (fundingInterval) return;
+    pollFunding();
+    fundingInterval = setInterval(pollFunding, 5000);
+  }
+
+  function stopFundingPoll() {
+    if (fundingInterval) { clearInterval(fundingInterval); fundingInterval = null; }
+    lastFundingData = null;
+  }
+
+  function pollFunding() {
+    fetch('/game/' + GAME_ID + '/funding')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (data) {
+          lastFundingData = data;
+          renderFundingStatus();
+        }
+      })
+      .catch(function () { /* ignore funding poll errors */ });
+  }
+
+  function renderFundingStatus() {
+    var container = document.getElementById('funding-status');
+    if (!container || !lastFundingData) return;
+    var deposits = lastFundingData.deposits || [];
+    container.innerHTML = deposits.map(function (d) {
+      var cls = d.deposited ? 'deposited' : 'pending';
+      var label = d.deposited ? 'Deposited' : 'Pending...';
+      var name = d.player_name ? escapeHtml(d.player_name) : d.address.slice(0, 10) + '...';
+      return '<div class="deposit-status">' +
+        '<span class="deposit-dot ' + cls + '"></span>' +
+        '<span>' + name + ': ' + label + '</span>' +
+      '</div>';
+    }).join('');
   }
 
   /* ── Polling Loop ───────────────────────────────────── */
