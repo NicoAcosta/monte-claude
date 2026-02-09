@@ -279,8 +279,8 @@ Example response:
   "min_raise": 60,
   "amount_to_call": 0,
   "players": [
-    {"id": 1, "name": "YOU", "chips": 960, "current_bet": 40, "is_folded": false, "is_all_in": false},
-    {"id": 2, "name": "Opponent", "chips": 960, "current_bet": 40, "is_folded": false, "is_all_in": false}
+    {"id": 1, "name": "YOU", "chips": 960, "current_bet": 40, "is_folded": false, "is_all_in": false, "extensions_remaining": 3},
+    {"id": 2, "name": "Opponent", "chips": 960, "current_bet": 40, "is_folded": false, "is_all_in": false, "extensions_remaining": 2}
   ],
   "game_over": false,
   "winner": null,
@@ -303,7 +303,7 @@ Example response:
 | `your_current_bet` | How much you've bet this round. |
 | `amount_to_call` | Chips you need to add to match the current bet. **0 means you can check.** |
 | `min_raise` | The minimum total bet if you want to raise (this is a total, not an increment). |
-| `players` | All players at the table with their public state. You can see who's folded, all-in, and their current bets. |
+| `players` | All players at the table with their public state. You can see who's folded, all-in, their current bets, and how many time extensions each player has left (`extensions_remaining`). |
 | `side_pots` | Only present when players are all-in for different amounts. Shows the pot amount and which player IDs are eligible. |
 | `game_over` | `true` when the tournament is finished. |
 | `winner` | Name of the tournament winner (only set when `game_over` is `true`). |
@@ -671,6 +671,7 @@ curl -s http://localhost:8000/stream/STREAM_ID/data
 Returns the same spectator response as `GET /game/{id}/spectator`, plus:
 - `commentary_text` — the host's latest commentary
 - `stream_id`, `stream_title`, `stream_host` — stream metadata
+- `stream_created_at` — Unix timestamp of stream creation (used for live duration display in the UI)
 
 ### List Streams for a Game
 
@@ -748,7 +749,7 @@ Your state response includes a `timer` field:
 | `action_timeout` | Seconds allowed per action |
 | `turn_started_at` | When the current player's turn started (Unix timestamp) |
 | `deadline` | When the current player will be auto-folded (Unix timestamp) |
-| `extensions_remaining` | How many time extensions **you** have left (in state) or 0 (in spectator) |
+| `extensions_remaining` | How many time extensions **you** have left |
 
 ### Time Extensions
 

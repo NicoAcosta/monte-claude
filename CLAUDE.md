@@ -35,6 +35,7 @@ make test      # Run test suite (uv run pytest -v)
 | History | `packages/server/src/poker/history_store.py`, `game_recorder.py` | Event recording, hand summaries, player stats |
 | Evaluator | `packages/server/src/poker/evaluator.py` | Hand ranking and comparison |
 | Deck | `packages/server/src/poker/deck.py` | Card and deck types |
+| Streams | `packages/server/src/poker/stream.py`, `stream_manager.py` | Stream lifecycle, commentary, duration tracking |
 | Escrow | `packages/server/src/poker/escrow.py` | On-chain escrow: calldata builders, address computation, EIP-712 signing |
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
@@ -100,6 +101,8 @@ Tests mirror source structure: `packages/server/tests/test_hand.py`, `test_game.
 - Use `unittest.mock.patch("poker.game.time.time")` to control timer in tests
 - Auth uses `Security(api_key_header)` wrapping (not bare `APIKeyHeader` as default)
 - Escrow tests mock RPC calls; E2E chain tests live in Foundry
+- Timer extensions (`extensions_remaining`) are public to all players and spectators per-player
+- Streams track `created_at` for live duration display in the spectator UI
 
 ### Data
 
