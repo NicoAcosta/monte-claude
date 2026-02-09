@@ -11,8 +11,11 @@ from core.db import get_pool
 from core.game_manager import GameManager
 from core.game_metadata_store import GameMetadataStore
 from core.game_recorder import GameRecorder
-from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from core.stream_store import StreamStore
+from poker.game import Game
+from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
+from poker.recorder import make_poker_materializer
+from poker.router import configure as configure_poker_router
 
 
 @pytest.fixture(autouse=True)
@@ -27,20 +30,31 @@ def reset_state():
     game_module.metadata_store = GameMetadataStore(pool)
     game_module.stream_store = StreamStore(pool)
 
+    poker_materializer = make_poker_materializer(game_module.summary_store)
+
     def make_recorder(game_id: int) -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,
-            game_module.summary_store,
             game_module.stats_store,
+            summary_materializer=poker_materializer,
         )
 
     game_module.manager = GameManager(
         recorder_factory=make_recorder,
         metadata_store=game_module.metadata_store,
     )
+    game_module.manager.register_game_type("poker", Game)
     game_module.account_store = AccountStore(pool)
     game_module.balance_store = BalanceStore(pool)
+    configure_poker_router(
+        mgr=game_module.manager,
+        bal=game_module.balance_store,
+        acc=game_module.account_store,
+        meta=game_module.metadata_store,
+        esc_audit=game_module.escrow_audit,
+        auth_dep=game_module.require_auth,
+    )
 
     # Reset data API stores (shares same DB)
     data_module.event_store = GameEventStore(pool)
@@ -73,18 +87,18 @@ def seed_game(game_client) -> tuple[int, str, str]:
     """Create a started 2-player game via Game API. Returns (game_id, key_a, key_b)."""
     key_a = game_module.account_store.create_account("Alice")
     key_b = game_module.account_store.create_account("Bob")
-    gid = game_client.post("/api/games", json={"max_players": 2}).json()["game_id"]
-    game_client.post(f"/game/{gid}/join", json={}, headers=auth_header(key_a))
-    game_client.post(f"/game/{gid}/join", json={}, headers=auth_header(key_b))
-    game_client.post(f"/game/{gid}/start", headers=auth_header(key_a))
+    gid = game_client.post("/poker/games", json={"max_players": 2}).json()["game_id"]
+    game_client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key_a))
+    game_client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key_b))
+    game_client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
     return gid, key_a, key_b
 
 
 def fold_hand(game_client, gid: int, key_a: str, key_b: str) -> None:
     """Fold to complete the current hand."""
-    s1 = game_client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+    s1 = game_client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
     first_key = key_a if s1["is_your_turn"] else key_b
-    game_client.post(f"/game/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+    game_client.post(f"/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
 
 # ── Lobby (game list from game_metadata) ─────────────────
@@ -96,16 +110,16 @@ class TestLobby:
         assert resp.json()["games"] == []
 
     def test_list_games_after_create(self, game_client, client):
-        game_client.post("/api/games", json={"max_players": 2})
+        game_client.post("/poker/games", json={"max_players": 2})
         resp = client.get("/api/games")
         games = resp.json()["games"]
         assert len(games) == 1
         assert games[0]["started"] is False
 
     def test_lobby_reflects_player_join(self, game_client, client):
-        gid = game_client.post("/api/games", json={"max_players": 2}).json()["game_id"]
+        gid = game_client.post("/poker/games", json={"max_players": 2}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
-        game_client.post(f"/game/{gid}/join", json={}, headers=auth_header(key))
+        game_client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key))
         games = client.get("/api/games").json()["games"]
         assert games[0]["player_count"] == 1
         assert games[0]["player_names"] == ["Alice"]
@@ -120,7 +134,7 @@ class TestLobby:
         assert resp.status_code == 404
 
     def test_game_page_exists(self, game_client, client):
-        game_client.post("/api/games", json={})
+        game_client.post("/poker/games", json={})
         resp = client.get("/game/1")
         assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
@@ -199,7 +213,7 @@ class TestStreamsRead:
         assert resp.json()["streams"] == []
 
     def test_list_all_streams(self, game_client, client):
-        gid = game_client.post("/api/games", json={}).json()["game_id"]
+        gid = game_client.post("/poker/games", json={}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "Test Stream"}, headers=auth_header(key))
 
@@ -210,7 +224,7 @@ class TestStreamsRead:
         assert streams[0]["host"] == "Alice"
 
     def test_list_streams_for_game(self, game_client, client):
-        gid = game_client.post("/api/games", json={}).json()["game_id"]
+        gid = game_client.post("/poker/games", json={}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "G1 Stream"}, headers=auth_header(key))
 
@@ -223,7 +237,7 @@ class TestStreamsRead:
         assert resp.status_code == 404
 
     def test_stream_page_exists(self, game_client, client):
-        gid = game_client.post("/api/games", json={}).json()["game_id"]
+        gid = game_client.post("/poker/games", json={}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         sid = game_client.post(
             f"/game/{gid}/streams", json={"title": "Test"}, headers=auth_header(key)

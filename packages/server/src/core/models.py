@@ -16,6 +16,7 @@ class AccountRegisterResponse(BaseModel):
 
 
 class CreateGameRequest(BaseModel):
+    game_type: str = "poker"
     max_players: int = Field(default=0, ge=0, le=10)
     token: str | None = None
     buy_in: int = Field(default=0, ge=0)
@@ -130,6 +131,7 @@ class ErrorResponse(BaseModel):
 
 class CreateGameResponse(BaseModel):
     game_id: int
+    game_type: str = "poker"
     max_players: int
     token: str | None
     buy_in: int
@@ -140,6 +142,7 @@ class CreateGameResponse(BaseModel):
 
 class GameListItem(BaseModel):
     id: int
+    game_type: str = "poker"
     player_count: int
     player_names: list[str]
     started: bool

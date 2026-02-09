@@ -7,6 +7,7 @@ from core.db import get_pool
 from core.formatting import format_buy_in
 from core.game_manager import GameManager
 from core.stream_store import StreamStore
+from poker.game import Game
 
 
 # ── Fix 1: Account creation TOCTOU race ────────────────
@@ -68,6 +69,7 @@ class TestGameManagerCleanup:
 
     def test_cleanup_removes_old_completed_games(self):
         mgr = GameManager()
+        mgr.register_game_type("poker", Game)
         ids = [self._make_finished_game(mgr) for _ in range(8)]
 
         removed = mgr.cleanup_completed(keep_recent=3)
@@ -83,6 +85,7 @@ class TestGameManagerCleanup:
 
     def test_cleanup_keeps_active_games(self):
         mgr = GameManager()
+        mgr.register_game_type("poker", Game)
         # Create an active (not game_over) game
         active_id, active_game, _ = mgr.create_game()
         active_game.register("Alice")
@@ -100,6 +103,7 @@ class TestGameManagerCleanup:
 
     def test_cleanup_with_fewer_than_keep_recent(self):
         mgr = GameManager()
+        mgr.register_game_type("poker", Game)
         self._make_finished_game(mgr)
         self._make_finished_game(mgr)
 
@@ -109,6 +113,7 @@ class TestGameManagerCleanup:
 
     def test_cleanup_returns_zero_when_no_completed(self):
         mgr = GameManager()
+        mgr.register_game_type("poker", Game)
         _, game, _ = mgr.create_game()
         game.register("Alice")
         game.register("Bob")
@@ -120,6 +125,7 @@ class TestGameManagerCleanup:
     def test_cleanup_also_removes_configs_and_recorders(self):
         """Verify all three dicts are cleaned up, not just _games."""
         mgr = GameManager()
+        mgr.register_game_type("poker", Game)
         for _ in range(8):
             self._make_finished_game(mgr)
 

@@ -5,6 +5,7 @@ from core.db import get_pool
 from poker.game import Game
 from core.game_recorder import GameRecorder
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
+from poker.recorder import make_poker_materializer
 from poker.replay import GameSnapshot, apply_event, replay_game, replay_to
 
 
@@ -13,7 +14,8 @@ def _make_recorder(game_id=1):
     event_store = GameEventStore(pool)
     summary_store = HandSummaryStore(pool)
     stats_store = PlayerStatsStore(pool)
-    recorder = GameRecorder(game_id, event_store, summary_store, stats_store)
+    poker_materializer = make_poker_materializer(summary_store)
+    recorder = GameRecorder(game_id, event_store, stats_store, summary_materializer=poker_materializer)
     return recorder, event_store, summary_store, stats_store
 
 

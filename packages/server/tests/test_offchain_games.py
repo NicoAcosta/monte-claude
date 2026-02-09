@@ -9,9 +9,12 @@ from core.db import get_pool
 from core.game_manager import GameManager
 from core.game_metadata_store import GameMetadataStore
 from core.game_recorder import GameRecorder
-from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from core.stream_store import StreamStore
 from core import balance_service
+from poker.game import Game
+from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
+from poker.recorder import make_poker_materializer
+from poker.router import configure as configure_poker_router
 
 
 @pytest.fixture(autouse=True)
@@ -23,20 +26,31 @@ def reset_state():
     game_module.metadata_store = GameMetadataStore(pool)
     game_module.stream_store = StreamStore(pool)
 
+    poker_materializer = make_poker_materializer(game_module.summary_store)
+
     def make_recorder(game_id: int) -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,
-            game_module.summary_store,
             game_module.stats_store,
+            summary_materializer=poker_materializer,
         )
 
     game_module.manager = GameManager(
         recorder_factory=make_recorder,
         metadata_store=game_module.metadata_store,
     )
+    game_module.manager.register_game_type("poker", Game)
     game_module.account_store = AccountStore(pool)
     game_module.balance_store = BalanceStore(pool)
+    configure_poker_router(
+        mgr=game_module.manager,
+        bal=game_module.balance_store,
+        acc=game_module.account_store,
+        meta=game_module.metadata_store,
+        esc_audit=game_module.escrow_audit,
+        auth_dep=game_module.require_auth,
+    )
     yield
 
 
@@ -77,7 +91,7 @@ def get_balance(client, api_key: str) -> int:
 
 
 def create_offchain_game(client, buy_in: int, max_players: int = 0) -> int:
-    resp = client.post("/api/games", json={"buy_in": buy_in, "max_players": max_players})
+    resp = client.post("/poker/games", json={"buy_in": buy_in, "max_players": max_players})
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "offchain"
@@ -85,13 +99,13 @@ def create_offchain_game(client, buy_in: int, max_players: int = 0) -> int:
 
 
 def join_game(client, game_id: int, api_key: str) -> dict:
-    resp = client.post(f"/game/{game_id}/join", json={}, headers=auth_header(api_key))
+    resp = client.post(f"/poker/{game_id}/join", json={}, headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()
 
 
 def start_game(client, game_id: int, api_key: str) -> dict:
-    resp = client.post(f"/game/{game_id}/start", headers=auth_header(api_key))
+    resp = client.post(f"/poker/{game_id}/start", headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()
 
@@ -100,12 +114,12 @@ def start_game(client, game_id: int, api_key: str) -> dict:
 
 class TestModeInference:
     def test_no_token_is_offchain(self, client):
-        resp = client.post("/api/games", json={"buy_in": 100})
+        resp = client.post("/poker/games", json={"buy_in": 100})
         assert resp.status_code == 200
         assert resp.json()["mode"] == "offchain"
 
     def test_with_token_is_onchain(self, client):
-        resp = client.post("/api/games", json={
+        resp = client.post("/poker/games", json={
             "buy_in": 100,
             "token": "0x1234567890abcdef1234567890abcdef12345678",
             "max_players": 2,
@@ -114,12 +128,12 @@ class TestModeInference:
         assert resp.json()["mode"] == "onchain"
 
     def test_explicit_offchain_mode(self, client):
-        resp = client.post("/api/games", json={"buy_in": 100, "mode": "offchain"})
+        resp = client.post("/poker/games", json={"buy_in": 100, "mode": "offchain"})
         assert resp.status_code == 200
         assert resp.json()["mode"] == "offchain"
 
     def test_onchain_without_token_rejected(self, client):
-        resp = client.post("/api/games", json={"buy_in": 100, "mode": "onchain"})
+        resp = client.post("/poker/games", json={"buy_in": 100, "mode": "onchain"})
         assert resp.status_code == 400
         assert "token" in resp.json()["detail"].lower()
 
@@ -138,7 +152,7 @@ class TestJoinDebit:
         key = register(client, "Alice")
         # No faucet claim, balance is 0
         gid = create_offchain_game(client, buy_in=500)
-        resp = client.post(f"/game/{gid}/join", json={}, headers=auth_header(key))
+        resp = client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key))
         assert resp.status_code == 400
         assert "insufficient" in resp.json()["detail"].lower()
 
@@ -148,7 +162,7 @@ class TestJoinDebit:
         gid = create_offchain_game(client, buy_in=500)
         join_game(client, gid, key_alice)
         # Try joining again — name already taken
-        resp = client.post(f"/game/{gid}/join", json={}, headers=auth_header(key_alice))
+        resp = client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key_alice))
         assert resp.status_code == 400
         # Balance should be refunded (only one debit stuck)
         assert get_balance(client, key_alice) == 9_500
@@ -158,7 +172,7 @@ class TestJoinDebit:
         claim_faucet(client, key)
         gid = create_offchain_game(client, buy_in=100)
         # Omit wallet_address — should work for offchain
-        resp = client.post(f"/game/{gid}/join", json={}, headers=auth_header(key))
+        resp = client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key))
         assert resp.status_code == 200
 
     def test_zero_buyin_offchain_no_debit(self, client):
@@ -181,7 +195,7 @@ class TestOffchainStart:
         join_game(client, gid, key_b)
         start_game(client, gid, key_a)
         # Game started without needing escrow funding
-        resp = client.get(f"/game/{gid}/waiting")
+        resp = client.get(f"/poker/{gid}/waiting")
         assert resp.json()["started"] is True
 
 
@@ -196,18 +210,18 @@ class TestEscrowGuards:
         gid = create_offchain_game(client, buy_in=500, max_players=2)
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        resp = client.get(f"/game/{gid}/escrow")
+        resp = client.get(f"/poker/{gid}/escrow")
         assert resp.status_code == 400
         assert "on-chain" in resp.json()["detail"].lower()
 
     def test_funding_rejected_for_offchain(self, client):
         gid = create_offchain_game(client, buy_in=500)
-        resp = client.get(f"/game/{gid}/funding")
+        resp = client.get(f"/poker/{gid}/funding")
         assert resp.status_code == 400
 
     def test_settlement_rejected_for_offchain(self, client):
         gid = create_offchain_game(client, buy_in=500)
-        resp = client.get(f"/game/{gid}/settlement")
+        resp = client.get(f"/poker/{gid}/settlement")
         assert resp.status_code == 400
 
 
@@ -232,19 +246,19 @@ class TestOffchainLifecycle:
         start_game(client, gid, key_a)
 
         # Bob resigns immediately — quickest path to game_over
-        resp = client.post(f"/game/{gid}/resign", headers=auth_header(key_b))
+        resp = client.post(f"/poker/{gid}/resign", headers=auth_header(key_b))
         assert resp.status_code == 200
 
         # Trigger settlement via reading state
-        state_data = client.get(f"/game/{gid}/state", headers=auth_header(key_a)).json()
+        state_data = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
         assert state_data["game_over"] is True
 
         # Verify game is over
-        spectator_resp = client.get(f"/game/{gid}/spectator")
+        spectator_resp = client.get(f"/poker/{gid}/spectator")
         assert spectator_resp.json()["game_over"] is True
 
         # Check offchain settlement endpoint
-        settlement_resp = client.get(f"/game/{gid}/offchain-settlement")
+        settlement_resp = client.get(f"/poker/{gid}/offchain-settlement")
         assert settlement_resp.status_code == 200
         payouts = settlement_resp.json()["payouts"]
         total_payout = sum(p["amount"] for p in payouts)
@@ -259,17 +273,17 @@ class TestOffchainLifecycle:
 
 class TestOffchainSettlementEndpoint:
     def test_not_offchain_rejected(self, client):
-        resp = client.post("/api/games", json={
+        resp = client.post("/poker/games", json={
             "buy_in": 100,
             "token": "0x1234567890abcdef1234567890abcdef12345678",
             "max_players": 2,
         })
         gid = resp.json()["game_id"]
-        resp = client.get(f"/game/{gid}/offchain-settlement")
+        resp = client.get(f"/poker/{gid}/offchain-settlement")
         assert resp.status_code == 400
 
     def test_game_not_over_rejected(self, client):
         gid = create_offchain_game(client, buy_in=100)
-        resp = client.get(f"/game/{gid}/offchain-settlement")
+        resp = client.get(f"/poker/{gid}/offchain-settlement")
         assert resp.status_code == 400
         assert "not over" in resp.json()["detail"].lower()

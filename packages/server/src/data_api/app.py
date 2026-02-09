@@ -27,21 +27,23 @@ from core.formatting import format_buy_in
 from core.game_metadata_store import GameMetadataStore
 from core.game_mode import GameMode
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
-from poker.models import (
+from core.models import (
     GameEventResponse,
     GameHistoryResponse,
     GameListItem,
     GameListResponse,
-    HandSummariesResponse,
-    HandSummaryResponse,
     LeaderboardEntry,
     LeaderboardResponse,
     PlayerStatsResponse,
-    RecentHandItem,
-    RecentHandsResponse,
     StreamListItem,
     StreamListResponse,
     TokenStatsEntry,
+)
+from poker.models import (
+    HandSummariesResponse,
+    HandSummaryResponse,
+    RecentHandItem,
+    RecentHandsResponse,
 )
 from core.stream_store import StreamStore
 
@@ -223,6 +225,7 @@ def list_games():
         games=[
             GameListItem(
                 id=r.game_id,
+                game_type=r.game_type,
                 player_count=r.player_count,
                 player_names=r.player_names,
                 started=r.started,
