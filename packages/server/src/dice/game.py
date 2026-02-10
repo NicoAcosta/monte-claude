@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 
+from core.fairness import FairRng, generate_seed
 from core.game_protocol import (
     STARTING_CHIPS,
     ACTION_TIMEOUT,
@@ -58,6 +59,9 @@ class DiceGame:
         self._extra_time: float = 0.0
         self.first_hand_grace = first_hand_grace
         self._state_version: int = 0
+        # Provable fairness
+        self._seed_commitment: str = ""
+        self._seed_hex: str = ""
 
     # ── Notify ────────────────────────────────────────────
 
@@ -148,6 +152,10 @@ class DiceGame:
     @property
     def starting_chips(self) -> int:
         return STARTING_CHIPS
+
+    @property
+    def seed_commitment(self) -> str:
+        return self._seed_commitment
 
     @property
     def phase(self) -> str:
@@ -252,6 +260,11 @@ class DiceGame:
         self._bets.clear()
         # Don't clear _last_result — keep it visible for spectators until next round resolves
 
+        # Provable fairness: generate seed before round.
+        sc = generate_seed()
+        self._seed_commitment = sc.commitment
+        self._seed_hex = sc.seed_hex
+
         # Auto-ante: deduct from all players who can afford it
         self._round_players = list(can_play)
         for p in can_play:
@@ -265,6 +278,7 @@ class DiceGame:
             "hand_number": self.hand_number,
             "ante": self._ante,
             "player_count": len(can_play),
+            "seed_commitment": sc.commitment,
         })
 
     def do_action(
@@ -323,7 +337,11 @@ class DiceGame:
         self._current_turn_index = None
         self._turn_started_at = None
 
-        result = resolve_round(self._bets, self._ante)
+        # Use HMAC-DRBG for provable fairness
+        rng = FairRng(bytes.fromhex(self._seed_hex))
+        dice = (1 + rng.randbelow(6), 1 + rng.randbelow(6))
+
+        result = resolve_round(self._bets, self._ante, dice=dice)
         self._last_result = result
 
         # Apply payouts
@@ -342,6 +360,8 @@ class DiceGame:
             "winner_ids": list(result.winner_ids),
             "pot": result.pot,
             "payouts": result.payouts,
+            "seed_hex": self._seed_hex,
+            "seed_commitment": self._seed_commitment,
         })
 
         self._notify("hand_completed", {
@@ -356,6 +376,8 @@ class DiceGame:
             "player_chips": {
                 str(p.id): p.chips for p in self._players
             },
+            "seed_hex": self._seed_hex,
+            "seed_commitment": self._seed_commitment,
         })
 
         self._phase = "complete"
