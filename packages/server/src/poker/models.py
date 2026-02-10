@@ -108,6 +108,7 @@ class SpectatorPlayerState(BaseModel):
 
 class SpectatorResponse(BaseModel):
     game_type: str = "poker"
+    state_version: int = 0
     hand_number: int
     phase: str
     community_cards: list[str]

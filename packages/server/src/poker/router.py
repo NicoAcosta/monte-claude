@@ -10,12 +10,13 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.security import APIKeyHeader
 
 from core.account_store import Account, AccountStore
 from core.audit import EscrowAuditStore
 from core.balance_store import BalanceStore
+from core.snapshot_buffer import SnapshotBuffer
 from core import escrow_service, game_service, settlement_service
 from core.game_config import GameConfig
 from core.game_manager import GameManager
@@ -65,6 +66,7 @@ balance_store: BalanceStore | None = None
 account_store: AccountStore | None = None
 metadata_store: GameMetadataStore | None = None
 escrow_audit: EscrowAuditStore | None = None
+snapshot_buffer: SnapshotBuffer | None = None
 _auth_callable: Callable[..., Account] | None = None
 
 # Matches the header name used by core.auth so FastAPI generates correct OpenAPI spec
@@ -85,14 +87,16 @@ def configure(
     meta: GameMetadataStore,
     esc_audit: EscrowAuditStore,
     auth_dep: Callable[..., Account],
+    snapshots: SnapshotBuffer | None = None,
 ) -> None:
     """Inject shared stores and auth dependency from the application layer."""
-    global manager, balance_store, account_store, metadata_store, escrow_audit, _auth_callable
+    global manager, balance_store, account_store, metadata_store, escrow_audit, snapshot_buffer, _auth_callable
     manager = mgr
     balance_store = bal
     account_store = acc
     metadata_store = meta
     escrow_audit = esc_audit
+    snapshot_buffer = snapshots
     _auth_callable = auth_dep
 
 
@@ -156,82 +160,12 @@ def _timer_info(game: Game, player_id: int = 0) -> TimerInfo | None:
     )
 
 
-def _build_spectator_response(game: Game, config: GameConfig, **overrides: Any) -> SpectatorResponse:
-    prev = game.previous_hand
-
-    if prev is None:
-        base = dict(
-            hand_number=0,
-            phase="waiting",
-            community_cards=[],
-            pot=0,
-            side_pots=[],
-            current_turn=None,
-            dealer=0,
-            small_blind_player=0,
-            big_blind_player=0,
-            players=[
-                SpectatorPlayerState(
-                    id=p.id, name=p.name, chips=p.chips,
-                    current_bet=0, is_folded=False, is_all_in=False, cards=[],
-                    extensions_remaining=game.get_extensions_remaining(p.id) if game.started else 0,
-                    is_resigned=p.resigned,
-                )
-                for p in game._players
-            ],
-            game_over=game.game_over,
-            winner=game.winner,
-            recent_actions=[],
-            started=game.started,
-            chat_log=_chat_log(game),
-            timer=_timer_info(game),
-            buy_in=config.buy_in,
-            buy_in_display=config.buy_in_display,
-            token_symbol=config.token_symbol,
-            escrow_address=config.escrow_address,
-            mode=config.mode or GameMode.OFFCHAIN,
-            max_players=config.max_players,
-            starting_players=len(game._players),
-            action_timeout=game.action_timeout,
-            small_blind=SMALL_BLIND,
-            big_blind=BIG_BLIND,
-            game_started_at=game.started_at,
-        )
-        base.update(overrides)
-        return SpectatorResponse(**base)
-
-    side_pots = prev.get_side_pots_info()
-
-    base = dict(
-        hand_number=game.hand_number if game.game_over else game.hand_number - 1,
-        phase=prev.phase,
-        community_cards=[str(c) for c in prev.community_cards],
-        pot=prev.pot,
-        side_pots=[
-            SidePotInfo(amount=sp.amount, eligible_players=list(sp.eligible_player_ids))
-            for sp in side_pots
-        ],
-        current_turn=None,
-        dealer=prev.players[prev.dealer_index].id,
-        small_blind_player=prev.players[prev._sb_index()].id,
-        big_blind_player=prev.players[prev._bb_index()].id,
-        players=[
-            SpectatorPlayerState(
-                id=p.id,
-                name=p.name,
-                chips=p.chips,
-                current_bet=p.current_bet,
-                is_folded=p.is_folded,
-                is_all_in=p.is_all_in,
-                cards=[str(c) for c in p.hole_cards],
-                extensions_remaining=game.get_extensions_remaining(p.id),
-                is_resigned=getattr(game.get_player(p.id), 'resigned', False),
-            )
-            for p in prev.players
-        ],
+def _common_fields(game: Game, config: GameConfig) -> dict:
+    """Fields shared by all spectator response variants."""
+    return dict(
+        state_version=game.state_version,
         game_over=game.game_over,
         winner=game.winner,
-        recent_actions=[_action_to_recent(a, include_reason=True) for a in prev.actions],
         started=game.started,
         chat_log=_chat_log(game),
         timer=_timer_info(game),
@@ -246,6 +180,108 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides: Any) 
         small_blind=SMALL_BLIND,
         big_blind=BIG_BLIND,
         game_started_at=game.started_at,
+    )
+
+
+def _build_spectator_response(game: Game, config: GameConfig, **overrides: Any) -> SpectatorResponse:
+    hand = game.current_hand
+    common = _common_fields(game, config)
+
+    # ── Live hand in progress: show it (broadcast mode — all cards visible) ──
+    if hand is not None and not hand.is_complete:
+        side_pots = hand.get_side_pots_info()
+        base = dict(
+            hand_number=game.hand_number,
+            phase=hand.phase,
+            community_cards=[str(c) for c in hand.community_cards],
+            pot=hand.pot,
+            side_pots=[
+                SidePotInfo(amount=sp.amount, eligible_players=list(sp.eligible_player_ids))
+                for sp in side_pots
+            ],
+            current_turn=hand.current_player.id if hand.current_player else None,
+            dealer=hand.players[hand.dealer_index].id,
+            small_blind_player=hand.players[hand._sb_index()].id,
+            big_blind_player=hand.players[hand._bb_index()].id,
+            players=[
+                SpectatorPlayerState(
+                    id=p.id,
+                    name=p.name,
+                    chips=p.chips,
+                    current_bet=p.current_bet,
+                    is_folded=p.is_folded,
+                    is_all_in=p.is_all_in,
+                    cards=[str(c) for c in p.hole_cards],
+                    extensions_remaining=game.get_extensions_remaining(p.id),
+                    is_resigned=getattr(game.get_player(p.id), 'resigned', False),
+                )
+                for p in hand.players
+            ],
+            recent_actions=[_action_to_recent(a) for a in hand.actions[-20:]],
+            **common,
+        )
+        base.update(overrides)
+        return SpectatorResponse(**base)
+
+    # ── Completed previous hand (between hands or game over) ──
+    prev = game.previous_hand
+    if prev is not None:
+        side_pots = prev.get_side_pots_info()
+        base = dict(
+            hand_number=game.hand_number if game.game_over else game.hand_number - 1,
+            phase=prev.phase,
+            community_cards=[str(c) for c in prev.community_cards],
+            pot=prev.pot,
+            side_pots=[
+                SidePotInfo(amount=sp.amount, eligible_players=list(sp.eligible_player_ids))
+                for sp in side_pots
+            ],
+            current_turn=None,
+            dealer=prev.players[prev.dealer_index].id,
+            small_blind_player=prev.players[prev._sb_index()].id,
+            big_blind_player=prev.players[prev._bb_index()].id,
+            players=[
+                SpectatorPlayerState(
+                    id=p.id,
+                    name=p.name,
+                    chips=p.chips,
+                    current_bet=p.current_bet,
+                    is_folded=p.is_folded,
+                    is_all_in=p.is_all_in,
+                    cards=[str(c) for c in p.hole_cards],
+                    extensions_remaining=game.get_extensions_remaining(p.id),
+                    is_resigned=getattr(game.get_player(p.id), 'resigned', False),
+                )
+                for p in prev.players
+            ],
+            recent_actions=[_action_to_recent(a, include_reason=True) for a in prev.actions],
+            **common,
+        )
+        base.update(overrides)
+        return SpectatorResponse(**base)
+
+    # ── No hands played yet (waiting) ──
+    base = dict(
+        hand_number=0,
+        phase="waiting",
+        community_cards=[],
+        pot=0,
+        side_pots=[],
+        current_turn=None,
+        dealer=0,
+        small_blind_player=0,
+        big_blind_player=0,
+        players=[
+            SpectatorPlayerState(
+                id=p.id, name=p.name, chips=p.chips,
+                current_bet=0, is_folded=False, is_all_in=False, cards=[],
+                extensions_remaining=game.get_extensions_remaining(p.id) if game.started else 0,
+                is_resigned=p.resigned,
+            )
+            for p in game._players
+        ],
+        recent_actions=[],
+        **common,
     )
     base.update(overrides)
     return SpectatorResponse(**base)
@@ -492,7 +528,20 @@ def resign(game_id: int, account: Account = Depends(_require_auth)):
 def spectator(game_id: int) -> SpectatorResponse:
     game, config = _get_game_or_404(game_id)
     game._check_timeout()
+    if snapshot_buffer is not None:
+        delayed = snapshot_buffer.get_delayed_latest(game_id)
+        if delayed is not None:
+            return delayed
     return _build_spectator_response(game, config)
+
+
+@router.get("/{game_id}/spectator/snapshots")
+def spectator_snapshots(game_id: int, after: int = Query(0)) -> list[dict]:
+    """Return spectator state snapshots captured since *after* sequence."""
+    _get_game_or_404(game_id)  # validate game exists
+    if snapshot_buffer is None:
+        raise HTTPException(status_code=404, detail="Snapshots not available")
+    return snapshot_buffer.get_since(game_id, after)
 
 
 # ── Chat & Timer routes ───────────────────────────────────────────
