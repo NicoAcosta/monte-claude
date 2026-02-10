@@ -14,16 +14,17 @@ class TestGameManager:
     def test_create_game_returns_id_and_game(self):
         mgr = _make_manager()
         game_id, game, config = mgr.create_game()
-        assert game_id == 1
+        assert isinstance(game_id, str) and len(game_id) == 32
         assert game is not None
         assert config is not None
 
-    def test_create_game_increments_ids(self):
+    def test_create_game_unique_ids(self):
         mgr = _make_manager()
         id1, _, _ = mgr.create_game()
         id2, _, _ = mgr.create_game()
-        assert id1 == 1
-        assert id2 == 2
+        assert isinstance(id1, str) and len(id1) == 32
+        assert isinstance(id2, str) and len(id2) == 32
+        assert id1 != id2
 
     def test_get_game_exists(self):
         mgr = _make_manager()
@@ -32,7 +33,7 @@ class TestGameManager:
 
     def test_get_game_missing(self):
         mgr = _make_manager()
-        assert mgr.get_game(999) is None
+        assert mgr.get_game("nonexistent") is None
 
     def test_list_games_empty(self):
         mgr = _make_manager()
@@ -84,7 +85,7 @@ class TestGameManager:
         mgr.create_game()
         s = mgr.list_games()[0]
         try:
-            s.id = 999
+            s.id = "modified"
             assert False, "Should not allow mutation"
         except AttributeError:
             pass

@@ -145,7 +145,7 @@ class SpectatorResponse(BaseModel):
 
 
 class HandSummaryResponse(BaseModel):
-    game_id: int
+    game_id: str
     hand_number: int
     dealer_id: int
     player_ids: list[int]
@@ -162,12 +162,12 @@ class HandSummaryResponse(BaseModel):
 
 
 class HandSummariesResponse(BaseModel):
-    game_id: int
+    game_id: str
     hands: list[HandSummaryResponse]
 
 
 class RecentHandItem(BaseModel):
-    game_id: int
+    game_id: str
     hand_number: int
     winner_ids: list[int]
     winner_names: list[str] = []

@@ -32,7 +32,7 @@ def reset_state():
 
     poker_materializer = make_poker_materializer(game_module.summary_store)
 
-    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
+    def make_recorder(game_id: str, game_type: str = "poker") -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,
@@ -83,7 +83,7 @@ def auth_header(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
-def seed_game(game_client) -> tuple[int, str, str]:
+def seed_game(game_client) -> tuple[str, str, str]:
     """Create a started 2-player game via Game API. Returns (game_id, key_a, key_b)."""
     key_a = game_module.account_store.create_account("Alice")
     key_b = game_module.account_store.create_account("Bob")
@@ -94,7 +94,7 @@ def seed_game(game_client) -> tuple[int, str, str]:
     return gid, key_a, key_b
 
 
-def fold_hand(game_client, gid: int, key_a: str, key_b: str) -> None:
+def fold_hand(game_client, gid: str, key_a: str, key_b: str) -> None:
     """Fold to complete the current hand."""
     s1 = game_client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
     first_key = key_a if s1["is_your_turn"] else key_b
@@ -134,8 +134,8 @@ class TestLobby:
         assert resp.status_code == 404
 
     def test_game_page_exists(self, game_client, client):
-        game_client.post("/game/poker/games", json={})
-        resp = client.get("/watch/1")
+        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
+        resp = client.get(f"/watch/{gid}")
         assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
 

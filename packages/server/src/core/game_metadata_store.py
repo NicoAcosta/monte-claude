@@ -9,7 +9,7 @@ from psycopg_pool import ConnectionPool
 
 @dataclass(frozen=True)
 class GameMetadata:
-    game_id: int
+    game_id: str
     game_type: str
     mode: str
     buy_in: int
@@ -35,7 +35,7 @@ class GameMetadataStore:
 
     def create(
         self,
-        game_id: int,
+        game_id: str,
         mode: str,
         buy_in: int,
         max_players: int,
@@ -55,7 +55,7 @@ class GameMetadataStore:
             )
             conn.commit()
 
-    def update_player_joined(self, game_id: int, player_name: str) -> None:
+    def update_player_joined(self, game_id: str, player_name: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 """UPDATE game_metadata
@@ -67,7 +67,7 @@ class GameMetadataStore:
             )
             conn.commit()
 
-    def update_started(self, game_id: int) -> None:
+    def update_started(self, game_id: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 "UPDATE game_metadata SET started = TRUE, updated_at = NOW() WHERE game_id = %s",
@@ -75,7 +75,7 @@ class GameMetadataStore:
             )
             conn.commit()
 
-    def update_hand_number(self, game_id: int, hand_number: int) -> None:
+    def update_hand_number(self, game_id: str, hand_number: int) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 "UPDATE game_metadata SET hand_number = %s, updated_at = NOW() WHERE game_id = %s",
@@ -83,7 +83,7 @@ class GameMetadataStore:
             )
             conn.commit()
 
-    def update_game_over(self, game_id: int, winner: str | None) -> None:
+    def update_game_over(self, game_id: str, winner: str | None) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 "UPDATE game_metadata SET game_over = TRUE, winner = %s, updated_at = NOW() WHERE game_id = %s",
@@ -91,7 +91,7 @@ class GameMetadataStore:
             )
             conn.commit()
 
-    def update_funded(self, game_id: int) -> None:
+    def update_funded(self, game_id: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 "UPDATE game_metadata SET funded = TRUE, updated_at = NOW() WHERE game_id = %s",
@@ -120,7 +120,7 @@ class GameMetadataStore:
             for r in rows
         ]
 
-    def exists(self, game_id: int) -> bool:
+    def exists(self, game_id: str) -> bool:
         with self._pool.connection() as conn:
             row = conn.execute(
                 "SELECT 1 FROM game_metadata WHERE game_id = %s",

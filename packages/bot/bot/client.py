@@ -18,7 +18,7 @@ _RETRY_DELAY = 1.0
 
 @dataclass(frozen=True)
 class GameConfig:
-    game_id: int
+    game_id: str
     api_key: str
     player_id: int
     username: str
@@ -69,7 +69,7 @@ class Client:
 
     # ── Game API ─────────────────────────────────────
 
-    async def create_game(self, api_key: str, max_players: int = 2) -> int:
+    async def create_game(self, api_key: str, max_players: int = 2) -> str:
         """Create a new free game and return game_id."""
         resp = await self._game.post(
             "/api/games",
@@ -79,7 +79,7 @@ class Client:
         _check(resp)
         return resp.json()["game_id"]
 
-    async def join_game(self, game_id: int, api_key: str) -> dict[str, Any]:
+    async def join_game(self, game_id: str, api_key: str) -> dict[str, Any]:
         """Join a game. Returns {player_id, name}."""
         resp = await self._game.post(
             f"/game/{game_id}/join",
@@ -89,7 +89,7 @@ class Client:
         _check(resp)
         return resp.json()
 
-    async def start_game(self, game_id: int, api_key: str) -> None:
+    async def start_game(self, game_id: str, api_key: str) -> None:
         """Start a game."""
         resp = await self._game.post(
             f"/game/{game_id}/start",
@@ -98,13 +98,13 @@ class Client:
         )
         _check(resp)
 
-    async def get_waiting(self, game_id: int) -> dict[str, Any]:
+    async def get_waiting(self, game_id: str) -> dict[str, Any]:
         """Get waiting room status."""
         resp = await self._game.get(f"/game/{game_id}/waiting")
         _check(resp)
         return resp.json()
 
-    async def wait_for_start(self, game_id: int, poll_interval: float = 1.0) -> None:
+    async def wait_for_start(self, game_id: str, poll_interval: float = 1.0) -> None:
         """Poll /waiting until game starts."""
         while True:
             data = await self.get_waiting(game_id)
@@ -113,7 +113,7 @@ class Client:
             log.info("Waiting for game to start... (%d players)", data["player_count"])
             await asyncio.sleep(poll_interval)
 
-    async def get_state(self, game_id: int, api_key: str) -> dict[str, Any]:
+    async def get_state(self, game_id: str, api_key: str) -> dict[str, Any]:
         """Get player state."""
         resp = await self._game.get(
             f"/game/{game_id}/state", headers=_auth(api_key),
@@ -123,7 +123,7 @@ class Client:
 
     async def do_action(
         self,
-        game_id: int,
+        game_id: str,
         api_key: str,
         action: str,
         amount: int | None = None,

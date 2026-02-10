@@ -189,7 +189,7 @@ _materializers = {
 }
 
 
-def _make_recorder(game_id: int, game_type: str) -> GameRecorder:
+def _make_recorder(game_id: str, game_type: str) -> GameRecorder:
     materializer = _materializers.get(game_type)
     return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
@@ -243,7 +243,7 @@ app.include_router(dice_router, prefix="/game/dice")
 # ── Stream routes (game-type agnostic) ────────────────────
 
 @app.post("/game/{game_id}/streams", response_model=CreateStreamResponse)
-def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Depends(require_auth)):
+def create_stream(game_id: str, req: CreateStreamRequest, account: Account = Depends(require_auth)):
     game = manager.get_game(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -298,7 +298,7 @@ def stream_view(stream_id: int):
 
 
 @app.get("/game/{game_id}/spectator")
-def game_spectator_compat(game_id: int):
+def game_spectator_compat(game_id: str):
     """Compat route: dispatches to the correct game-type spectator."""
     game = manager.get_game(game_id)
     config = manager.get_config(game_id)

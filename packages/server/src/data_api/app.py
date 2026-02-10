@@ -175,7 +175,7 @@ def lobby_page():
 
 
 @app.get("/watch/{game_id}")
-def game_page(game_id: int):
+def game_page(game_id: str):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     return FileResponse(STATIC_DIR / "spectator.html")
@@ -264,7 +264,7 @@ def _sanitize_event_data(raw: str) -> str:
 
 
 @app.get("/api/games/{game_id}/history", response_model=GameHistoryResponse)
-def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS)):
+def game_history(game_id: str, limit: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS)):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     events = event_store.get_by_game(game_id)
@@ -287,7 +287,7 @@ def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=M
 
 
 @app.get("/api/games/{game_id}/hands", response_model=HandSummariesResponse)
-def hand_summaries(game_id: int, limit: int = Query(default=MAX_HANDS, ge=1, le=MAX_HANDS)):
+def hand_summaries(game_id: str, limit: int = Query(default=MAX_HANDS, ge=1, le=MAX_HANDS)):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     summaries = summary_store.get_by_game(game_id)
@@ -424,7 +424,7 @@ def list_all_streams():
 
 
 @app.get("/api/games/{game_id}/streams", response_model=StreamListResponse)
-def list_streams_for_game(game_id: int):
+def list_streams_for_game(game_id: str):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     summaries = stream_store.list_for_game(game_id)

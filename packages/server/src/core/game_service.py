@@ -51,7 +51,7 @@ def create_game(
     on_game_over: Callable[[GameProtocol, GameConfig], None] | None = None,
     action_timeout: float | None = None,
     extensions_per_player: int | None = None,
-) -> tuple[int, GameProtocol, GameConfig]:
+) -> tuple[str, GameProtocol, GameConfig]:
     """Create a game via the manager."""
     return manager.create_game(
         game_type=game_type,
@@ -75,7 +75,7 @@ def join_game(
     balance_store: BalanceStore,
     recorder: GameRecorder | None,
     metadata_store: GameMetadataStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> RegisteredPlayer:
     """Join a game: check capacity/mode, debit balance, register player, record event.
 
@@ -119,7 +119,7 @@ def start_game(
     config: GameConfig,
     recorder: GameRecorder | None,
     metadata_store: GameMetadataStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> int:
     """Check funding, mark funded (for offchain), and start the game.
 

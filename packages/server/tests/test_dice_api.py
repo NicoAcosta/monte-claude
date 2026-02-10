@@ -35,7 +35,7 @@ def reset_state():
     poker_materializer = make_poker_materializer(game_module.summary_store)
     dice_materializer = make_dice_materializer(game_module.round_summary_store)
 
-    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
+    def make_recorder(game_id: str, game_type: str = "poker") -> GameRecorder:
         mat = poker_materializer if game_type == "poker" else dice_materializer
         return GameRecorder(
             game_id,
@@ -87,7 +87,7 @@ def register(username: str) -> str:
     return game_module.account_store.create_account(username)
 
 
-def create_dice_game(client, **kwargs) -> int:
+def create_dice_game(client, **kwargs) -> str:
     resp = client.post("/game/dice/games", json=kwargs)
     assert resp.status_code == 200, resp.json()
     data = resp.json()
@@ -95,13 +95,13 @@ def create_dice_game(client, **kwargs) -> int:
     return data["game_id"]
 
 
-def join_game(client, game_id: int, api_key: str) -> dict:
+def join_game(client, game_id: str, api_key: str) -> dict:
     resp = client.post(f"/game/dice/{game_id}/join", json={}, headers=auth_header(api_key))
     assert resp.status_code == 200, resp.json()
     return resp.json()
 
 
-def start_game(client, game_id: int, api_key: str) -> dict:
+def start_game(client, game_id: str, api_key: str) -> dict:
     resp = client.post(f"/game/dice/{game_id}/start", headers=auth_header(api_key))
     assert resp.status_code == 200, resp.json()
     return resp.json()
@@ -112,7 +112,7 @@ def start_game(client, game_id: int, api_key: str) -> dict:
 class TestDiceCreate:
     def test_create_dice_game(self, client):
         gid = create_dice_game(client)
-        assert gid >= 1
+        assert isinstance(gid, str) and len(gid) == 32
 
     def test_onchain_rejected_for_dice(self, client):
         resp = client.post("/game/dice/games", json={
@@ -163,7 +163,7 @@ class TestDiceJoinStart:
 # ── State & Action ───────────────────────────────────────
 
 class TestDiceAction:
-    def _setup_game(self, client) -> tuple[int, str, str]:
+    def _setup_game(self, client) -> tuple[str, str, str]:
         key_a = register("Alice")
         key_b = register("Bob")
         gid = create_dice_game(client)

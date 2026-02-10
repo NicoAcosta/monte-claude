@@ -69,7 +69,7 @@ curl -X POST http://localhost:8000/api/games
 
 Response:
 ```json
-{"game_id": 1}
+{"game_id": "a1b2c3d4e5f6..."}
 ```
 
 ### `GET /api/games`

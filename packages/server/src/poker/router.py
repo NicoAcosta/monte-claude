@@ -99,7 +99,7 @@ def configure(
 # ── Helpers ───────────────────────────────────────────────────────
 
 
-def _get_game_or_404(game_id: int) -> tuple[Game, GameConfig]:
+def _get_game_or_404(game_id: str) -> tuple[Game, GameConfig]:
     assert manager is not None, "Router not configured — call configure() first"
     game = manager.get_game(game_id)
     config = manager.get_config(game_id)
@@ -295,7 +295,7 @@ def create_game(req: CreateGameRequest) -> CreateGameResponse:
 
 
 @router.post("/{game_id}/join", response_model=JoinGameResponse)
-def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(_require_auth)):
+def join_game(game_id: str, req: JoinGameRequest, account: Account = Depends(_require_auth)):
     assert manager is not None and balance_store is not None and metadata_store is not None
     game, config = _get_game_or_404(game_id)
     try:
@@ -315,7 +315,7 @@ def join_game(game_id: int, req: JoinGameRequest, account: Account = Depends(_re
 
 
 @router.get("/{game_id}/waiting", response_model=WaitingResponse)
-def waiting(game_id: int) -> WaitingResponse:
+def waiting(game_id: str) -> WaitingResponse:
     game, _config = _get_game_or_404(game_id)
     return WaitingResponse(
         started=game.started,
@@ -328,7 +328,7 @@ def waiting(game_id: int) -> WaitingResponse:
 
 
 @router.post("/{game_id}/start", response_model=StartResponse)
-def start(game_id: int, account: Account = Depends(_require_auth)):
+def start(game_id: str, account: Account = Depends(_require_auth)):
     assert manager is not None and metadata_store is not None
     game, config = _get_game_or_404(game_id)
     if game.get_player_by_name(account.username) is None:
@@ -352,7 +352,7 @@ def start(game_id: int, account: Account = Depends(_require_auth)):
 
 
 @router.get("/{game_id}/state", response_model=PlayerStateResponse)
-def state(game_id: int, account: Account = Depends(_require_auth)):
+def state(game_id: str, account: Account = Depends(_require_auth)):
     game, config = _get_game_or_404(game_id)
     rp = game.get_player_by_name(account.username)
     if rp is None:
@@ -445,7 +445,7 @@ def state(game_id: int, account: Account = Depends(_require_auth)):
 
 
 @router.post("/{game_id}/action", response_model=ActionResponse)
-def action(game_id: int, req: ActionRequest, account: Account = Depends(_require_auth)):
+def action(game_id: str, req: ActionRequest, account: Account = Depends(_require_auth)):
     game, config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
@@ -474,7 +474,7 @@ def action(game_id: int, req: ActionRequest, account: Account = Depends(_require
 
 
 @router.post("/{game_id}/resign", response_model=ActionResponse)
-def resign(game_id: int, account: Account = Depends(_require_auth)):
+def resign(game_id: str, account: Account = Depends(_require_auth)):
     game, config = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
@@ -493,7 +493,7 @@ def resign(game_id: int, account: Account = Depends(_require_auth)):
 
 
 @router.get("/{game_id}/spectator", response_model=SpectatorResponse)
-def spectator(game_id: int) -> SpectatorResponse:
+def spectator(game_id: str) -> SpectatorResponse:
     game, config = _get_game_or_404(game_id)
     game._check_timeout()
     return _build_spectator_response(game, config)
@@ -503,7 +503,7 @@ def spectator(game_id: int) -> SpectatorResponse:
 
 
 @router.post("/{game_id}/chat", response_model=ChatResponse)
-def chat(game_id: int, req: ChatRequest, account: Account = Depends(_require_auth)):
+def chat(game_id: str, req: ChatRequest, account: Account = Depends(_require_auth)):
     game, _ = _get_game_or_404(game_id)
     player = game.get_player_by_name(account.username)
     if player is None:
@@ -518,7 +518,7 @@ def chat(game_id: int, req: ChatRequest, account: Account = Depends(_require_aut
 
 
 @router.post("/{game_id}/extend", response_model=ExtendResponse)
-def extend(game_id: int, account: Account = Depends(_require_auth)):
+def extend(game_id: str, account: Account = Depends(_require_auth)):
     game, _ = _get_game_or_404(game_id)
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
@@ -540,7 +540,7 @@ def extend(game_id: int, account: Account = Depends(_require_auth)):
 
 
 @router.get("/{game_id}/escrow", response_model=EscrowInfoResponse)
-def escrow_info(game_id: int) -> EscrowInfoResponse:
+def escrow_info(game_id: str) -> EscrowInfoResponse:
     game, config = _get_game_or_404(game_id)
     if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Escrow only available for on-chain games")
@@ -577,7 +577,7 @@ def escrow_info(game_id: int) -> EscrowInfoResponse:
 
 
 @router.get("/{game_id}/funding", response_model=FundingStatusResponse)
-def funding_status(game_id: int) -> FundingStatusResponse:
+def funding_status(game_id: str) -> FundingStatusResponse:
     game, config = _get_game_or_404(game_id)
     if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Funding status only available for on-chain games")
@@ -601,7 +601,7 @@ def funding_status(game_id: int) -> FundingStatusResponse:
 
 
 @router.get("/{game_id}/settlement", response_model=SettlementResponse)
-def settlement(game_id: int) -> SettlementResponse:
+def settlement(game_id: str) -> SettlementResponse:
     game, config = _get_game_or_404(game_id)
     if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Settlement only available for on-chain games")
@@ -626,7 +626,7 @@ def settlement(game_id: int) -> SettlementResponse:
 
 
 @router.get("/{game_id}/offchain-settlement", response_model=OffchainSettlementResponse)
-def offchain_settlement(game_id: int) -> OffchainSettlementResponse:
+def offchain_settlement(game_id: str) -> OffchainSettlementResponse:
     game, config = _get_game_or_404(game_id)
     if config.mode != GameMode.OFFCHAIN:
         raise HTTPException(status_code=400, detail="Not an off-chain game")

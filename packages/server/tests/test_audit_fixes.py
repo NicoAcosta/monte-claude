@@ -41,15 +41,15 @@ class TestStreamStoreSpecificCatch:
     def test_duplicate_stream_raises_value_error(self):
         """Duplicate host+game raises ValueError with descriptive message."""
         store = StreamStore(get_pool())
-        store.create(game_id=100, host_username="Host1", title="First")
+        store.create(game_id="game-100", host_username="Host1", title="First")
         with pytest.raises(ValueError, match="already has a stream"):
-            store.create(game_id=100, host_username="Host1", title="Second")
+            store.create(game_id="game-100", host_username="Host1", title="Second")
 
     def test_different_host_same_game_succeeds(self):
         """Non-duplicate combinations still work after the fix."""
         store = StreamStore(get_pool())
-        s1 = store.create(game_id=100, host_username="HostA", title="Stream A")
-        s2 = store.create(game_id=100, host_username="HostB", title="Stream B")
+        s1 = store.create(game_id="game-100", host_username="HostA", title="Stream A")
+        s2 = store.create(game_id="game-100", host_username="HostB", title="Stream B")
         assert s1.id != s2.id
 
 
@@ -57,7 +57,7 @@ class TestStreamStoreSpecificCatch:
 
 
 class TestGameManagerCleanup:
-    def _make_finished_game(self, mgr: GameManager) -> int:
+    def _make_finished_game(self, mgr: GameManager) -> str:
         gid, game, _ = mgr.create_game()
         game.register("Alice")
         game.register("Bob")

@@ -33,7 +33,7 @@ def get_escrow_info(
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Generate or return cached escrow config for a full on-chain game.
 
@@ -122,7 +122,7 @@ def check_funding(
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Check deposit status for all participants.
 
@@ -167,7 +167,7 @@ def get_settlement(
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Compute on-chain settlement payouts and sign them.
 

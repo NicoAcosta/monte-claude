@@ -130,7 +130,7 @@ class ErrorResponse(BaseModel):
 
 
 class CreateGameResponse(BaseModel):
-    game_id: int
+    game_id: str
     game_type: str = "poker"
     max_players: int
     token: str | None
@@ -141,7 +141,7 @@ class CreateGameResponse(BaseModel):
 
 
 class GameListItem(BaseModel):
-    id: int
+    id: str
     game_type: str = "poker"
     player_count: int
     player_names: list[str]
@@ -165,7 +165,7 @@ class GameListResponse(BaseModel):
 # ── History models ──────────────────────────────────────
 
 class GameEventResponse(BaseModel):
-    game_id: int
+    game_id: str
     event_type: str
     timestamp: float
     hand_number: int
@@ -174,7 +174,7 @@ class GameEventResponse(BaseModel):
 
 
 class GameHistoryResponse(BaseModel):
-    game_id: int
+    game_id: str
     events: list[GameEventResponse]
 
 
@@ -224,7 +224,7 @@ class CreateStreamResponse(BaseModel):
 
 class StreamListItem(BaseModel):
     id: int
-    game_id: int
+    game_id: str
     host: str
     title: str
 

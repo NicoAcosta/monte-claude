@@ -8,7 +8,7 @@ from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsSto
 from poker.recorder import make_poker_materializer
 
 
-def _make_recorder(game_id=1):
+def _make_recorder(game_id="test-game-1"):
     pool = get_pool()
     event_store = GameEventStore(pool)
     summary_store = HandSummaryStore(pool)
@@ -42,7 +42,7 @@ class TestGameRecorderIntegration:
         cp = game.current_hand.current_player
         game.do_action(cp.id, "fold")
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         event_types = [e.event_type for e in events]
 
         # Must have: hand_started, cards_dealt (x2), actions (blinds + fold),
@@ -63,7 +63,7 @@ class TestGameRecorderIntegration:
         cp = game.current_hand.current_player
         game.do_action(cp.id, "fold")
 
-        summaries = summary_store.get_by_game(1)
+        summaries = summary_store.get_by_game("test-game-1")
         assert len(summaries) >= 1
         assert summaries[0].hand_number == 1
         assert summaries[0].pot > 0
@@ -101,7 +101,7 @@ class TestGameRecorderIntegration:
             if cp is not None:
                 game.do_action(cp.id, "fold")
 
-        summaries = summary_store.get_by_game(1)
+        summaries = summary_store.get_by_game("test-game-1")
         assert len(summaries) >= 3
 
         alice_stats = stats_store.get("Alice")
@@ -120,7 +120,7 @@ class TestGameRecorderIntegration:
         cp = game.current_hand.current_player
         game.do_action(cp.id, "fold")
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         sequences = [e.sequence for e in events]
         assert sequences == sorted(sequences)
         assert len(set(sequences)) == len(sequences)  # all unique
@@ -150,7 +150,7 @@ class TestGameRecorderIntegration:
                     game.do_action(cp.id, "call")
             hand = game.current_hand
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         community_events = [e for e in events if e.event_type == "community_dealt"]
         # Should have flop, turn, river = 3 community_dealt events for hand 1
         hand1_community = [e for e in community_events if e.hand_number == 1]
@@ -177,7 +177,7 @@ class TestGameRecorderIntegration:
                 game.do_action(game.current_hand.current_player.id, "fold")
 
         if game.game_over:
-            events = event_store.get_by_game(1)
+            events = event_store.get_by_game("test-game-1")
             event_types = [e.event_type for e in events]
             assert "game_over" in event_types
             assert "player_eliminated" in event_types

@@ -28,7 +28,7 @@ def reset_state():
 
     poker_materializer = make_poker_materializer(game_module.summary_store)
 
-    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
+    def make_recorder(game_id: str, game_type: str = "poker") -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,
@@ -90,7 +90,7 @@ def get_balance(client, api_key: str) -> int:
     return bal.amount
 
 
-def create_offchain_game(client, buy_in: int, max_players: int = 0) -> int:
+def create_offchain_game(client, buy_in: int, max_players: int = 0) -> str:
     resp = client.post("/game/poker/games", json={"buy_in": buy_in, "max_players": max_players})
     assert resp.status_code == 200
     data = resp.json()
@@ -98,13 +98,13 @@ def create_offchain_game(client, buy_in: int, max_players: int = 0) -> int:
     return data["game_id"]
 
 
-def join_game(client, game_id: int, api_key: str) -> dict:
+def join_game(client, game_id: str, api_key: str) -> dict:
     resp = client.post(f"/game/poker/{game_id}/join", json={}, headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()
 
 
-def start_game(client, game_id: int, api_key: str) -> dict:
+def start_game(client, game_id: str, api_key: str) -> dict:
     resp = client.post(f"/game/poker/{game_id}/start", headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()

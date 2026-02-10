@@ -29,7 +29,7 @@ def reset_state():
 
     poker_materializer = make_poker_materializer(game_module.summary_store)
 
-    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
+    def make_recorder(game_id: str, game_type: str = "poker") -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,
@@ -62,7 +62,7 @@ def client():
 
 # ── Helpers ──────────────────────────────────────────────
 
-def create_game(client, **kwargs) -> int:
+def create_game(client, **kwargs) -> str:
     """Helper: create a game and return its id."""
     body = {"max_players": 0, "buy_in": 0, **kwargs}
     resp = client.post("/game/poker/games", json=body)
@@ -79,7 +79,7 @@ def auth_header(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
-def join_game(client, game_id: int, api_key: str, wallet_address: str | None = None) -> dict:
+def join_game(client, game_id: str, api_key: str, wallet_address: str | None = None) -> dict:
     """Helper: join a game with an API key, return response json."""
     body = {"wallet_address": wallet_address}
     resp = client.post(f"/game/poker/{game_id}/join", json=body, headers=auth_header(api_key))

@@ -9,7 +9,7 @@ from poker.recorder import make_poker_materializer
 from poker.replay import GameSnapshot, apply_event, replay_game, replay_to
 
 
-def _make_recorder(game_id=1):
+def _make_recorder(game_id="test-game-1"):
     pool = get_pool()
     event_store = GameEventStore(pool)
     summary_store = HandSummaryStore(pool)
@@ -44,7 +44,7 @@ class TestReplay:
         game.do_action(cp.id, "fold")
 
         # Replay events for hand 1 only
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         hand1_events = [e for e in events if e.hand_number == 1]
 
         snapshots = replay_game(hand1_events)
@@ -84,7 +84,7 @@ class TestReplay:
                     game.do_action(cp.id, "call")
             hand = game.current_hand
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         hand1_events = [e for e in events if e.hand_number == 1]
 
         snapshots = replay_game(hand1_events)
@@ -110,7 +110,7 @@ class TestReplay:
         cp = game.current_hand.current_player
         game.do_action(cp.id, "fold")
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         hand1_events = [e for e in events if e.hand_number == 1]
         snapshots = replay_game(hand1_events)
 
@@ -136,7 +136,7 @@ class TestReplay:
         cp = game.current_hand.current_player
         game.do_action(cp.id, "fold")
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         hand1_events = [e for e in events if e.hand_number == 1]
 
         # replay_to step 0 = after first event only
@@ -163,7 +163,7 @@ class TestReplay:
         cp = hand.current_player
         game.do_action(cp.id, "call")
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         hand1_events = [e for e in events if e.hand_number == 1]
 
         snapshots = replay_game(hand1_events)
@@ -191,7 +191,7 @@ class TestReplay:
         if hand and not hand.is_complete and hand.current_player:
             game.do_action(hand.current_player.id, "check")
 
-        events = event_store.get_by_game(1)
+        events = event_store.get_by_game("test-game-1")
         hand1_events = [e for e in events if e.hand_number == 1]
         snapshots = replay_game(hand1_events)
 

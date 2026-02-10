@@ -8,7 +8,7 @@ from core.history_models import GameEvent, PlayerStats  # noqa: F401
 
 @dataclass(frozen=True)
 class HandSummary:
-    game_id: int
+    game_id: str
     hand_number: int
     dealer_id: int
     player_ids: tuple[int, ...]

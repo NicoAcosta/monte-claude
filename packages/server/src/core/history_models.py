@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class GameEvent:
-    game_id: int
+    game_id: str
     event_type: str
     timestamp: float
     hand_number: int
