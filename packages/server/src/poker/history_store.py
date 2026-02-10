@@ -20,22 +20,22 @@ class HandSummaryStore:
                 """INSERT INTO hand_summaries
                    (game_id, hand_number, dealer_id, player_ids, winner_ids, pot,
                     community_cards, timestamp, winner_names, winning_cards, result_type,
-                    token_symbol)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    token_symbol, seed_hex, seed_commitment)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (summary.game_id, summary.hand_number, summary.dealer_id,
                  json.dumps(list(summary.player_ids)),
                  json.dumps(list(summary.winner_ids)),
                  summary.pot, summary.community_cards, summary.timestamp,
                  json.dumps(list(summary.winner_names)),
                  summary.winning_cards, summary.result_type,
-                 summary.token_symbol),
+                 summary.token_symbol, summary.seed_hex, summary.seed_commitment),
             )
             conn.commit()
 
     _SUMMARY_COLS = (
         "game_id, hand_number, dealer_id, player_ids, winner_ids, "
         "pot, community_cards, timestamp, winner_names, winning_cards, "
-        "result_type, token_symbol"
+        "result_type, token_symbol, seed_hex, seed_commitment"
     )
 
     @staticmethod
@@ -49,6 +49,8 @@ class HandSummaryStore:
             winning_cards=r[9] or "{}",
             result_type=r[10] or "fold",
             token_symbol=r[11],
+            seed_hex=r[12] or "",
+            seed_commitment=r[13] or "",
         )
 
     def get_by_game(self, game_id: int) -> list[HandSummary]:

@@ -20,3 +20,5 @@ class HandSummary:
     winning_cards: str = "{}"  # JSON: {name: [cards]}
     result_type: str = "fold"  # "fold" or "showdown"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""

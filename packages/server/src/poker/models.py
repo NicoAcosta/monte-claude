@@ -158,6 +158,8 @@ class HandSummaryResponse(BaseModel):
     winning_cards: dict[str, list[str]] = {}
     result_type: str = "fold"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class HandSummariesResponse(BaseModel):
@@ -175,6 +177,8 @@ class RecentHandItem(BaseModel):
     winning_cards: dict[str, list[str]] = {}
     result_type: str = "fold"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class RecentHandsResponse(BaseModel):
