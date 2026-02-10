@@ -4,6 +4,7 @@ from core.db import get_pool
 
 TABLES = [
     "balance_history", "auth_events", "escrow_operations",
+    "bug_reports", "questions",
     "accounts", "balances", "game_events", "hand_summaries",
     "player_stats", "player_token_stats", "game_metadata", "streams",
     "round_summaries",
@@ -22,9 +23,11 @@ def clean_tables():
     from data_api.app import _cache
     _cache.clear()
     # Clear rate limiters used by account_api
-    from account_api.app import _register_limiter, _faucet_limiter
+    from account_api.app import _register_limiter, _faucet_limiter, _bug_limiter, _question_limiter
     _register_limiter.clear()
     _faucet_limiter.clear()
+    _bug_limiter.clear()
+    _question_limiter.clear()
     yield
 
 

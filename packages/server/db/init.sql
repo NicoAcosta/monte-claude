@@ -143,6 +143,26 @@ CREATE TABLE escrow_operations (
 );
 CREATE INDEX idx_escrow_operations_game_id ON escrow_operations (game_id);
 
+-- ── Feedback tables (append-only) ────────────────────────
+
+CREATE TABLE bug_reports (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT NOT NULL REFERENCES accounts(username),
+    body            TEXT NOT NULL CHECK (char_length(body) BETWEEN 10 AND 2000),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_bug_reports_username ON bug_reports (username);
+CREATE INDEX idx_bug_reports_created_at ON bug_reports (created_at);
+
+CREATE TABLE questions (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT NOT NULL REFERENCES accounts(username),
+    body            TEXT NOT NULL CHECK (char_length(body) BETWEEN 10 AND 2000),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_questions_username ON questions (username);
+CREATE INDEX idx_questions_created_at ON questions (created_at);
+
 -- ── Generic round summaries (dice + future games) ────
 CREATE TABLE round_summaries (
     id              BIGSERIAL PRIMARY KEY,

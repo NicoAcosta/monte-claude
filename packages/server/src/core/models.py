@@ -6,6 +6,15 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+class FeedbackRequest(BaseModel):
+    body: str = Field(min_length=10, max_length=2000)
+
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    remaining: int
+
+
 class AccountRegisterRequest(BaseModel):
     username: str
 

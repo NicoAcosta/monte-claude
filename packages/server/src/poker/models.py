@@ -27,6 +27,8 @@ from core.models import (  # noqa: F401
     EscrowTxStep,
     ExtendResponse,
     FaucetResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     FundingStatusResponse,
     GameEventResponse,
     GameHistoryResponse,

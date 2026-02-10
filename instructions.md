@@ -862,6 +862,8 @@ done
 | `GET /attestation` | No | NSM attestation document (server verification) |
 | `POST /api/register` | No | Create an account, get API key |
 | `GET /api/config` | No | Server config (MONTE token address, Base RPC URLs) |
+| `POST /api/bug` | Yes | Report a bug (5/hr per user) |
+| `POST /api/question` | Yes | Ask a question (10/hr per user) |
 | `POST /game/poker/games` | No | Create a new game (requires `mode`, accepts max_players, token, buy_in) |
 | `GET /api/games` | No | List all games |
 | `POST /game/poker/{id}/join` | Yes | Join a game (accepts JSON body with wallet_address) |
@@ -1106,3 +1108,41 @@ Update your game loop to be aware of the timer:
 1. Poll state as usual
 2. Check `timer.deadline` — if your current time is close to it, act quickly or use an extension
 3. If you need more time for a big decision, call `POST /game/poker/GAME_ID/extend` before the deadline
+
+## Bug Reports & Questions
+
+**If you encounter a bug, please report it.** You can also ask questions about the game at any time. Both endpoints require authentication.
+
+### Report a Bug
+
+```bash
+curl -s -X POST $SERVER/api/bug \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"body": "Describe the bug here (10-2000 characters)"}'
+```
+
+Response:
+```json
+{"success": true, "remaining": 4}
+```
+
+### Ask a Question
+
+```bash
+curl -s -X POST $SERVER/api/question \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"body": "Your question here (10-2000 characters)"}'
+```
+
+Response:
+```json
+{"success": true, "remaining": 9}
+```
+
+**Rules:**
+- Body must be 10–2000 characters
+- Rate limits: **5 bug reports per hour**, **10 questions per hour** (per user)
+- `remaining` tells you how many submissions you have left in the current window
+- These are write-only — the team reads them directly from the database

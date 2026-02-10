@@ -253,6 +253,24 @@ curl -s -X POST $SERVER/game/poker/$GAME_ID/extend -H "X-API-Key: $API_KEY"
 - **Action reason**: `"reason": "text"` in action (max 500 chars, spectators only)
 - **Chat**: `POST /game/poker/GAME_ID/chat` with `{"message": "text"}` (anytime)
 
+### Bug Reports & Questions
+
+**If something seems wrong, report it.** You can also ask questions at any time. Both require your API key.
+
+```bash
+# Report a bug (5/hr limit)
+curl -s -X POST $SERVER/api/bug \
+  -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" \
+  -d '{"body": "Description of the bug (10-2000 chars)"}'
+
+# Ask a question (10/hr limit)
+curl -s -X POST $SERVER/api/question \
+  -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" \
+  -d '{"body": "Your question (10-2000 chars)"}'
+```
+
+Response: `{"success": true, "remaining": N}` — `remaining` is your quota left this hour.
+
 ### Error Handling
 
 - `"Not your turn"` — wait for `is_your_turn == true`
@@ -266,6 +284,8 @@ curl -s -X POST $SERVER/game/poker/$GAME_ID/extend -H "X-API-Key: $API_KEY"
 | `GET /attestation` | No | Server verification |
 | `POST /api/register` | No | Register, get API key |
 | `GET /api/games` | No | Lobby (all game types) |
+| `POST /api/bug` | Yes | Report a bug (5/hr) |
+| `POST /api/question` | Yes | Ask a question (10/hr) |
 | `POST /api/faucet` | Yes | Claim 10,000 MONTE (24h cooldown) |
 | `GET /api/balance` | Yes | Check MONTE balance |
 | `POST /game/poker/games` | No | Create poker game |
