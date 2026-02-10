@@ -15,6 +15,7 @@ from core.escrow import (
     compute_escrow_address,
     compute_payouts,
     generate_salt,
+    sign_create_escrow,
     sign_settlement,
 )
 
@@ -30,6 +31,7 @@ RAKE_BENEFICIARY = "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
 
 CHAIN_ID = 8453
 ESCROW_ADDR = "0x1234567890abcdef1234567890abcdef12345678"
+FACTORY_ADDR = "0x1111111111111111111111111111111111111111"
 
 
 def _make_config() -> EscrowConfig:
@@ -153,6 +155,84 @@ class TestSignSettlement:
     def test_different_payouts_different_signatures(self):
         sig1 = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, [(ALICE, 200_000_000), (BOB, 0)])
         sig2 = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, [(ALICE, 100_000_000), (BOB, 100_000_000)])
+        assert sig1 != sig2
+
+
+# ══════════════════════════════════════════════════════════
+# sign_create_escrow
+# ══════════════════════════════════════════════════════════
+
+class TestSignCreateEscrow:
+    def test_produces_valid_signature(self):
+        config = _make_config()
+        salt = generate_salt()
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        assert len(sig_bytes) == 65
+
+    def test_recovers_to_admin(self):
+        config = _make_config()
+        salt = generate_salt()
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+
+        factory_addr = Web3.to_checksum_address(FACTORY_ADDR)
+        participants_hash = Web3.keccak(
+            b"".join(bytes.fromhex(addr[2:]) for addr in config.participants)
+        )
+
+        structured_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "CreateEscrow": [
+                    {"name": "token", "type": "address"},
+                    {"name": "admin", "type": "address"},
+                    {"name": "rakeBeneficiary", "type": "address"},
+                    {"name": "depositAmount", "type": "uint256"},
+                    {"name": "rakeBps", "type": "uint16"},
+                    {"name": "fundingDeadline", "type": "uint256"},
+                    {"name": "settlementDeadline", "type": "uint256"},
+                    {"name": "participantsHash", "type": "bytes32"},
+                    {"name": "pcr0Hash", "type": "bytes32"},
+                    {"name": "salt", "type": "bytes32"},
+                ],
+            },
+            "primaryType": "CreateEscrow",
+            "domain": {
+                "name": "EscrowFactory",
+                "version": "1",
+                "chainId": CHAIN_ID,
+                "verifyingContract": factory_addr,
+            },
+            "message": {
+                "token": config.token,
+                "admin": config.admin,
+                "rakeBeneficiary": config.rake_beneficiary,
+                "depositAmount": config.deposit_amount,
+                "rakeBps": config.rake_bps,
+                "fundingDeadline": config.funding_deadline,
+                "settlementDeadline": config.settlement_deadline,
+                "participantsHash": participants_hash,
+                "pcr0Hash": config.pcr0_hash,
+                "salt": salt,
+            },
+        }
+
+        signable = encode_typed_data(full_message=structured_data)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
+
+    def test_different_salt_different_sig(self):
+        config = _make_config()
+        salt1 = b"\x01" * 32
+        salt2 = b"\x02" * 32
+        sig1 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt1)
+        sig2 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt2)
         assert sig1 != sig2
 
 
