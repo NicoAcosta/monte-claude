@@ -1,20 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
 import { usePoll } from "@/hooks/use-poll"
 import { ConnectionStatus } from "@/components/connection-status"
 import { GameCard } from "@/components/game-card"
 import { StreamCard } from "@/components/stream-card"
 import type { Game, Stream, GameListResponse, StreamListResponse } from "@/lib/types"
-
-function gamesFingerprint(games: Game[]): string {
-  return games
-    .map(
-      (g) =>
-        `${g.id}|${g.game_over ? "f" : g.started ? "p" : "w"}|${g.hand_number}|${g.player_count}|${g.player_names.join(",")}|${g.winner || ""}`
-    )
-    .join(";;")
-}
 
 export function GameLobby({
   initialGames,
@@ -35,8 +25,6 @@ export function GameLobby({
   const games = gamesData?.games ?? initialGames
   const streams = streamsData?.streams ?? initialStreams
 
-  const fingerprint = useMemo(() => gamesFingerprint(games), [games])
-
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
       {/* Header */}
@@ -54,10 +42,7 @@ export function GameLobby({
 
       {/* Games grid */}
       {games.length > 0 ? (
-        <div
-          key={fingerprint}
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {games.map((game, i) => (
             <GameCard key={game.id} game={game} index={i} />
           ))}
