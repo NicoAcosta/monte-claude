@@ -100,21 +100,7 @@ export function useReplayQueue(
   const queueRef = useRef<SpectatorState[]>([])
   const processingRef = useRef(false)
   const displayStateRef = useRef<SpectatorState>(initialState)
-
-  // Ingest new snapshots every 200ms
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const newSnapshots = consumeSnapshots()
-      if (newSnapshots.length > 0) {
-        queueRef.current.push(...newSnapshots)
-        if (!processingRef.current) {
-          processQueue()
-        }
-      }
-    }, 200)
-    return () => clearInterval(interval)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consumeSnapshots])
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const processQueue = useCallback(() => {
     if (processingRef.current) return
@@ -144,11 +130,31 @@ export function useReplayQueue(
         delay = Math.max(delay / 2, 150)
       }
 
-      setTimeout(step, delay)
+      timeoutRef.current = setTimeout(step, delay)
     }
 
     step()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Ingest new snapshots every 200ms
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newSnapshots = consumeSnapshots()
+      if (newSnapshots.length > 0) {
+        queueRef.current.push(...newSnapshots)
+        if (!processingRef.current) {
+          processQueue()
+        }
+      }
+    }, 200)
+    return () => clearInterval(interval)
+  }, [consumeSnapshots, processQueue])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
   }, [])
 
   return { displayState, animationPhase, isReplaying }
