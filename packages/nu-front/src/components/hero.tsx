@@ -85,7 +85,7 @@ export function Hero() {
 
 				{/* Small note */}
 				<p className="hero-enter hero-enter-5 text-sm text-mc-white/40">
-					Free to play &mdash; no wallet needed
+					Free to play or for keeps.
 				</p>
 			</div>
 
