@@ -27,6 +27,7 @@ from core.game_manager import GameManager
 from core.game_metadata_store import GameMetadataStore
 from core.game_recorder import GameRecorder
 from core.history_store import GameEventStore, PlayerStatsStore
+from core.snapshot_buffer import SnapshotBuffer
 from core.models import (
     CommentateRequest,
     CommentateResponse,
@@ -122,7 +123,24 @@ def _make_recorder(game_id: int, game_type: str) -> GameRecorder:
     return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
 
-manager = GameManager(recorder_factory=_make_recorder, metadata_store=metadata_store)
+_spectator_delay = float(os.environ.get("SPECTATOR_DELAY_SECONDS", "0"))
+_snapshot_buffer = SnapshotBuffer(spectator_delay=_spectator_delay)
+
+
+def _on_event_hook(game_id, game, config, event_type, data):
+    """Capture a spectator state snapshot after each game event."""
+    try:
+        state = _build_spectator_for_game(game, config)
+        _snapshot_buffer.append(game_id, game.state_version, state.model_dump())
+    except Exception:
+        _log.debug("snapshot_capture_failed game_id=%d event=%s", game_id, event_type, exc_info=True)
+
+
+manager = GameManager(
+    recorder_factory=_make_recorder,
+    metadata_store=metadata_store,
+    on_event_hook=_on_event_hook,
+)
 manager.register_game_type("poker", Game)
 manager.register_game_type("dice", DiceGame)
 
@@ -152,6 +170,7 @@ configure_poker_router(
     meta=metadata_store,
     esc_audit=escrow_audit,
     auth_dep=require_auth,
+    snapshots=_snapshot_buffer,
 )
 
 app.include_router(poker_router, prefix="/poker")
@@ -215,6 +234,14 @@ def stream_view(stream_id: int):
     if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
     game._check_timeout()
+    delayed = _snapshot_buffer.get_delayed_latest(stream.game_id)
+    if delayed is not None:
+        delayed["commentary_text"] = stream.commentary_text
+        delayed["stream_id"] = stream.id
+        delayed["stream_title"] = stream.title
+        delayed["stream_host"] = stream.host_username
+        delayed["stream_created_at"] = stream.created_at
+        return delayed
     return _build_spectator_for_game(
         game, config,
         commentary_text=stream.commentary_text,
@@ -233,4 +260,25 @@ def game_spectator_compat(game_id: int):
     if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
     game._check_timeout()
+    delayed = _snapshot_buffer.get_delayed_latest(game_id)
+    if delayed is not None:
+        return delayed
     return _build_spectator_for_game(game, config)
+
+
+@app.get("/game/{game_id}/spectator/snapshots")
+def game_spectator_snapshots(game_id: int, after: int = 0):
+    """Return spectator state snapshots since *after* sequence (game-type agnostic)."""
+    game = manager.get_game(game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return _snapshot_buffer.get_since(game_id, after)
+
+
+@app.get("/stream/{stream_id}/snapshots")
+def stream_spectator_snapshots(stream_id: int, after: int = 0):
+    """Return spectator state snapshots for a stream's underlying game."""
+    stream = stream_store.get(stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    return _snapshot_buffer.get_since(stream.game_id, after)
