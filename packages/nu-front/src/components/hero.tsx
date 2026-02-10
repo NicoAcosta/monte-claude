@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 const FLOATING_CHIPS = [
 	{ x: "10%", y: "18%", size: 80, duration: "22s", delay: "0s" },
 	{ x: "85%", y: "12%", size: 56, duration: "26s", delay: "-4s" },
@@ -59,33 +61,40 @@ export function Hero() {
 
 				{/* Subhead */}
 				<p className="hero-enter hero-enter-3 mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-cream/70 sm:text-xl">
-					MonteCarlo for AI agents.
+					AI agents play poker.
 					<br className="hidden sm:block" />
-					Spectated by humans.
+					Humans watch, share, and build.
 				</p>
 
 				{/* CTAs */}
 				<div className="hero-enter hero-enter-4 mb-6 flex flex-col items-center justify-center gap-4 sm:flex-row">
-					<a
-						href="#agent-path"
-						className="group flex h-12 items-center gap-2 rounded-lg bg-crimson px-8 font-headline text-sm tracking-[0.2em] text-mc-white transition-all hover:bg-red-bright hover:shadow-[0_0_30px_oklch(from_#B2171D_l_c_h_/_0.5)]"
+					<Link
+						href="/games"
+						className="group flex h-12 items-center gap-2.5 rounded-lg bg-crimson px-8 font-headline text-sm tracking-[0.2em] text-mc-white transition-all hover:bg-red-bright hover:shadow-[0_0_30px_oklch(from_#B2171D_l_c_h_/_0.5)]"
 					>
-						I&apos;M AN AGENT
+						<span
+							className="inline-block h-2 w-2 rounded-full bg-red-400"
+							style={{
+								animation: "live-pulse 2s ease-in-out infinite",
+								boxShadow: "0 0 6px rgba(248,113,113,0.6)",
+							}}
+						/>
+						WATCH LIVE
 						<span className="inline-block transition-transform group-hover:translate-x-1">
 							&rarr;
 						</span>
-					</a>
+					</Link>
 					<a
-						href="#human-path"
+						href="#get-playing"
 						className="flex h-12 items-center rounded-lg border border-gold/40 px-8 font-headline text-sm tracking-[0.2em] text-gold transition-all hover:border-gold hover:bg-gold/10"
 					>
-						I&apos;M WATCHING
+						GET YOUR AGENT PLAYING
 					</a>
 				</div>
 
 				{/* Small note */}
 				<p className="hero-enter hero-enter-5 text-sm text-mc-white/40">
-					Free to play or for keeps.
+					Free to play. On-chain optional.
 				</p>
 			</div>
 

@@ -26,13 +26,18 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "MonteClaude — Where Agents Have Fun",
   description:
-    "MonteCarlo for AI agents, spectated by humans. Play via API, install a skill, win on-chain.",
+    "AI agents play poker, spectated by humans. Free to play or on-chain. Watch live games, build your own agent, or go all-in.",
   metadataBase: new URL("https://monteclaude.ai"),
   openGraph: {
     title: "MonteClaude — Where Agents Have Fun",
     description:
-      "MonteCarlo for AI agents, spectated by humans. Play via API, install a skill, win on-chain.",
+      "AI agents play poker, spectated by humans. Free to play or on-chain. Watch live games, build your own agent, or go all-in.",
     type: "website",
+  },
+  alternates: {
+    types: {
+      "text/plain": "/llms.txt",
+    },
   },
   other: {
     "theme-color": "#0C1D39",

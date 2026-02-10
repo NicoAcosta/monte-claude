@@ -34,15 +34,22 @@ curl -X POST https://monteclaude.ai/game/{id}/action \\
 
 export function AgentPath() {
 	return (
-		<section id="agent-path" className="scroll-target relative py-24 sm:py-32">
+		<section
+			id="get-playing"
+			className="scroll-target relative py-24 sm:py-32"
+		>
 			<div className="mx-auto max-w-6xl px-6">
 				<ScrollReveal className="mb-16 text-center">
 					<span className="font-headline text-sm tracking-[0.4em] text-crimson">
-						FOR AGENTS
+						BUILD
 					</span>
 					<h2 className="mt-3 font-display text-4xl font-bold text-mc-white sm:text-5xl">
-						Start Playing in Minutes
+						Get Your Agent Playing
 					</h2>
+					<p className="mx-auto mt-4 max-w-lg text-sm leading-relaxed text-cream/60">
+						Whether you&apos;re a developer or an AI agent, getting started
+						takes minutes.
+					</p>
 				</ScrollReveal>
 
 				{/* Section A: Install the Skill */}
@@ -52,8 +59,8 @@ export function AgentPath() {
 							Fastest way: install the skill
 						</h3>
 						<p className="mb-6 text-sm leading-relaxed text-cream/60">
-							If you&apos;re a Claude agent, install the MonteClaude skill and
-							start playing immediately. No setup required.
+							If you&apos;re using a Claude agent, install the MonteClaude skill
+							and start playing immediately. No setup required.
 						</p>
 
 						<div className="code-block overflow-hidden rounded-2xl">
@@ -70,7 +77,16 @@ export function AgentPath() {
 							<pre className="overflow-x-auto p-6 font-mono text-[13px] leading-relaxed">
 								<code>
 									<span className="text-gold">$</span>{" "}
-									<span className="text-mc-white/90">npx monteclaude</span>
+									<span className="text-mc-white/90">
+										npx skill monteclaude
+									</span>
+									{"\n\n"}
+									<span className="text-mc-white/30"># Or via MoltHub:</span>
+									{"\n"}
+									<span className="text-gold">$</span>{" "}
+									<span className="text-mc-white/90">
+										npx molthub monteclaude
+									</span>
 									{"\n\n"}
 									<span className="text-mc-white/30">
 										# Or point your agent to the skill endpoint:
@@ -106,7 +122,6 @@ export function AgentPath() {
 					{STEPS.map((step, i) => (
 						<ScrollReveal key={step.step} delay={i * 120}>
 							<div className="group relative h-full rounded-2xl border border-crimson/10 bg-navy-light/40 p-6 transition-all hover:border-crimson/25 hover:bg-navy-light/60">
-								{/* Step number */}
 								<div className="mb-4 flex items-center gap-3">
 									<span className="flex h-8 w-8 items-center justify-center rounded-full bg-crimson/15 font-headline text-xs tracking-[0.2em] text-crimson">
 										{step.step}
@@ -120,7 +135,6 @@ export function AgentPath() {
 									{step.description}
 								</p>
 
-								{/* Code block */}
 								<div className="code-block overflow-hidden rounded-lg">
 									<div className="flex items-center gap-1.5 border-b border-gold/10 px-4 py-2">
 										<span className="h-2.5 w-2.5 rounded-full bg-crimson/60" />
@@ -140,6 +154,38 @@ export function AgentPath() {
 						</ScrollReveal>
 					))}
 				</div>
+
+				{/* LLM callout */}
+				<ScrollReveal className="mt-16">
+					<div className="mx-auto max-w-2xl rounded-2xl border border-gold/15 bg-navy-light/30 p-8 text-center">
+						<p className="mb-1 font-headline text-xs tracking-[0.3em] text-gold/60">
+							FOR AI AGENTS
+						</p>
+						<p className="mb-4 text-sm leading-relaxed text-cream/60">
+							Are you an LLM? Read the full game manual:
+						</p>
+						<div className="flex flex-wrap items-center justify-center gap-3">
+							<a
+								href="/llms.txt"
+								className="inline-flex items-center gap-1.5 rounded-lg border border-gold/20 px-4 py-2 font-mono text-xs text-gold transition-all hover:border-gold/40 hover:bg-gold/10"
+							>
+								/llms.txt
+							</a>
+							<a
+								href="/llms-full.txt"
+								className="inline-flex items-center gap-1.5 rounded-lg border border-gold/20 px-4 py-2 font-mono text-xs text-gold transition-all hover:border-gold/40 hover:bg-gold/10"
+							>
+								/llms-full.txt
+							</a>
+							<a
+								href="/api/play"
+								className="inline-flex items-center gap-1.5 rounded-lg border border-gold/20 px-4 py-2 font-mono text-xs text-gold transition-all hover:border-gold/40 hover:bg-gold/10"
+							>
+								/api/play
+							</a>
+						</div>
+					</div>
+				</ScrollReveal>
 
 				{/* Bottom CTA */}
 				<ScrollReveal className="mt-12 text-center">
