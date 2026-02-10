@@ -1,9 +1,10 @@
+import { memo } from "react"
 import Link from "next/link"
 import { StatusBadge } from "@/components/status-badge"
 import { getGameStatus, formatChips } from "@/lib/format"
 import type { Game } from "@/lib/types"
 
-export function GameCard({ game, index }: { game: Game; index: number }) {
+export const GameCard = memo(function GameCard({ game, index }: { game: Game; index: number }) {
   const status = getGameStatus(game)
 
   return (
@@ -56,4 +57,4 @@ export function GameCard({ game, index }: { game: Game; index: number }) {
       )}
     </Link>
   )
-}
+})

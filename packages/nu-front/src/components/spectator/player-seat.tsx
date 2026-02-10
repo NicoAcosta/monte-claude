@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { CardDisplay, CardBack } from "@/components/card-display"
 import { formatChips } from "@/lib/format"
 import type { SpectatorPlayer } from "@/lib/types"
@@ -17,7 +18,7 @@ interface PlayerSeatProps {
   actionLabel?: string | null
 }
 
-export function PlayerSeat({
+export const PlayerSeat = memo(function PlayerSeat({
   player,
   position,
   isCurrentTurn,
@@ -82,7 +83,7 @@ export function PlayerSeat({
           {formatChips(player.chips)}
         </div>
         {player.current_bet > 0 && (
-          <div className="mt-0.5 text-[11px] text-[#a17e2f]">
+          <div className="mt-0.5 text-[11px] text-gold-muted">
             Bet: {formatChips(player.current_bet)}
           </div>
         )}
@@ -90,7 +91,7 @@ export function PlayerSeat({
         {/* Badges */}
         <div className="mt-0.5 flex flex-wrap justify-center gap-1">
           {isDealer && (
-            <span className="rounded-full bg-dealer-gold px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-[#1a1a1a]">
+            <span className="rounded-full bg-dealer-gold px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-mc-black">
               D
             </span>
           )}
@@ -110,7 +111,7 @@ export function PlayerSeat({
             </span>
           )}
           {player.is_folded && (
-            <span className="rounded-full bg-white/15 px-1.5 py-px text-[9px] font-bold uppercase text-[#8a9a7c]">
+            <span className="rounded-full bg-white/15 px-1.5 py-px text-[9px] font-bold uppercase text-sage">
               FOLD
             </span>
           )}
@@ -160,4 +161,4 @@ export function PlayerSeat({
       )}
     </div>
   )
-}
+})
