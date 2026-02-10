@@ -1,4 +1,4 @@
-"""Game API — thin shell: middleware, health, streams, router inclusion (port 8001)."""
+"""Game API — thin shell: middleware, health, streams, unified router (port 8001)."""
 
 from __future__ import annotations
 
@@ -33,20 +33,19 @@ from core.models import (
     CommentateResponse,
     CreateStreamRequest,
     CreateStreamResponse,
-    StreamListItem,
-    StreamListResponse,
 )
 from core.stream_store import StreamStore
 from core.round_summary_store import RoundSummaryStore
+from core.unified_router import (
+    router as unified_router,
+    configure as configure_unified_router,
+    _build_spectator_for_game,
+)
 from dice.game import DiceGame
 from dice.recorder import make_dice_materializer
-from dice.router import router as dice_router, configure as configure_dice_router
 from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
-from poker.router import router as poker_router, configure as configure_poker_router
-from poker.router import _build_spectator_response as _build_poker_spectator_response
-from dice.router import _build_spectator_response as _build_dice_spectator_response
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
@@ -161,8 +160,8 @@ escrow_audit = EscrowAuditStore(_pool)
 
 require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
-# Wire up the poker router with shared stores
-configure_poker_router(
+# Wire up the unified game router
+configure_unified_router(
     mgr=manager,
     bal=balance_store,
     acc=account_store,
@@ -172,23 +171,12 @@ configure_poker_router(
     snapshots=_snapshot_buffer,
 )
 
-app.include_router(poker_router, prefix="/poker")
-
-# Wire up the dice router with shared stores
-configure_dice_router(
-    mgr=manager,
-    bal=balance_store,
-    acc=account_store,
-    meta=metadata_store,
-    auth_dep=require_auth,
-)
-
-app.include_router(dice_router, prefix="/dice")
+app.include_router(unified_router, prefix="/api/games")
 
 
-# ── Stream routes (game-type agnostic) ────────────────────
+# ── Stream routes (under /api/) ───────────────────────────
 
-@app.post("/game/{game_id}/streams", response_model=CreateStreamResponse)
+@app.post("/api/games/{game_id}/streams", response_model=CreateStreamResponse)
 def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Depends(require_auth)):
     game = manager.get_game(game_id)
     if game is None:
@@ -205,7 +193,7 @@ def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Dep
     return CreateStreamResponse(stream_id=stream.id)
 
 
-@app.post("/stream/{stream_id}/commentate", response_model=CommentateResponse)
+@app.post("/api/streams/{stream_id}/commentate", response_model=CommentateResponse)
 def stream_commentate(stream_id: int, req: CommentateRequest, account: Account = Depends(require_auth)):
     stream = stream_store.get(stream_id)
     if stream is None:
@@ -216,14 +204,7 @@ def stream_commentate(stream_id: int, req: CommentateRequest, account: Account =
     return CommentateResponse(success=True)
 
 
-def _build_spectator_for_game(game, config, **overrides):
-    """Dispatch to the correct spectator response builder based on game type."""
-    if game.game_type == "dice":
-        return _build_dice_spectator_response(game, config, **overrides)
-    return _build_poker_spectator_response(game, config, **overrides)
-
-
-@app.get("/stream/{stream_id}/data")
+@app.get("/api/streams/{stream_id}/data")
 def stream_view(stream_id: int):
     stream = stream_store.get(stream_id)
     if stream is None:
@@ -243,6 +224,7 @@ def stream_view(stream_id: int):
         return delayed
     return _build_spectator_for_game(
         game, config,
+        skip_live=True,
         commentary_text=stream.commentary_text,
         stream_id=stream.id,
         stream_title=stream.title,
@@ -251,30 +233,7 @@ def stream_view(stream_id: int):
     )
 
 
-@app.get("/game/{game_id}/spectator")
-def game_spectator_compat(game_id: int):
-    """Compat route: dispatches to the correct game-type spectator."""
-    game = manager.get_game(game_id)
-    config = manager.get_config(game_id)
-    if game is None or config is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    game._check_timeout()
-    delayed = _snapshot_buffer.get_delayed_latest(game_id)
-    if delayed is not None:
-        return delayed
-    return _build_spectator_for_game(game, config)
-
-
-@app.get("/game/{game_id}/spectator/snapshots")
-def game_spectator_snapshots(game_id: int, after: int = 0):
-    """Return spectator state snapshots since *after* sequence (game-type agnostic)."""
-    game = manager.get_game(game_id)
-    if game is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return _snapshot_buffer.get_since(game_id, after)
-
-
-@app.get("/stream/{stream_id}/snapshots")
+@app.get("/api/streams/{stream_id}/snapshots")
 def stream_spectator_snapshots(stream_id: int, after: int = 0):
     """Return spectator state snapshots for a stream's underlying game."""
     stream = stream_store.get(stream_id)

@@ -102,7 +102,7 @@ def _chat_log(game: DiceGame) -> list[ChatMessage]:
 
 
 def _build_spectator_response(
-    game: DiceGame, config: GameConfig, **overrides,
+    game: DiceGame, config: GameConfig, *, skip_live: bool = False, **overrides,
 ) -> DiceSpectatorResponse:
     current = game.current_player
     bets = game.bets

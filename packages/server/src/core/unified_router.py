@@ -1,7 +1,7 @@
-"""Poker game router — all poker-specific HTTP routes.
+"""Unified game router — game-type-agnostic HTTP routes.
 
-Extracted from game_api/app.py. Mounted with a prefix (e.g. /poker)
-by the Game API application.
+Mounted at /api/games by game_api/app.py.  Dispatches to poker- or
+dice-specific response builders based on game.game_type.
 """
 
 from __future__ import annotations
@@ -22,11 +22,10 @@ from core.game_config import GameConfig
 from core.game_manager import GameManager
 from core.game_metadata_store import GameMetadataStore
 from core.game_mode import GameMode
-from poker.game import BIG_BLIND, Game, SMALL_BLIND
-from poker.models import (
+from core.game_protocol import GameProtocol
+from core.models import (
     ActionRequest,
     ActionResponse,
-    ChatMessage,
     ChatRequest,
     ChatResponse,
     CreateGameRequest,
@@ -42,20 +41,12 @@ from poker.models import (
     OffchainSettlementResponse,
     PayoutEntry,
     PlayerBrief,
-    PlayerComment,
-    PlayerPublicState,
-    PlayerStateResponse,
-    RecentAction,
     SettlementResponse,
-    SidePotInfo,
-    SpectatorPlayerState,
-    SpectatorResponse,
     StartResponse,
-    TimerInfo,
     WaitingResponse,
 )
 
-_log = logging.getLogger("poker.router")
+_log = logging.getLogger("game.unified_router")
 
 router = APIRouter()
 
@@ -69,12 +60,10 @@ escrow_audit: EscrowAuditStore | None = None
 snapshot_buffer: SnapshotBuffer | None = None
 _auth_callable: Callable[..., Account] | None = None
 
-# Matches the header name used by core.auth so FastAPI generates correct OpenAPI spec
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def _require_auth(api_key: str | None = Security(_api_key_header)) -> Account:
-    """Auth dependency wrapper — delegates to the configured auth callable."""
     assert _auth_callable is not None, "Router not configured — call configure() first"
     return _auth_callable(api_key)
 
@@ -89,7 +78,6 @@ def configure(
     auth_dep: Callable[..., Account],
     snapshots: SnapshotBuffer | None = None,
 ) -> None:
-    """Inject shared stores and auth dependency from the application layer."""
     global manager, balance_store, account_store, metadata_store, escrow_audit, snapshot_buffer, _auth_callable
     manager = mgr
     balance_store = bal
@@ -103,209 +91,46 @@ def configure(
 # ── Helpers ───────────────────────────────────────────────────────
 
 
-def _get_game_or_404(game_id: int) -> tuple[Game, GameConfig]:
-    assert manager is not None, "Router not configured — call configure() first"
+def _get_game_or_404(game_id: int) -> tuple[GameProtocol, GameConfig]:
+    """Resolve any game type by ID."""
+    assert manager is not None
     game = manager.get_game(game_id)
     config = manager.get_config(game_id)
     if game is None or config is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    return game, config
+
+
+def _get_poker_game_or_404(game_id: int) -> tuple[GameProtocol, GameConfig]:
+    """Resolve a game, requiring it to be poker."""
+    game, config = _get_game_or_404(game_id)
     if game.game_type != "poker":
-        raise HTTPException(status_code=404, detail="Game not found")
-    return game, config  # type: ignore[return-value]
+        raise HTTPException(status_code=400, detail="This endpoint is only available for poker games")
+    return game, config
 
 
-def _recent_actions(game: Game, include_reason: bool = False) -> list[RecentAction]:
-    actions = game.recent_actions
-    if game.current_hand:
-        actions = game.current_hand.actions
-    return [_action_to_recent(a, include_reason) for a in actions[-20:]]
+# ── Game CRUD ─────────────────────────────────────────────────────
 
 
-def _action_to_recent(a: Any, include_reason: bool = False) -> RecentAction:
-    return RecentAction(
-        id=a.id,
-        timestamp=a.timestamp,
-        player=a.player_name,
-        action=a.action,
-        amount=a.amount,
-        comment=a.comment,
-        reason=a.reason if include_reason else None,
-    )
-
-
-def _player_comments(game: Game) -> list[PlayerComment]:
-    actions = game.current_hand.actions if game.current_hand else game.recent_actions
-    latest: dict[str, str] = {}
-    for a in actions:
-        if a.comment:
-            latest[a.player_name] = a.comment
-    return [PlayerComment(player=name, comment=text) for name, text in latest.items()]
-
-
-def _chat_log(game: Game) -> list[ChatMessage]:
-    return [
-        ChatMessage(player=name, message=msg, timestamp=ts)
-        for name, msg, ts in game.chat_log
-    ]
-
-
-def _timer_info(game: Game, player_id: int = 0) -> TimerInfo | None:
-    if not game.started or game.game_over:
-        return None
-    return TimerInfo(
-        action_timeout=game.action_timeout,
-        turn_started_at=game.current_hand.turn_started_at if game.current_hand else None,
-        deadline=game.turn_deadline,
-        extensions_remaining=game.get_extensions_remaining(player_id),
-    )
-
-
-def _common_fields(game: Game, config: GameConfig) -> dict:
-    """Fields shared by all spectator response variants."""
-    return dict(
-        state_version=game.state_version,
-        game_over=game.game_over,
-        winner=game.winner,
-        started=game.started,
-        chat_log=_chat_log(game),
-        timer=_timer_info(game),
-        buy_in=config.buy_in,
-        buy_in_display=config.buy_in_display,
-        token_symbol=config.token_symbol,
-        escrow_address=config.escrow_address,
-        mode=config.mode or GameMode.OFFCHAIN,
-        max_players=config.max_players,
-        starting_players=len(game._players),
-        action_timeout=game.action_timeout,
-        small_blind=SMALL_BLIND,
-        big_blind=BIG_BLIND,
-        game_started_at=game.started_at,
-    )
-
-
-def _build_spectator_response(game: Game, config: GameConfig, *, skip_live: bool = False, **overrides: Any) -> SpectatorResponse:
-    hand = game.current_hand
-    common = _common_fields(game, config)
-
-    # ── Live hand in progress: show it (broadcast mode — all cards visible) ──
-    if not skip_live and hand is not None and not hand.is_complete:
-        side_pots = hand.get_side_pots_info()
-        base = dict(
-            hand_number=game.hand_number,
-            phase=hand.phase,
-            community_cards=[str(c) for c in hand.community_cards],
-            pot=hand.pot,
-            side_pots=[
-                SidePotInfo(amount=sp.amount, eligible_players=list(sp.eligible_player_ids))
-                for sp in side_pots
-            ],
-            current_turn=hand.current_player.id if hand.current_player else None,
-            dealer=hand.players[hand.dealer_index].id,
-            small_blind_player=hand.players[hand._sb_index()].id,
-            big_blind_player=hand.players[hand._bb_index()].id,
-            players=[
-                SpectatorPlayerState(
-                    id=p.id,
-                    name=p.name,
-                    chips=p.chips,
-                    current_bet=p.current_bet,
-                    is_folded=p.is_folded,
-                    is_all_in=p.is_all_in,
-                    cards=[str(c) for c in p.hole_cards],
-                    extensions_remaining=game.get_extensions_remaining(p.id),
-                    is_resigned=getattr(game.get_player(p.id), 'resigned', False),
-                )
-                for p in hand.players
-            ],
-            recent_actions=[_action_to_recent(a) for a in hand.actions[-20:]],
-            **common,
-        )
-        base.update(overrides)
-        return SpectatorResponse(**base)
-
-    # ── Completed previous hand (between hands or game over) ──
-    prev = game.previous_hand
-    if prev is not None:
-        side_pots = prev.get_side_pots_info()
-        base = dict(
-            hand_number=game.hand_number if game.game_over else game.hand_number - 1,
-            phase=prev.phase,
-            community_cards=[str(c) for c in prev.community_cards],
-            pot=prev.pot,
-            side_pots=[
-                SidePotInfo(amount=sp.amount, eligible_players=list(sp.eligible_player_ids))
-                for sp in side_pots
-            ],
-            current_turn=None,
-            dealer=prev.players[prev.dealer_index].id,
-            small_blind_player=prev.players[prev._sb_index()].id,
-            big_blind_player=prev.players[prev._bb_index()].id,
-            players=[
-                SpectatorPlayerState(
-                    id=p.id,
-                    name=p.name,
-                    chips=p.chips,
-                    current_bet=p.current_bet,
-                    is_folded=p.is_folded,
-                    is_all_in=p.is_all_in,
-                    cards=[str(c) for c in p.hole_cards],
-                    extensions_remaining=game.get_extensions_remaining(p.id),
-                    is_resigned=getattr(game.get_player(p.id), 'resigned', False),
-                )
-                for p in prev.players
-            ],
-            recent_actions=[_action_to_recent(a, include_reason=True) for a in prev.actions],
-            **common,
-        )
-        base.update(overrides)
-        return SpectatorResponse(**base)
-
-    # ── No hands played yet (waiting) ──
-    base = dict(
-        hand_number=0,
-        phase="waiting",
-        community_cards=[],
-        pot=0,
-        side_pots=[],
-        current_turn=None,
-        dealer=0,
-        small_blind_player=0,
-        big_blind_player=0,
-        players=[
-            SpectatorPlayerState(
-                id=p.id, name=p.name, chips=p.chips,
-                current_bet=0, is_folded=False, is_all_in=False, cards=[],
-                extensions_remaining=game.get_extensions_remaining(p.id) if game.started else 0,
-                is_resigned=p.resigned,
-            )
-            for p in game._players
-        ],
-        recent_actions=[],
-        **common,
-    )
-    base.update(overrides)
-    return SpectatorResponse(**base)
-
-
-# ── Game CRUD routes ──────────────────────────────────────────────
-
-
-@router.post("/games", response_model=CreateGameResponse)
+@router.post("", response_model=CreateGameResponse)
 def create_game(req: CreateGameRequest) -> CreateGameResponse:
     assert manager is not None and balance_store is not None
 
+    game_type = req.game_type
+
     try:
-        mode = game_service.infer_mode(req.mode, req.token)
+        mode = game_service.infer_mode(req.mode, req.token, game_type=game_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    def _on_game_over(g: Game, c: GameConfig) -> None:
+    def _on_game_over(g: GameProtocol, c: GameConfig) -> None:
         settlement_service.settle_offchain_game(g, c, balance_store)
         manager.cleanup_completed()
 
     try:
         game_id, game, config = game_service.create_game(
             manager, req.max_players, req.token, req.buy_in, mode,
+            game_type=game_type,
             token_decimals=req.token_decimals,
             token_symbol=req.token_symbol,
             on_game_over=_on_game_over,
@@ -316,6 +141,7 @@ def create_game(req: CreateGameRequest) -> CreateGameResponse:
         raise HTTPException(status_code=400, detail=str(e))
     return CreateGameResponse(
         game_id=game_id,
+        game_type=game_type,
         max_players=config.max_players,
         token=config.token,
         buy_in=config.buy_in,
@@ -355,7 +181,7 @@ def waiting(game_id: int) -> WaitingResponse:
         started=game.started,
         players=[
             PlayerBrief(id=p.id, name=p.name, chips=p.chips)
-            for p in game._players
+            for p in game.players
         ],
         player_count=game.player_count,
     )
@@ -382,21 +208,37 @@ def start(game_id: int, account: Account = Depends(_require_auth)):
     return StartResponse(message="Game started", hand_number=hand_num)
 
 
-# ── Game state & action routes ────────────────────────────────────
+# ── State ─────────────────────────────────────────────────────────
 
 
-@router.get("/{game_id}/state", response_model=PlayerStateResponse)
+@router.get("/{game_id}/state")
 def state(game_id: int, account: Account = Depends(_require_auth)):
     game, config = _get_game_or_404(game_id)
     rp = game.get_player_by_name(account.username)
     if rp is None:
         raise HTTPException(status_code=403, detail="Not a player in this game")
-    player_id = rp.id
     if not game.started:
         raise HTTPException(status_code=400, detail="Game not started")
 
     game._check_timeout()
 
+    if game.game_type == "dice":
+        from dice.router import state as dice_state_impl
+        # Dice state builder uses the game directly
+        return _build_dice_state(game, rp)
+    return _build_poker_state(game, config, rp)
+
+
+def _build_poker_state(game: GameProtocol, config: GameConfig, rp: Any) -> Any:
+    """Build poker-specific player state response."""
+    from poker.models import (
+        PlayerPublicState,
+        PlayerStateResponse,
+        SidePotInfo,
+    )
+    from poker.router import _recent_actions, _player_comments, _chat_log, _timer_info
+
+    player_id = rp.id
     hand = game.current_hand
 
     if hand is None:
@@ -476,6 +318,56 @@ def state(game_id: int, account: Account = Depends(_require_auth)):
     )
 
 
+def _build_dice_state(game: GameProtocol, rp: Any) -> Any:
+    """Build dice-specific player state response."""
+    from core.models import ChatMessage
+    from dice.models import DicePlayerState, DiceStateResponse
+
+    current = game.current_player
+    bets = game.bets
+    result = game.last_result
+
+    return DiceStateResponse(
+        started=game.started,
+        game_over=game.game_over,
+        winner=game.winner,
+        round_number=game.hand_number,
+        phase=game.phase,
+        ante=game.ante,
+        your_player_id=rp.id,
+        your_chips=rp.chips,
+        your_bet=bets.get(rp.id),
+        is_your_turn=current is not None and current.id == rp.id,
+        players=[
+            DicePlayerState(
+                id=p.id,
+                name=p.name,
+                chips=p.chips,
+                resigned=p.resigned,
+                is_current=current is not None and current.id == p.id,
+                bet=bets.get(p.id),
+                extensions_remaining=game.get_extensions_remaining(p.id),
+            )
+            for p in game.players
+        ],
+        last_dice=list(result.dice) if result else None,
+        last_total=result.total if result else None,
+        last_category=result.category if result else None,
+        last_winner_ids=list(result.winner_ids) if result else None,
+        last_pot=result.pot if result else None,
+        turn_deadline=game.turn_deadline,
+        extensions_remaining=game.get_extensions_remaining(rp.id),
+        chat=[
+            ChatMessage(player=name, message=msg, timestamp=ts)
+            for name, msg, ts in game.chat_log
+        ],
+        state_version=game.state_version,
+    )
+
+
+# ── Action / Resign ──────────────────────────────────────────────
+
+
 @router.post("/{game_id}/action", response_model=ActionResponse)
 def action(game_id: int, req: ActionRequest, account: Account = Depends(_require_auth)):
     game, config = _get_game_or_404(game_id)
@@ -524,27 +416,45 @@ def resign(game_id: int, account: Account = Depends(_require_auth)):
 # ── Spectator ─────────────────────────────────────────────────────
 
 
-@router.get("/{game_id}/spectator", response_model=SpectatorResponse)
-def spectator(game_id: int) -> SpectatorResponse:
+@router.get("/{game_id}/spectator")
+def spectator(game_id: int):
     game, config = _get_game_or_404(game_id)
     game._check_timeout()
     if snapshot_buffer is not None:
         delayed = snapshot_buffer.get_delayed_latest(game_id)
         if delayed is not None:
             return delayed
-    return _build_spectator_response(game, config)
+        # Snapshot buffer is configured but no delayed data yet —
+        # show previous hand or waiting state (never live current hand,
+        # which would reveal hole cards to spectators in real time).
+        return _build_spectator_for_game(game, config, skip_live=True)
+    return _build_spectator_for_game(game, config)
 
 
 @router.get("/{game_id}/spectator/snapshots")
 def spectator_snapshots(game_id: int, after: int = Query(0)) -> list[dict]:
-    """Return spectator state snapshots captured since *after* sequence."""
-    _get_game_or_404(game_id)  # validate game exists
+    _get_game_or_404(game_id)
     if snapshot_buffer is None:
         raise HTTPException(status_code=404, detail="Snapshots not available")
     return snapshot_buffer.get_since(game_id, after)
 
 
-# ── Chat & Timer routes ───────────────────────────────────────────
+def _build_spectator_for_game(game: GameProtocol, config: GameConfig, *, skip_live: bool = False, **overrides: Any) -> Any:
+    """Dispatch to the correct spectator response builder based on game type.
+
+    skip_live: When True, skip the "live hand in progress" case and only show
+    the previous completed hand or waiting state.  Used when the snapshot buffer
+    is active but no delayed data is available yet, to avoid revealing hole cards
+    to spectators in real time.
+    """
+    if game.game_type == "dice":
+        from dice.router import _build_spectator_response as _build_dice_spectator
+        return _build_dice_spectator(game, config, skip_live=skip_live, **overrides)
+    from poker.router import _build_spectator_response as _build_poker_spectator
+    return _build_poker_spectator(game, config, skip_live=skip_live, **overrides)
+
+
+# ── Chat & Timer ─────────────────────────────────────────────────
 
 
 @router.post("/{game_id}/chat", response_model=ChatResponse)
@@ -581,12 +491,12 @@ def extend(game_id: int, account: Account = Depends(_require_auth)):
     return ExtendResponse(success=True, new_deadline=new_deadline, extensions_remaining=remaining)
 
 
-# ── Escrow routes ─────────────────────────────────────────────────
+# ── Poker-only: Escrow / Funding / Settlement ────────────────────
 
 
 @router.get("/{game_id}/escrow", response_model=EscrowInfoResponse)
 def escrow_info(game_id: int) -> EscrowInfoResponse:
-    game, config = _get_game_or_404(game_id)
+    game, config = _get_poker_game_or_404(game_id)
     if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Escrow only available for on-chain games")
 
@@ -621,7 +531,7 @@ def escrow_info(game_id: int) -> EscrowInfoResponse:
 
 @router.get("/{game_id}/funding", response_model=FundingStatusResponse)
 def funding_status(game_id: int) -> FundingStatusResponse:
-    game, config = _get_game_or_404(game_id)
+    game, config = _get_poker_game_or_404(game_id)
     if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Funding status only available for on-chain games")
 
@@ -645,7 +555,7 @@ def funding_status(game_id: int) -> FundingStatusResponse:
 
 @router.get("/{game_id}/settlement", response_model=SettlementResponse)
 def settlement(game_id: int) -> SettlementResponse:
-    game, config = _get_game_or_404(game_id)
+    game, config = _get_poker_game_or_404(game_id)
     if config.mode != GameMode.ONCHAIN:
         raise HTTPException(status_code=400, detail="Settlement only available for on-chain games")
 
@@ -661,9 +571,6 @@ def settlement(game_id: int) -> SettlementResponse:
         signature=result["signature"],
         escrow_address=result["escrow_address"],
     )
-
-
-# ── Off-chain settlement ─────────────────────────────────────────
 
 
 @router.get("/{game_id}/offchain-settlement", response_model=OffchainSettlementResponse)
