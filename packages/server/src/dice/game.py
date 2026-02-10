@@ -12,6 +12,7 @@ from core.game_protocol import (
     STARTING_CHIPS,
     ACTION_TIMEOUT,
     EXTENSIONS_PER_PLAYER,
+    FIRST_HAND_GRACE,
     RegisteredPlayer,
 )
 from dice.round import resolve_round, RoundResult
@@ -28,7 +29,7 @@ class DiceGame:
         event_callback: Callable[[str, dict], None] | None = None,
         action_timeout: float = ACTION_TIMEOUT,
         extensions_per_player: int = EXTENSIONS_PER_PLAYER,
-        first_hand_grace: float = 120.0,
+        first_hand_grace: float = FIRST_HAND_GRACE,
         ante: int = ANTE,
     ) -> None:
         self._players: list[RegisteredPlayer] = []

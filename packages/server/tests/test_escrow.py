@@ -173,13 +173,18 @@ class TestSignCreateEscrow:
         assert len(sig_bytes) == 65
 
     def test_recovers_to_admin(self):
+        from eth_abi import encode as abi_encode
+
         config = _make_config()
         salt = generate_salt()
         sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
 
         factory_addr = Web3.to_checksum_address(FACTORY_ADDR)
+        # Solidity's abi.encodePacked(address[]) pads each element to 32 bytes
         participants_hash = Web3.keccak(
-            b"".join(bytes.fromhex(addr[2:]) for addr in config.participants)
+            b"".join(
+                abi_encode(["address"], [addr]) for addr in config.participants
+            )
         )
 
         structured_data = {
@@ -262,6 +267,130 @@ class TestSignCreateEscrow:
         sig1 = sign_create_escrow(ADMIN_PK, CHAIN_ID, factory1, config, salt)
         sig2 = sign_create_escrow(ADMIN_PK, CHAIN_ID, factory2, config, salt)
         assert sig1 != sig2
+
+    def test_digest_matches_manual_solidity_computation(self):
+        """Cross-validate: manual EIP-712 (matching Solidity abi.encode) == encode_typed_data.
+
+        This mirrors EscrowFactory._hashCreateEscrow + _domainSeparator + _hashTypedData
+        step by step, using eth_abi.encode to produce the same bytes as Solidity abi.encode.
+        """
+        from eth_abi import encode as abi_encode
+
+        config = _make_config()
+        salt = b"\xaa" * 32
+        factory_addr = Web3.to_checksum_address(FACTORY_ADDR)
+
+        # ── Domain separator (mirrors EscrowFactory._domainSeparator) ──
+        domain_type_hash = Web3.keccak(
+            text="EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+        )
+        name_hash = Web3.keccak(text="EscrowFactory")
+        version_hash = Web3.keccak(text="1")
+        domain_sep = Web3.keccak(
+            abi_encode(
+                ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+                [domain_type_hash, name_hash, version_hash, CHAIN_ID, factory_addr],
+            )
+        )
+
+        # ── Struct hash (mirrors EscrowFactory._hashCreateEscrow) ──
+        create_type_hash = Web3.keccak(
+            text=(
+                "CreateEscrow(address token,address admin,address rakeBeneficiary,"
+                "uint256 depositAmount,uint16 rakeBps,uint256 fundingDeadline,"
+                "uint256 settlementDeadline,bytes32 participantsHash,"
+                "bytes32 pcr0Hash,bytes32 salt)"
+            )
+        )
+        # Solidity's abi.encodePacked(address[]) pads each element to 32 bytes
+        participants_hash = Web3.keccak(
+            b"".join(
+                abi_encode(["address"], [addr]) for addr in config.participants
+            )
+        )
+        struct_hash = Web3.keccak(
+            abi_encode(
+                [
+                    "bytes32", "address", "address", "address",
+                    "uint256", "uint16", "uint256", "uint256",
+                    "bytes32", "bytes32", "bytes32",
+                ],
+                [
+                    create_type_hash,
+                    config.token,
+                    config.admin,
+                    config.rake_beneficiary,
+                    config.deposit_amount,
+                    config.rake_bps,
+                    config.funding_deadline,
+                    config.settlement_deadline,
+                    participants_hash,
+                    config.pcr0_hash,
+                    salt,
+                ],
+            )
+        )
+
+        # ── Final digest (mirrors EscrowFactory._hashTypedData) ──
+        manual_digest = Web3.keccak(b"\x19\x01" + domain_sep + struct_hash)
+
+        # ── Library digest via encode_typed_data ──
+        signable = encode_typed_data(
+            full_message={
+                "types": {
+                    "EIP712Domain": [
+                        {"name": "name", "type": "string"},
+                        {"name": "version", "type": "string"},
+                        {"name": "chainId", "type": "uint256"},
+                        {"name": "verifyingContract", "type": "address"},
+                    ],
+                    "CreateEscrow": [
+                        {"name": "token", "type": "address"},
+                        {"name": "admin", "type": "address"},
+                        {"name": "rakeBeneficiary", "type": "address"},
+                        {"name": "depositAmount", "type": "uint256"},
+                        {"name": "rakeBps", "type": "uint16"},
+                        {"name": "fundingDeadline", "type": "uint256"},
+                        {"name": "settlementDeadline", "type": "uint256"},
+                        {"name": "participantsHash", "type": "bytes32"},
+                        {"name": "pcr0Hash", "type": "bytes32"},
+                        {"name": "salt", "type": "bytes32"},
+                    ],
+                },
+                "primaryType": "CreateEscrow",
+                "domain": {
+                    "name": "EscrowFactory",
+                    "version": "1",
+                    "chainId": CHAIN_ID,
+                    "verifyingContract": factory_addr,
+                },
+                "message": {
+                    "token": config.token,
+                    "admin": config.admin,
+                    "rakeBeneficiary": config.rake_beneficiary,
+                    "depositAmount": config.deposit_amount,
+                    "rakeBps": config.rake_bps,
+                    "fundingDeadline": config.funding_deadline,
+                    "settlementDeadline": config.settlement_deadline,
+                    "participantsHash": participants_hash,
+                    "pcr0Hash": config.pcr0_hash,
+                    "salt": salt,
+                },
+            }
+        )
+        lib_domain_sep = signable.header
+        lib_struct_hash = signable.body
+        lib_digest = Web3.keccak(b"\x19\x01" + lib_domain_sep + lib_struct_hash)
+
+        assert domain_sep == lib_domain_sep, "domain separator mismatch"
+        assert struct_hash == lib_struct_hash, "struct hash mismatch"
+        assert manual_digest == lib_digest, "final digest mismatch"
+
+        # Also verify signature round-trip
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
 
 
 # ══════════════════════════════════════════════════════════

@@ -89,6 +89,7 @@ class GameManager:
         on_game_over: Callable[[GameProtocol, GameConfig], None] | None = None,
         action_timeout: float | None = None,
         extensions_per_player: int | None = None,
+        first_hand_grace: float | None = None,
     ) -> tuple[str, GameProtocol, GameConfig]:
         if game_type not in self._enabled_types:
             if game_type in self._factories:
@@ -135,6 +136,8 @@ class GameManager:
             kwargs["action_timeout"] = action_timeout
         if extensions_per_player is not None:
             kwargs["extensions_per_player"] = extensions_per_player
+        if first_hand_grace is not None:
+            kwargs["first_hand_grace"] = first_hand_grace
         game = factory(**kwargs)
 
         self._games[game_id] = game

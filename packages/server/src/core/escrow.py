@@ -265,8 +265,11 @@ def sign_create_escrow(
     factory_addr = Web3.to_checksum_address(factory_address)
 
     # participantsHash = keccak256(abi.encodePacked(participants))
+    # Solidity's abi.encodePacked(address[]) pads each element to 32 bytes
     participants_hash = Web3.keccak(
-        b"".join(bytes.fromhex(addr[2:]) for addr in config.participants)
+        b"".join(
+            abi_encode(["address"], [addr]) for addr in config.participants
+        )
     )
 
     structured_data = {

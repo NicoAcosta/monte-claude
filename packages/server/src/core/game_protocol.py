@@ -8,6 +8,7 @@ from typing import Protocol, runtime_checkable
 STARTING_CHIPS = 1000
 ACTION_TIMEOUT = 30.0
 EXTENSIONS_PER_PLAYER = 3
+FIRST_HAND_GRACE = 300.0  # 5 min grace for first action (AI agent startup)
 
 
 @dataclass

@@ -242,13 +242,13 @@ class TestFirstHandGracePeriod:
         game.do_action(cp.id, "call")
         assert game._extra_time == 0.0
 
-    def test_grace_zero_by_default_is_120(self):
-        """Default grace period is 120 seconds."""
+    def test_grace_default_is_300(self):
+        """Default grace period is 300 seconds (FIRST_HAND_GRACE)."""
         game = Game()
         game.register("Alice")
         game.register("Bob")
         game.start()
-        assert game._extra_time == 120.0
+        assert game._extra_time == 300.0
 
 
 class TestResign:
