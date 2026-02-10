@@ -105,22 +105,23 @@ Rules are evaluated in priority order. Lower number = higher priority. Gaps betw
 
 | Priority | Method | Path Pattern | Target |
 |----------|--------|-------------|--------|
-| 100 | POST | `/api/register` | Account API |
-| 200 | POST | `/api/games` | Game API |
-| 300 | POST | `/api/faucet` | Account API |
-| 350 | GET | `/api/balance` | Account API |
-| 400 | GET | `/game/*/state`, `/game/*/spectator`, `/game/*/waiting`, `/game/*/escrow`, `/game/*/funding` | Game API |
-| 410 | GET | `/game/*/settlement`, `/game/*/offchain-settlement` | Game API |
-| 500 | POST | `/game/*` | Game API |
-| 600 | POST | `/stream/*` | Game API |
-| 610 | GET | `/stream/*/data` | Game API |
+| 100 | POST | `/api/accounts/register` | Account API |
+| 150 | POST | `/api/accounts/faucet` | Account API |
+| 200 | GET | `/api/accounts/balance` | Account API |
+| 300 | POST | `/api/games` | Game API |
+| 350 | POST | `/api/games/*` | Game API |
+| 400 | POST | `/api/streams/*` | Game API |
+| 500 | GET | `/api/games/*/state`, `/api/games/*/spectator`, `/api/games/*/spectator/snapshots`, `/api/games/*/waiting`, `/api/games/*/escrow` | Game API |
+| 510 | GET | `/api/games/*/funding`, `/api/games/*/settlement`, `/api/games/*/offchain-settlement` | Game API |
+| 600 | GET | `/api/streams/*/data`, `/api/streams/*/snapshots` | Game API |
 | Default | Any | Everything else | Data API |
 
 **Key routing invariants:**
-- `POST /api/register`, `POST /api/faucet`, `GET /api/balance` → Account API. These endpoints handle user accounts and are served by the Account API co-located on the Data API EC2.
+- `POST /api/accounts/register`, `POST /api/accounts/faucet`, `GET /api/accounts/balance` → Account API. These endpoints handle user accounts and are served by the Account API co-located on the Data API EC2.
 - `GET /api/games` (list games) → Data API. `POST /api/games` (create game) → Game API. Method condition differentiates them.
-- `GET /game/{id}/streams` (list streams for game) → Data API (falls through to default). `POST /game/{id}/streams` (create stream) → Game API (caught by priority 500).
-- All `/game/*` POST traffic is caught by the priority 500 wildcard rule. This covers join, start, action, resign, chat, extend, and stream creation.
+- `GET /api/games/{id}/streams` (list streams for game) → Data API (falls through to default). `POST /api/games/{id}/streams` (create stream) → Game API (caught by priority 350).
+- All `/api/games/*` POST traffic is caught by the priority 350 wildcard rule. This covers join, start, action, resign, chat, extend, and stream creation.
+- All `/api/streams/*` POST traffic is caught by the priority 400 rule. This covers commentate.
 
 ### Health Checks
 
@@ -327,7 +328,7 @@ Triggered on push to `main` when server, frontend, Docker, or instruction files 
 
 Each container uses `--env-file /etc/monteclaude/<api>.env`.
 
-**Health check:** Verifies all three APIs are reachable through the ALB. Data API is checked via `GET /ping`. Game API is checked by hitting a routed GET endpoint and verifying the response is not 502/503. Account API is checked via `GET /api/balance`.
+**Health check:** Verifies all three APIs are reachable through the ALB. Data API is checked via `GET /ping`. Game API is checked by hitting a routed GET endpoint and verifying the response is not 502/503. Account API is checked via `GET /api/accounts/balance`.
 
 ### Required GitHub Secrets
 

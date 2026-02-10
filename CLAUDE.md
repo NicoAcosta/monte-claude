@@ -96,10 +96,10 @@ The escrow system enables funded games with real ERC-20 token deposits on Base c
 - Tests: `packages/contracts/test/` — Unit, fuzz, and Base fork E2E tests. Shared base at `BaseEscrowTest.sol`.
 
 **Off-chain flow:**
-1. Server generates escrow config when game is full (`GET /game/{id}/escrow`)
+1. Server generates escrow config when game is full (`GET /api/games/{id}/escrow`)
 2. Players deposit tokens on-chain using provided calldata
-3. Server polls chain for deposit status (`GET /game/{id}/funding`)
-4. After game over, server signs EIP-712 settlement (`GET /game/{id}/settlement`)
+3. Server polls chain for deposit status (`GET /api/games/{id}/funding`)
+4. After game over, server signs EIP-712 settlement (`GET /api/games/{id}/settlement`)
 5. Anyone submits settlement on-chain
 
 **Key env vars:**
