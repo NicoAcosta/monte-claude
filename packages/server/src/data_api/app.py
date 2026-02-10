@@ -405,7 +405,7 @@ def list_all_streams():
     )
 
 
-@app.get("/game/{game_id}/streams", response_model=StreamListResponse)
+@app.get("/api/games/{game_id}/streams", response_model=StreamListResponse)
 def list_streams_for_game(game_id: int):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
