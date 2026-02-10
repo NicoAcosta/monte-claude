@@ -21,6 +21,8 @@ class GameConfig:
     escrow_address: str | None = None
     escrow_config: Any | None = None
     offchain_settlement: list[tuple[str, int]] | None = None
+    pcr0_hash: bytes | None = None
+    admin_signature: str | None = None
 
     def is_at_capacity(self, player_count: int) -> bool:
         return self.max_players > 0 and player_count >= self.max_players

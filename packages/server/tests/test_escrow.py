@@ -15,6 +15,7 @@ from core.escrow import (
     compute_escrow_address,
     compute_payouts,
     generate_salt,
+    sign_create_escrow,
     sign_settlement,
 )
 
@@ -30,9 +31,10 @@ RAKE_BENEFICIARY = "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
 
 CHAIN_ID = 8453
 ESCROW_ADDR = "0x1234567890abcdef1234567890abcdef12345678"
+FACTORY_ADDR = "0x1111111111111111111111111111111111111111"
 
 
-def _make_config() -> EscrowConfig:
+def _make_config(pcr0_hash: bytes = b"\x00" * 32) -> EscrowConfig:
     return EscrowConfig(
         token=TOKEN,
         admin=ADMIN_ADDR,
@@ -42,6 +44,7 @@ def _make_config() -> EscrowConfig:
         funding_deadline=9999999999,
         settlement_deadline=9999999999 + 7200,
         participants=(ALICE, BOB),
+        pcr0_hash=pcr0_hash,
     )
 
 
@@ -126,6 +129,7 @@ class TestSignSettlement:
                 ],
                 "Settle": [
                     {"name": "payouts", "type": "Payout[]"},
+                    {"name": "pcr0", "type": "bytes"},
                 ],
             },
             "primaryType": "Settle",
@@ -140,6 +144,7 @@ class TestSignSettlement:
                     {"recipient": Web3.to_checksum_address(ALICE), "amount": 150_000_000},
                     {"recipient": Web3.to_checksum_address(BOB), "amount": 50_000_000},
                 ],
+                "pcr0": b"",
             },
         }
 
@@ -155,6 +160,110 @@ class TestSignSettlement:
 
 
 # ══════════════════════════════════════════════════════════
+# sign_create_escrow
+# ══════════════════════════════════════════════════════════
+
+class TestSignCreateEscrow:
+    def test_produces_valid_signature(self):
+        config = _make_config()
+        salt = generate_salt()
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        assert len(sig_bytes) == 65
+
+    def test_recovers_to_admin(self):
+        config = _make_config()
+        salt = generate_salt()
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+
+        factory_addr = Web3.to_checksum_address(FACTORY_ADDR)
+        participants_hash = Web3.keccak(
+            b"".join(bytes.fromhex(addr[2:]) for addr in config.participants)
+        )
+
+        structured_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "CreateEscrow": [
+                    {"name": "token", "type": "address"},
+                    {"name": "admin", "type": "address"},
+                    {"name": "rakeBeneficiary", "type": "address"},
+                    {"name": "depositAmount", "type": "uint256"},
+                    {"name": "rakeBps", "type": "uint16"},
+                    {"name": "fundingDeadline", "type": "uint256"},
+                    {"name": "settlementDeadline", "type": "uint256"},
+                    {"name": "participantsHash", "type": "bytes32"},
+                    {"name": "pcr0Hash", "type": "bytes32"},
+                    {"name": "salt", "type": "bytes32"},
+                ],
+            },
+            "primaryType": "CreateEscrow",
+            "domain": {
+                "name": "EscrowFactory",
+                "version": "1",
+                "chainId": CHAIN_ID,
+                "verifyingContract": factory_addr,
+            },
+            "message": {
+                "token": config.token,
+                "admin": config.admin,
+                "rakeBeneficiary": config.rake_beneficiary,
+                "depositAmount": config.deposit_amount,
+                "rakeBps": config.rake_bps,
+                "fundingDeadline": config.funding_deadline,
+                "settlementDeadline": config.settlement_deadline,
+                "participantsHash": participants_hash,
+                "pcr0Hash": config.pcr0_hash,
+                "salt": salt,
+            },
+        }
+
+        signable = encode_typed_data(full_message=structured_data)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
+
+    def test_different_config_different_sig(self):
+        config1 = _make_config()
+        config2 = EscrowConfig(
+            token=TOKEN,
+            admin=ADMIN_ADDR,
+            rake_beneficiary=RAKE_BENEFICIARY,
+            deposit_amount=200_000_000,  # different
+            rake_bps=250,
+            funding_deadline=9999999999,
+            settlement_deadline=9999999999 + 7200,
+            participants=(ALICE, BOB),
+        )
+        salt = generate_salt()
+        sig1 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config1, salt)
+        sig2 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config2, salt)
+        assert sig1 != sig2
+
+    def test_different_salt_different_sig(self):
+        config = _make_config()
+        salt1 = b"\x01" * 32
+        salt2 = b"\x02" * 32
+        sig1 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt1)
+        sig2 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt2)
+        assert sig1 != sig2
+
+    def test_different_factory_different_sig(self):
+        config = _make_config()
+        salt = generate_salt()
+        factory1 = "0x1111111111111111111111111111111111111111"
+        factory2 = "0x2222222222222222222222222222222222222222"
+        sig1 = sign_create_escrow(ADMIN_PK, CHAIN_ID, factory1, config, salt)
+        sig2 = sign_create_escrow(ADMIN_PK, CHAIN_ID, factory2, config, salt)
+        assert sig1 != sig2
+
+
+# ══════════════════════════════════════════════════════════
 # build_create_and_deposit_calldata
 # ══════════════════════════════════════════════════════════
 
@@ -162,10 +271,19 @@ class TestBuildCalldata:
     def test_create_and_deposit_starts_with_selector(self):
         config = _make_config()
         salt = generate_salt()
-        calldata = build_create_and_deposit_calldata(config, salt)
+        admin_sig = "0x" + "ab" * 65
+        calldata = build_create_and_deposit_calldata(config, salt, admin_sig)
         # Should start with 0x and be a hex string
         assert calldata.startswith("0x")
         # Function selector is 4 bytes = 8 hex chars
+        assert len(calldata) > 10
+
+    def test_create_and_deposit_includes_admin_sig(self):
+        config = _make_config()
+        salt = generate_salt()
+        admin_sig = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+        calldata = build_create_and_deposit_calldata(config, salt, admin_sig)
+        assert calldata.startswith("0x")
         assert len(calldata) > 10
 
     def test_deposit_calldata_has_correct_selector(self):
@@ -189,10 +307,11 @@ class TestEscrowConfig:
     def test_as_tuple(self):
         config = _make_config()
         t = config.as_tuple()
-        assert len(t) == 8
+        assert len(t) == 9
         assert t[0] == config.token
         assert t[3] == 100_000_000
         assert isinstance(t[7], list)  # participants as list for ABI
+        assert t[8] == b"\x00" * 32  # pcr0_hash
 
     def test_immutable(self):
         config = _make_config()
@@ -225,3 +344,93 @@ class TestGenerateSalt:
     def test_unique(self):
         salts = {generate_salt() for _ in range(10)}
         assert len(salts) == 10
+
+
+# ══════════════════════════════════════════════════════════
+# PCR-0 support
+# ══════════════════════════════════════════════════════════
+
+FAKE_PCR0 = bytes(range(48))  # 48-byte fake PCR-0
+
+
+class TestSignSettlementWithPcr0:
+    def test_with_pcr0_produces_valid_signature(self):
+        payouts = [(ALICE, 150_000_000), (BOB, 50_000_000)]
+        sig_hex = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts, pcr0=FAKE_PCR0)
+
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        assert len(sig_bytes) == 65
+
+    def test_with_pcr0_recovers_to_admin(self):
+        payouts = [(ALICE, 150_000_000), (BOB, 50_000_000)]
+        sig_hex = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts, pcr0=FAKE_PCR0)
+
+        escrow_addr = Web3.to_checksum_address(ESCROW_ADDR)
+        structured_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "Payout": [
+                    {"name": "recipient", "type": "address"},
+                    {"name": "amount", "type": "uint256"},
+                ],
+                "Settle": [
+                    {"name": "payouts", "type": "Payout[]"},
+                    {"name": "pcr0", "type": "bytes"},
+                ],
+            },
+            "primaryType": "Settle",
+            "domain": {
+                "name": "TimeBasedEscrow",
+                "version": "1",
+                "chainId": CHAIN_ID,
+                "verifyingContract": escrow_addr,
+            },
+            "message": {
+                "payouts": [
+                    {"recipient": Web3.to_checksum_address(ALICE), "amount": 150_000_000},
+                    {"recipient": Web3.to_checksum_address(BOB), "amount": 50_000_000},
+                ],
+                "pcr0": FAKE_PCR0,
+            },
+        }
+
+        signable = encode_typed_data(full_message=structured_data)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
+
+    def test_without_pcr0_backwards_compat(self):
+        """sign_settlement without pcr0 kwarg defaults to empty bytes."""
+        payouts = [(ALICE, 150_000_000), (BOB, 50_000_000)]
+        sig_hex = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        assert len(sig_bytes) == 65
+
+    def test_different_pcr0_different_signatures(self):
+        payouts = [(ALICE, 150_000_000), (BOB, 50_000_000)]
+        sig1 = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts, pcr0=FAKE_PCR0)
+        sig2 = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts, pcr0=b"\xff" * 48)
+        assert sig1 != sig2
+
+
+class TestEscrowConfigPcr0:
+    def test_config_stores_pcr0_hash(self):
+        pcr0_hash = Web3.keccak(FAKE_PCR0)
+        config = _make_config(pcr0_hash=pcr0_hash)
+        assert config.pcr0_hash == pcr0_hash
+
+    def test_config_tuple_includes_pcr0_hash(self):
+        pcr0_hash = Web3.keccak(FAKE_PCR0)
+        config = _make_config(pcr0_hash=pcr0_hash)
+        t = config.as_tuple()
+        assert len(t) == 9
+        assert t[8] == pcr0_hash
+
+    def test_config_default_pcr0_hash_is_zero(self):
+        config = _make_config()
+        assert config.pcr0_hash == b"\x00" * 32

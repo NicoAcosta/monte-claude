@@ -250,6 +250,7 @@ class EscrowConfigResponse(BaseModel):
     funding_deadline: int
     settlement_deadline: int
     participants: list[str]
+    pcr0_hash: str = ""  # hex-encoded keccak256 of PCR-0 (0x00..00 = dev mode)
 
 
 class EscrowInfoResponse(BaseModel):
@@ -257,6 +258,7 @@ class EscrowInfoResponse(BaseModel):
     factory_address: str
     salt: str
     config: EscrowConfigResponse
+    admin_signature: str
     calldata_create_and_deposit: str
     calldata_deposit: dict[str, str]
     funding_deadline: int
@@ -277,6 +279,7 @@ class SettlementResponse(BaseModel):
     payouts: list[PayoutEntry]
     signature: str
     escrow_address: str
+    pcr0: str = ""  # hex-encoded raw PCR-0 (empty in dev mode)
 
 
 # ── Off-chain bankroll models ─────────────────────────
@@ -299,3 +302,17 @@ class OffchainPayout(BaseModel):
 
 class OffchainSettlementResponse(BaseModel):
     payouts: list[OffchainPayout]
+
+
+# ── Attestation models ────────────────────────────────────
+
+
+class AttestationResponse(BaseModel):
+    document: str  # base64-encoded COSE_Sign1 (source of truth for verifiers)
+    module_id: str
+    timestamp: int  # ms since epoch
+    digest: str  # "SHA384"
+    pcrs: dict[str, str]  # {"0": "<hex>", "1": "<hex>", "2": "<hex>"}
+    user_data: str | None  # hex
+    nonce: str | None  # hex
+    server_address: str  # Ethereum address (0x-prefixed checksum)

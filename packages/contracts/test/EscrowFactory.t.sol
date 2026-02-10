@@ -11,7 +11,8 @@ contract EscrowFactoryTest is BaseEscrowTest {
     Escrow impl;
     EscrowFactory factory;
 
-    address admin = makeAddr("admin");
+    address admin;
+    uint256 adminPk;
     address rakeBeneficiary = makeAddr("rake");
     address alice;
     uint256 alicePk;
@@ -25,6 +26,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
     uint256 constant DEPOSIT = 100e6;
 
     function setUp() public {
+        (admin, adminPk) = makeAddrAndKey("admin");
         (alice, alicePk) = makeAddrAndKey("alice");
         (bob, bobPk) = makeAddrAndKey("bob");
 
@@ -55,17 +57,20 @@ contract EscrowFactoryTest is BaseEscrowTest {
             rakeBps: 250,
             fundingDeadline: 1000,
             settlementDeadline: 2000,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
     }
 
     function test_createAndDeposit() public {
         Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(1));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address escrow = factory.createAndDeposit(cfg, bytes32(uint256(1)));
+        address escrow = factory.createAndDeposit(cfg, salt, adminSig);
 
         // Escrow should be initialized
         Escrow e = Escrow(escrow);
@@ -94,11 +99,12 @@ contract EscrowFactoryTest is BaseEscrowTest {
         bytes32 salt = bytes32(uint256(1));
 
         address predicted = factory.getEscrowAddress(cfg, salt);
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address actual = factory.createAndDeposit(cfg, salt);
+        address actual = factory.createAndDeposit(cfg, salt, adminSig);
 
         assertEq(predicted, actual);
     }
@@ -106,32 +112,37 @@ contract EscrowFactoryTest is BaseEscrowTest {
     function test_createAndDeposit_duplicateReverts() public {
         Escrow.Config memory cfg = _defaultConfig();
         bytes32 salt = bytes32(uint256(1));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        factory.createAndDeposit(cfg, salt);
+        factory.createAndDeposit(cfg, salt, adminSig);
 
         // Same config + salt should revert (CREATE2 collision)
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
         vm.expectRevert();
-        factory.createAndDeposit(cfg, salt);
+        factory.createAndDeposit(cfg, salt, adminSig);
     }
 
     function test_createAndDeposit_differentSalts() public {
         Escrow.Config memory cfg = _defaultConfig();
 
+        bytes32 salt1 = bytes32(uint256(1));
+        bytes memory adminSig1 = _signCreateEscrow(address(factory), cfg, salt1, adminPk);
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address escrow1 = factory.createAndDeposit(cfg, bytes32(uint256(1)));
+        address escrow1 = factory.createAndDeposit(cfg, salt1, adminSig1);
 
+        bytes32 salt2 = bytes32(uint256(2));
+        bytes memory adminSig2 = _signCreateEscrow(address(factory), cfg, salt2, adminPk);
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address escrow2 = factory.createAndDeposit(cfg, bytes32(uint256(2)));
+        address escrow2 = factory.createAndDeposit(cfg, salt2, adminSig2);
 
         assertTrue(escrow1 != escrow2);
     }
@@ -142,6 +153,8 @@ contract EscrowFactoryTest is BaseEscrowTest {
 
     function test_createAndDeposit_callerMustBeParticipant() public {
         Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(1));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         // Charlie is not a participant but tries to create
         address charlie = makeAddr("charlie");
@@ -151,7 +164,145 @@ contract EscrowFactoryTest is BaseEscrowTest {
         vm.prank(charlie);
         // recordDeposit will revert because charlie is not a participant
         vm.expectRevert(abi.encodeWithSelector(Escrow.NotParticipant.selector, charlie));
-        factory.createAndDeposit(cfg, bytes32(uint256(1)));
+        factory.createAndDeposit(cfg, salt, adminSig);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ADMIN SIGNATURE VERIFICATION TESTS
+    // ══════════════════════════════════════════════════════════════════════
+
+    function test_createAndDeposit_validAdminSig() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(100));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
+
+        vm.prank(player1);
+        token.approve(address(factory), DEPOSIT);
+        vm.prank(player1);
+        address escrow = factory.createAndDeposit(cfg, salt, adminSig);
+
+        assertTrue(Escrow(escrow).initialized());
+    }
+
+    function test_createAndDeposit_invalidAdminSig() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(101));
+
+        // Sign with random key (not admin)
+        (, uint256 randomPk) = makeAddrAndKey("random");
+        bytes memory badSig = _signCreateEscrow(address(factory), cfg, salt, randomPk);
+
+        vm.prank(player1);
+        token.approve(address(factory), DEPOSIT);
+        vm.prank(player1);
+        vm.expectRevert(EscrowFactory.InvalidAdminSignature.selector);
+        factory.createAndDeposit(cfg, salt, badSig);
+    }
+
+    function test_createAndDeposit_wrongSalt() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 saltA = bytes32(uint256(200));
+        bytes32 saltB = bytes32(uint256(201));
+
+        // Admin signs with saltA, caller uses saltB
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, saltA, adminPk);
+
+        vm.prank(player1);
+        token.approve(address(factory), DEPOSIT);
+        vm.prank(player1);
+        vm.expectRevert(EscrowFactory.InvalidAdminSignature.selector);
+        factory.createAndDeposit(cfg, saltB, adminSig);
+    }
+
+    function test_createAndDeposit_wrongConfig() public {
+        Escrow.Config memory cfgA = _defaultConfig();
+        bytes32 salt = bytes32(uint256(300));
+
+        // Admin signs configA
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfgA, salt, adminPk);
+
+        // Caller modifies deposit amount
+        Escrow.Config memory cfgB = _defaultConfig();
+        cfgB.depositAmount = DEPOSIT * 2;
+        token.mint(player1, DEPOSIT * 10);
+
+        vm.prank(player1);
+        token.approve(address(factory), cfgB.depositAmount);
+        vm.prank(player1);
+        vm.expectRevert(EscrowFactory.InvalidAdminSignature.selector);
+        factory.createAndDeposit(cfgB, salt, adminSig);
+    }
+
+    function test_createAndDepositWithPermit2_validAdminSig() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(400));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
+
+        vm.prank(player1);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player1 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
+
+        vm.prank(player1);
+        address escrow = factory.createAndDepositWithPermit2(cfg, salt, adminSig, permit, sig);
+
+        assertTrue(Escrow(escrow).initialized());
+        assertTrue(Escrow(escrow).hasDeposited(player1));
+    }
+
+    function test_createAndDepositWithPermit2_invalidAdminSig() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(401));
+
+        (, uint256 randomPk) = makeAddrAndKey("random2");
+        bytes memory badSig = _signCreateEscrow(address(factory), cfg, salt, randomPk);
+
+        vm.prank(player1);
+        token.approve(PERMIT2_ADDRESS, type(uint256).max);
+
+        uint256 pk = player1 == alice ? alicePk : bobPk;
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token), amount: DEPOSIT}),
+            nonce: 0,
+            deadline: block.timestamp + 100
+        });
+        bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
+
+        vm.prank(player1);
+        vm.expectRevert(EscrowFactory.InvalidAdminSignature.selector);
+        factory.createAndDepositWithPermit2(cfg, salt, badSig, permit, sig);
+    }
+
+    function test_getEscrowAddress_unchanged() public view {
+        // getEscrowAddress is a pure view function — no signature needed
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(500));
+
+        address addr = factory.getEscrowAddress(cfg, salt);
+        assertTrue(addr != address(0));
+    }
+
+    function test_createAndDeposit_addressMatchesWithSig() public {
+        Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(600));
+
+        // Predicted address (no sig needed for view)
+        address predicted = factory.getEscrowAddress(cfg, salt);
+
+        // Actual deployment (with sig)
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
+        vm.prank(player1);
+        token.approve(address(factory), DEPOSIT);
+        vm.prank(player1);
+        address actual = factory.createAndDeposit(cfg, salt, adminSig);
+
+        assertEq(predicted, actual);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -160,6 +311,8 @@ contract EscrowFactoryTest is BaseEscrowTest {
 
     function test_createAndDepositWithPermit2() public {
         Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(1));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         // player1 approves Permit2 and signs transfer
         vm.prank(player1);
@@ -176,7 +329,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
         bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
 
         vm.prank(player1);
-        address escrow = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(1)), permit, sig);
+        address escrow = factory.createAndDepositWithPermit2(cfg, salt, adminSig, permit, sig);
 
         Escrow e = Escrow(escrow);
         assertTrue(e.initialized());
@@ -193,6 +346,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
         bytes32 salt = bytes32(uint256(1));
 
         address predicted = factory.getEscrowAddress(cfg, salt);
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         vm.prank(player1);
         token.approve(PERMIT2_ADDRESS, type(uint256).max);
@@ -206,13 +360,15 @@ contract EscrowFactoryTest is BaseEscrowTest {
         bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
 
         vm.prank(player1);
-        address actual = factory.createAndDepositWithPermit2(cfg, salt, permit, sig);
+        address actual = factory.createAndDepositWithPermit2(cfg, salt, adminSig, permit, sig);
 
         assertEq(predicted, actual);
     }
 
     function test_createAndDepositWithPermit2_mixedFlow() public {
         Escrow.Config memory cfg = _defaultConfig();
+        bytes32 salt = bytes32(uint256(1));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         // player1 creates via Permit2
         vm.prank(player1);
@@ -227,7 +383,7 @@ contract EscrowFactoryTest is BaseEscrowTest {
         bytes memory sig = _signPermit2Transfer(permit, pk, address(factory));
 
         vm.prank(player1);
-        address addr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(1)), permit, sig);
+        address addr = factory.createAndDepositWithPermit2(cfg, salt, adminSig, permit, sig);
         Escrow escrow = Escrow(addr);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.FUNDING));
@@ -258,13 +414,17 @@ contract EscrowFactoryTest is BaseEscrowTest {
             rakeBps: 250,
             fundingDeadline: 1000,
             settlementDeadline: 2000,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
+
+        bytes32 salt = bytes32(depositAmt);
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
 
         vm.prank(player1);
         token.approve(address(factory), depositAmt);
         vm.prank(player1);
-        address escrow = factory.createAndDeposit(cfg, bytes32(depositAmt));
+        address escrow = factory.createAndDeposit(cfg, salt, adminSig);
 
         assertEq(token.balanceOf(escrow), depositAmt);
         assertEq(Escrow(escrow).depositAmount(), depositAmt);

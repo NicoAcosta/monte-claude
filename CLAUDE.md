@@ -57,6 +57,7 @@ make db-down           # Stop PostgreSQL
 | Logging | `packages/server/src/poker/logging_config.py` | JSON structured logging, request context middleware |
 | Audit | `packages/server/src/poker/audit.py` | Auth event and escrow operation audit stores |
 | Rate Limit | `packages/server/src/poker/rate_limit.py` | Thread-safe sliding-window rate limiter for Account API |
+| Attestation | `packages/server/src/core/attestation.py` | NSM ioctl, COSE_Sign1 parsing, Nitro Enclave attestation |
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
 
@@ -92,12 +93,12 @@ The escrow system enables funded games with real ERC-20 token deposits on Base c
 
 **Contracts:**
 - `Escrow.sol` — Implementation behind minimal proxy (EIP-1167). Handles deposits, EIP-712 settlement, expiry, withdrawal.
-- `EscrowFactory.sol` — Deploys deterministic proxies via CREATE2. Batches deploy + first deposit atomically.
+- `EscrowFactory.sol` — Deploys deterministic proxies via CREATE2. Verifies EIP-712 admin signature on creation (prevents unauthorized deployments). Batches deploy + first deposit atomically.
 - Tests: `packages/contracts/test/` — Unit, fuzz, and Base fork E2E tests. Shared base at `BaseEscrowTest.sol`.
 
 **Off-chain flow:**
-1. Server generates escrow config when game is full (`GET /game/{id}/escrow`)
-2. Players deposit tokens on-chain using provided calldata
+1. Server generates escrow config and signs it with EIP-712 when game is full (`GET /game/{id}/escrow`)
+2. Players deposit tokens on-chain using provided calldata (factory verifies admin signature on creation)
 3. Server polls chain for deposit status (`GET /game/{id}/funding`)
 4. After game over, server signs EIP-712 settlement (`GET /game/{id}/settlement`)
 5. Anyone submits settlement on-chain
@@ -167,6 +168,21 @@ Tables: `accounts`, `balances`, `game_events`, `hand_summaries`, `player_stats`,
 **Slow query logging**: `db.timed_query()` context manager warns when queries exceed `SLOW_QUERY_MS` (default 100ms). Wraps hot-path balance operations.
 
 **DB retry**: `get_pool()` retries `DB_CONNECT_RETRIES` times with `DB_CONNECT_RETRY_DELAY`s delay on startup failure.
+
+### Attestation (Nitro Enclave)
+
+The Game API runs inside an AWS Nitro Enclave for verifiable execution. `GET /attestation` returns an AWS-signed NSM attestation document so callers can verify:
+
+1. **What code is running** — PCR-0 (hash of the enclave image)
+2. **Who controls the escrow** — the server's Ethereum address, bound as `user_data` in the attestation
+
+**Module:** `core/attestation.py` — raw ioctl to `/dev/nsm` (~40 lines, no third-party NSM library), COSE_Sign1 CBOR parsing via `cbor2`, frozen dataclasses for results.
+
+**Endpoint:** `GET /attestation?nonce=<hex>` (unauthenticated, public). Returns base64 COSE_Sign1 document + parsed PCR 0-2 + server Ethereum address.
+
+**Dev mode:** When NSM is unavailable (outside a Nitro Enclave), the endpoint returns a synthetic attestation with `module_id: "dev-mode"` and all-zero PCR values. This allows agents to test attestation verification locally. All-zero PCR-0 (`000...000`) always signals dev mode — production enclaves have non-zero PCR-0. The Game API requires `SERVER_PRIVATE_KEY` env var (crashes on startup without it). Use `make run-game` which sets the Anvil account #0 key by default.
+
+**Callers should always send a nonce** (random hex, max 512 bytes) to prevent replay attacks. The nonce is echoed in the attestation document. Verify: nonce matches, PCR-0 matches expected image hash (or all-zero in dev), `server_address` matches escrow admin.
 
 ### Testing
 

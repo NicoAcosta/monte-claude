@@ -8,6 +8,7 @@ from typing import Any
 
 _log = logging.getLogger("poker.escrow")
 
+from core.attestation import NsmError, get_attestation
 from core.escrow import (
     EscrowConfig,
     build_create_and_deposit_calldata,
@@ -17,12 +18,14 @@ from core.escrow import (
     generate_salt,
     get_env_config,
     get_server_address,
+    sign_create_escrow,
     sign_settlement,
 )
 from core.audit import EscrowAuditStore
 from core.game_protocol import GameProtocol
 from core.game_config import GameConfig
 from core.payout import compute_payouts
+from web3 import Web3
 
 
 def get_escrow_info(
@@ -58,6 +61,14 @@ def get_escrow_info(
             if p.wallet_address is not None
         )
 
+        # Fetch PCR-0 from NSM (enclave) for on-chain binding
+        try:
+            attest_result = get_attestation()
+            pcr0 = attest_result.payload.pcrs.get(0, b"")
+            pcr0_hash = bytes(Web3.keccak(pcr0)) if pcr0 else b"\x00" * 32
+        except NsmError:
+            pcr0_hash = b"\x00" * 32  # dev mode — no enforcement
+
         now = int(_time.time())
         cfg = EscrowConfig(
             token=config.token or "",
@@ -68,8 +79,10 @@ def get_escrow_info(
             funding_deadline=now + env["funding_timeout"],
             settlement_deadline=now + env["funding_timeout"] + env["settlement_timeout"],
             participants=wallets,
+            pcr0_hash=pcr0_hash,
         )
         config.escrow_config = cfg
+        config.pcr0_hash = pcr0_hash
         config.escrow_address = compute_escrow_address(
             env["factory_address"], cfg, config.escrow_salt, rpc_url=env["base_rpc_url"],
         )
@@ -79,7 +92,13 @@ def get_escrow_info(
     if audit and game_id:
         audit.record(game_id, "config_created", escrow_address=config.escrow_address)
 
-    calldata_create = build_create_and_deposit_calldata(cfg, config.escrow_salt)
+    admin_signature = sign_create_escrow(
+        env["server_private_key"], env["chain_id"],
+        env["factory_address"], cfg, config.escrow_salt,
+    )
+    config.admin_signature = admin_signature
+
+    calldata_create = build_create_and_deposit_calldata(cfg, config.escrow_salt, admin_signature)
     calldata_deposits = {
         addr: build_deposit_calldata(addr)
         for addr in cfg.participants
@@ -90,6 +109,7 @@ def get_escrow_info(
         "factory_address": env["factory_address"],
         "salt": "0x" + config.escrow_salt.hex(),
         "config": cfg,
+        "admin_signature": admin_signature,
         "calldata_create_and_deposit": calldata_create,
         "calldata_deposit": calldata_deposits,
         "funding_deadline": cfg.funding_deadline,
@@ -171,11 +191,23 @@ def get_settlement(
 
     payouts = compute_payouts(player_chips, config.buy_in, game.starting_chips)
 
+    # Fetch PCR-0 for settlement signature
+    pcr0_hash = config.pcr0_hash or b"\x00" * 32
+    if pcr0_hash != b"\x00" * 32:
+        try:
+            attest_result = get_attestation()
+            pcr0 = attest_result.payload.pcrs.get(0, b"")
+        except NsmError:
+            raise RuntimeError("Attestation required for settlement but NSM unavailable")
+    else:
+        pcr0 = b""
+
     sig = sign_settlement(
         env["server_private_key"],
         env["chain_id"],
         config.escrow_address,
         payouts,
+        pcr0=pcr0,
     )
 
     _log.info("settlement_signed address=%s payout_count=%d", config.escrow_address, len(payouts))
@@ -185,4 +217,5 @@ def get_settlement(
         "payouts": payouts,
         "signature": sig,
         "escrow_address": config.escrow_address,
+        "pcr0": pcr0,
     }
