@@ -34,7 +34,7 @@ def auth_header(api_key: str) -> dict[str, str]:
 
 
 def register(client, username: str) -> str:
-    resp = client.post("/api/register", json={"username": username})
+    resp = client.post("/api/accounts/register", json={"username": username})
     assert resp.status_code == 200
     return resp.json()["api_key"]
 
@@ -43,7 +43,7 @@ def register(client, username: str) -> str:
 
 class TestRegistration:
     def test_register_success(self, client):
-        resp = client.post("/api/register", json={"username": "Alice"})
+        resp = client.post("/api/accounts/register", json={"username": "Alice"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["username"] == "Alice"
@@ -51,11 +51,11 @@ class TestRegistration:
 
     def test_register_duplicate(self, client):
         register(client, "Alice")
-        resp = client.post("/api/register", json={"username": "Alice"})
+        resp = client.post("/api/accounts/register", json={"username": "Alice"})
         assert resp.status_code == 400
 
     def test_register_empty_username(self, client):
-        resp = client.post("/api/register", json={"username": ""})
+        resp = client.post("/api/accounts/register", json={"username": ""})
         assert resp.status_code == 400
 
     def test_register_rate_limit(self, client):
@@ -65,10 +65,10 @@ class TestRegistration:
         account_module._register_limiter = RateLimiter(RateLimitConfig(max_requests=2, window_seconds=3600))
         try:
             for i in range(2):
-                resp = client.post("/api/register", json={"username": f"user{i}"})
+                resp = client.post("/api/accounts/register", json={"username": f"user{i}"})
                 assert resp.status_code == 200
             # 3rd should be rate-limited
-            resp = client.post("/api/register", json={"username": "user2"})
+            resp = client.post("/api/accounts/register", json={"username": "user2"})
             assert resp.status_code == 429
             assert "rate limit" in resp.json()["detail"].lower()
         finally:
@@ -79,12 +79,12 @@ class TestRegistration:
 
 class TestFaucet:
     def test_faucet_requires_auth(self, client):
-        resp = client.post("/api/faucet")
+        resp = client.post("/api/accounts/faucet")
         assert resp.status_code == 401
 
     def test_faucet_success(self, client):
         key = register(client, "Alice")
-        resp = client.post("/api/faucet", headers=auth_header(key))
+        resp = client.post("/api/accounts/faucet", headers=auth_header(key))
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -93,8 +93,8 @@ class TestFaucet:
 
     def test_faucet_cooldown(self, client):
         key = register(client, "Alice")
-        client.post("/api/faucet", headers=auth_header(key))
-        resp = client.post("/api/faucet", headers=auth_header(key))
+        client.post("/api/accounts/faucet", headers=auth_header(key))
+        resp = client.post("/api/accounts/faucet", headers=auth_header(key))
         assert resp.status_code == 429
         assert "cooldown" in resp.json()["detail"].lower()
 
@@ -103,19 +103,19 @@ class TestFaucet:
 
 class TestBalance:
     def test_balance_requires_auth(self, client):
-        resp = client.get("/api/balance")
+        resp = client.get("/api/accounts/balance")
         assert resp.status_code == 401
 
     def test_balance_after_faucet(self, client):
         key = register(client, "Alice")
-        client.post("/api/faucet", headers=auth_header(key))
-        resp = client.get("/api/balance", headers=auth_header(key))
+        client.post("/api/accounts/faucet", headers=auth_header(key))
+        resp = client.get("/api/accounts/balance", headers=auth_header(key))
         assert resp.status_code == 200
         assert resp.json()["balance"] == 10_000
 
     def test_balance_zero_default(self, client):
         key = register(client, "Alice")
-        resp = client.get("/api/balance", headers=auth_header(key))
+        resp = client.get("/api/accounts/balance", headers=auth_header(key))
         assert resp.status_code == 200
         assert resp.json()["balance"] == 0
 
