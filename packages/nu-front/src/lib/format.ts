@@ -76,3 +76,34 @@ export function getGameStatus(game: {
   if (game.started) return "in-progress"
   return "waiting"
 }
+
+// ── Spoken card names (for TTS narration) ──
+
+const RANK_SPOKEN: Record<string, string> = {
+  A: "Ace", K: "King", Q: "Queen", J: "Jack", T: "10",
+  "9": "9", "8": "8", "7": "7", "6": "6",
+  "5": "5", "4": "4", "3": "3", "2": "2",
+}
+
+const SUIT_SPOKEN: Record<string, string> = {
+  s: "spades", h: "hearts", d: "diamonds", c: "clubs",
+}
+
+export function cardToSpokenName(code: string): string {
+  const suitChar = code.slice(-1).toLowerCase()
+  const rankChar = code.slice(0, -1)
+  const rank = RANK_SPOKEN[rankChar] || rankChar
+  const suit = SUIT_SPOKEN[suitChar] || suitChar
+  return `${rank} of ${suit}`
+}
+
+export function cardsToSpokenList(codes: string[]): string {
+  if (codes.length === 0) return ""
+  if (codes.length === 1) return cardToSpokenName(codes[0])
+  if (codes.length === 2) {
+    return `${cardToSpokenName(codes[0])} and ${cardToSpokenName(codes[1])}`
+  }
+  const last = codes[codes.length - 1]
+  const rest = codes.slice(0, -1).map(cardToSpokenName).join(", ")
+  return `${rest}, and ${cardToSpokenName(last)}`
+}
