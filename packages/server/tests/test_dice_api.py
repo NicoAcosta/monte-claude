@@ -20,6 +20,8 @@ from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
 from poker.router import configure as configure_poker_router
+from core.event_bus import GameEventBus
+from game_api.ws_router import configure as configure_ws_router
 
 
 @pytest.fixture(autouse=True)
@@ -44,9 +46,11 @@ def reset_state():
             summary_materializer=mat,
         )
 
+    game_module.event_bus = GameEventBus()
     game_module.manager = GameManager(
         recorder_factory=make_recorder,
         metadata_store=game_module.metadata_store,
+        event_bus=game_module.event_bus,
     )
     game_module.manager.register_game_type("poker", Game)
     game_module.manager.register_game_type("dice", DiceGame)
@@ -68,6 +72,11 @@ def reset_state():
         acc=game_module.account_store,
         meta=game_module.metadata_store,
         auth_dep=game_module.require_auth,
+    )
+    configure_ws_router(
+        mgr=game_module.manager,
+        acc=game_module.account_store,
+        bus=game_module.event_bus,
     )
     yield
 

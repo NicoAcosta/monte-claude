@@ -23,6 +23,7 @@ if not os.environ.get("SERVER_PRIVATE_KEY"):
 
 from core.account_store import Account, AccountStore
 from core.audit import AuthAuditStore, EscrowAuditStore
+from core.event_bus import GameEventBus
 from core.auth import make_auth_dependency
 from core.balance_store import BalanceStore
 from core.db import get_pool
@@ -44,12 +45,15 @@ from dice.game import DiceGame
 from dice.recorder import make_dice_materializer
 from dice.router import router as dice_router, configure as configure_dice_router
 from game_api.admin_router import router as admin_router, configure as configure_admin_router
+from game_api.ws_router import router as ws_router, configure as configure_ws_router
 from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
+from core.state_builders import (
+    build_poker_spectator_state as _build_poker_spectator_response,
+    build_dice_spectator_state as _build_dice_spectator_response,
+)
 from poker.router import router as poker_router, configure as configure_poker_router
-from poker.router import _build_spectator_response as _build_poker_spectator_response
-from dice.router import _build_spectator_response as _build_dice_spectator_response
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
@@ -195,7 +199,8 @@ def _make_recorder(game_id: str, game_type: str) -> GameRecorder:
     return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
 
-manager = GameManager(recorder_factory=_make_recorder, metadata_store=metadata_store)
+event_bus = GameEventBus()
+manager = GameManager(recorder_factory=_make_recorder, metadata_store=metadata_store, event_bus=event_bus)
 manager.register_game_type("poker", Game)
 manager.register_game_type("dice", DiceGame)
 
@@ -243,6 +248,10 @@ configure_dice_router(
 )
 
 app.include_router(dice_router, prefix="/game/dice")
+
+# Wire up the WebSocket router (player + spectator real-time state)
+configure_ws_router(mgr=manager, acc=account_store, bus=event_bus)
+app.include_router(ws_router)
 
 
 # ── Public game type status (no auth) ────────────────────

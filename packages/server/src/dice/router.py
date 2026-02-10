@@ -21,7 +21,6 @@ from core.game_mode import GameMode
 from core.models import (
     ActionRequest,
     ActionResponse,
-    ChatMessage,
     ChatRequest,
     ChatResponse,
     CreateGameRequest,
@@ -33,13 +32,11 @@ from core.models import (
     OffchainSettlementResponse,
     PlayerBrief,
     StartResponse,
-    TimerInfo,
     WaitingResponse,
 )
+from core.state_builders import build_dice_player_state, build_dice_spectator_state
 from dice.game import DiceGame
 from dice.models import (
-    DicePlayerState,
-    DiceSpectatorPlayerState,
     DiceSpectatorResponse,
     DiceStateResponse,
 )
@@ -92,52 +89,6 @@ def _get_game_or_404(game_id: str) -> tuple[DiceGame, GameConfig]:
     if game.game_type != "dice":
         raise HTTPException(status_code=404, detail="Game not found")
     return game, config  # type: ignore[return-value]
-
-
-def _chat_log(game: DiceGame) -> list[ChatMessage]:
-    return [
-        ChatMessage(player=name, message=msg, timestamp=ts)
-        for name, msg, ts in game.chat_log
-    ]
-
-
-def _build_spectator_response(
-    game: DiceGame, config: GameConfig, **overrides,
-) -> DiceSpectatorResponse:
-    current = game.current_player
-    bets = game.bets
-    result = game.last_result
-
-    base = dict(
-        started=game.started,
-        game_over=game.game_over,
-        winner=game.winner,
-        round_number=game.hand_number,
-        phase=game.phase,
-        ante=game.ante,
-        players=[
-            DiceSpectatorPlayerState(
-                id=p.id,
-                name=p.name,
-                chips=p.chips,
-                resigned=p.resigned,
-                is_current=current is not None and current.id == p.id,
-                bet=bets.get(p.id),
-            )
-            for p in game.players
-        ],
-        last_dice=list(result.dice) if result else None,
-        last_total=result.total if result else None,
-        last_category=result.category if result else None,
-        last_winner_ids=list(result.winner_ids) if result else None,
-        last_pot=result.pot if result else None,
-        turn_deadline=game.turn_deadline,
-        chat=_chat_log(game),
-        state_version=game.state_version,
-        seed_commitment=game.seed_commitment,
-    )
-    base.update(overrides)
-    return DiceSpectatorResponse(**base)
 
 
 # ── Game CRUD ─────────────────────────────────────────────────────
@@ -252,44 +203,7 @@ def state(game_id: str, account: Account = Depends(_require_auth)):
 
     game._check_timeout()
 
-    current = game.current_player
-    bets = game.bets
-    result = game.last_result
-
-    return DiceStateResponse(
-        started=game.started,
-        game_over=game.game_over,
-        winner=game.winner,
-        round_number=game.hand_number,
-        phase=game.phase,
-        ante=game.ante,
-        your_player_id=rp.id,
-        your_chips=rp.chips,
-        your_bet=bets.get(rp.id),
-        is_your_turn=current is not None and current.id == rp.id,
-        players=[
-            DicePlayerState(
-                id=p.id,
-                name=p.name,
-                chips=p.chips,
-                resigned=p.resigned,
-                is_current=current is not None and current.id == p.id,
-                bet=bets.get(p.id),
-                extensions_remaining=game.get_extensions_remaining(p.id),
-            )
-            for p in game.players
-        ],
-        last_dice=list(result.dice) if result else None,
-        last_total=result.total if result else None,
-        last_category=result.category if result else None,
-        last_winner_ids=list(result.winner_ids) if result else None,
-        last_pot=result.pot if result else None,
-        turn_deadline=game.turn_deadline,
-        extensions_remaining=game.get_extensions_remaining(rp.id),
-        chat=_chat_log(game),
-        state_version=game.state_version,
-        seed_commitment=game.seed_commitment,
-    )
+    return build_dice_player_state(game, config, rp.id)
 
 
 @router.post("/{game_id}/action", response_model=ActionResponse)
@@ -339,7 +253,7 @@ def resign(game_id: str, account: Account = Depends(_require_auth)):
 def spectator(game_id: str) -> DiceSpectatorResponse:
     game, config = _get_game_or_404(game_id)
     game._check_timeout()
-    return _build_spectator_response(game, config)
+    return build_dice_spectator_state(game, config)
 
 
 # ── Chat & Timer ──────────────────────────────────────────────────

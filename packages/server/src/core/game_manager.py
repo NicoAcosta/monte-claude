@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from core.event_bus import GameEventBus
 from core.game_config import GameConfig
 from core.game_metadata_store import GameMetadataStore
 from core.game_protocol import GameProtocol
@@ -36,6 +37,7 @@ class GameManager:
         self,
         recorder_factory: Callable[[str, str], GameRecorder] | None = None,
         metadata_store: GameMetadataStore | None = None,
+        event_bus: GameEventBus | None = None,
     ) -> None:
         self._games: dict[str, GameProtocol] = {}
         self._configs: dict[str, GameConfig] = {}
@@ -45,6 +47,7 @@ class GameManager:
         self._enabled_types: set[str] = set()
         self._recorder_factory = recorder_factory
         self._metadata_store = metadata_store
+        self._event_bus = event_bus
 
     def register_game_type(self, game_type: str, factory: GameFactory) -> None:
         """Register a factory for a game type (e.g. 'poker', 'dice').
@@ -72,6 +75,10 @@ class GameManager:
 
     def is_game_type_enabled(self, game_type: str) -> bool:
         return game_type in self._enabled_types
+
+    @property
+    def event_bus(self) -> GameEventBus | None:
+        return self._event_bus
 
     @property
     def enabled_game_types(self) -> frozenset[str]:
@@ -134,6 +141,8 @@ class GameManager:
                     meta.update_game_over(game_id, data.get("winner"))
             if event_type == "game_over" and on_game_over is not None:
                 on_game_over(game, config)
+            if self._event_bus:
+                self._event_bus.publish(game_id, event_type, data)
 
         kwargs: dict = {"event_callback": _event_callback}
         if action_timeout is not None:
@@ -188,6 +197,8 @@ class GameManager:
             self._configs.pop(gid, None)
             self._recorders.pop(gid, None)
             self._game_types.pop(gid, None)
+            if self._event_bus:
+                self._event_bus.cleanup_game(gid)
         return len(to_remove)
 
     def list_games(self) -> list[GameSummary]:

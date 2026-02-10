@@ -16,7 +16,9 @@ from core.history_store import GameEventStore, PlayerStatsStore
 from dice.game import DiceGame
 from dice.recorder import make_dice_materializer
 from dice.router import configure as configure_dice_router
+from core.event_bus import GameEventBus
 from game_api.admin_router import configure as configure_admin_router
+from game_api.ws_router import configure as configure_ws_router
 from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
@@ -47,9 +49,11 @@ def reset_state():
             summary_materializer=mat,
         )
 
+    game_module.event_bus = GameEventBus()
     game_module.manager = GameManager(
         recorder_factory=make_recorder,
         metadata_store=game_module.metadata_store,
+        event_bus=game_module.event_bus,
     )
     game_module.manager.register_game_type("poker", Game)
     game_module.manager.register_game_type("dice", DiceGame)
@@ -75,6 +79,11 @@ def reset_state():
     configure_admin_router(
         mgr=game_module.manager,
         admin_keys=frozenset({TEST_ADMIN_KEY}),
+    )
+    configure_ws_router(
+        mgr=game_module.manager,
+        acc=game_module.account_store,
+        bus=game_module.event_bus,
     )
     yield
 

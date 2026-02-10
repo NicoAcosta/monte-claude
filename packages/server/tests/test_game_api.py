@@ -7,6 +7,7 @@ import game_api.app as game_module
 from core.account_store import AccountStore
 from core.balance_store import BalanceStore
 from core.db import get_pool
+from core.event_bus import GameEventBus
 from core.game_manager import GameManager
 from core.game_metadata_store import GameMetadataStore
 from core.game_recorder import GameRecorder
@@ -15,6 +16,7 @@ from poker.game import Game
 from poker.history_store import GameEventStore, HandSummaryStore, PlayerStatsStore
 from poker.recorder import make_poker_materializer
 from poker.router import configure as configure_poker_router
+from game_api.ws_router import configure as configure_ws_router
 
 
 @pytest.fixture(autouse=True)
@@ -37,9 +39,11 @@ def reset_state():
             summary_materializer=poker_materializer,
         )
 
+    game_module.event_bus = GameEventBus()
     game_module.manager = GameManager(
         recorder_factory=make_recorder,
         metadata_store=game_module.metadata_store,
+        event_bus=game_module.event_bus,
     )
     game_module.manager.register_game_type("poker", Game)
     game_module.account_store = AccountStore(pool)
@@ -51,6 +55,11 @@ def reset_state():
         meta=game_module.metadata_store,
         esc_audit=game_module.escrow_audit,
         auth_dep=game_module.require_auth,
+    )
+    configure_ws_router(
+        mgr=game_module.manager,
+        acc=game_module.account_store,
+        bus=game_module.event_bus,
     )
     yield
 
