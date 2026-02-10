@@ -1,9 +1,12 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import { usePoll } from "@/hooks/use-poll"
+import { useState, useEffect, useRef } from "react"
+import { useGameStream } from "@/hooks/use-game-stream"
+import { useReplayQueue, type AnimationPhase } from "@/hooks/use-replay-queue"
 import { formatDuration } from "@/lib/format"
 import type { SpectatorState } from "@/lib/types"
+import { useGameNarration } from "@/hooks/use-game-narration"
+import { useGameAudio } from "@/hooks/use-game-audio"
 import { HeaderBar } from "./header-bar"
 import { InfoPanel } from "./info-panel"
 import { WaitingScreen } from "./waiting-screen"
@@ -25,26 +28,35 @@ export function SpectatorView({
   streamId,
   mode,
 }: SpectatorViewProps) {
-  const pollUrl =
-    mode === "stream"
-      ? `/stream/${streamId}/data`
-      : `/game/${gameId}/spectator`
+  // Game stream: polls for snapshot updates
+  const { consumeSnapshots, status } = useGameStream(
+    gameId,
+    streamId,
+    mode,
+    initialState,
+  )
 
-  const { data, status } = usePoll<SpectatorState>(pollUrl, 2000)
-  const state = data ?? initialState
+  // Replay queue: plays back snapshots with realistic delays
+  const { displayState: state, animationPhase } = useReplayQueue(
+    consumeSnapshots,
+    initialState,
+  )
 
-  // Track hand number for dealing animation
+  // Dealing animation — triggered by animationPhase or hand change
   const lastHandRef = useRef(state.hand_number)
   const [dealing, setDealing] = useState(false)
 
   useEffect(() => {
-    if (state.hand_number !== lastHandRef.current) {
+    if (
+      state.hand_number !== lastHandRef.current ||
+      animationPhase === "dealing"
+    ) {
       lastHandRef.current = state.hand_number
       setDealing(true)
       const timer = setTimeout(() => setDealing(false), 600)
       return () => clearTimeout(timer)
     }
-  }, [state.hand_number])
+  }, [state.hand_number, animationPhase])
 
   // Timer
   const [timerText, setTimerText] = useState<string | null>(null)
@@ -110,11 +122,20 @@ export function SpectatorView({
   // Audio toggle
   const [audioEnabled, setAudioEnabled] = useState(false)
 
+  // Game narration & audio
+  const { events, latestNarration } = useGameNarration(state)
+  useGameAudio(events, audioEnabled)
+
   // Info panel toggle
   const [infoPanelOpen, setInfoPanelOpen] = useState(false)
 
-  // Player comments — extract latest from recent_actions and chat_log
+  // Player comments — extract latest from recent_actions
   const playerComments = usePlayerComments(state)
+
+  // Last action for overlay on player seat
+  const lastAction = state.recent_actions.length > 0
+    ? state.recent_actions[state.recent_actions.length - 1]
+    : null
 
   return (
     <div
@@ -148,6 +169,8 @@ export function SpectatorView({
             timerText={timerText}
             timerUrgent={timerUrgent}
             playerComments={playerComments}
+            animationPhase={animationPhase}
+            lastAction={lastAction}
           />
         ) : (
           <WaitingScreen state={state} gameId={gameId || ""} />
@@ -155,12 +178,7 @@ export function SpectatorView({
       </div>
 
       {/* Commentary */}
-      {state.commentary_text && (
-        <CommentaryBanner
-          text={state.commentary_text}
-          audioEnabled={audioEnabled}
-        />
-      )}
+      <CommentaryBanner text={state.commentary_text || latestNarration} />
 
       {/* Action log */}
       <ActionLog actions={state.recent_actions} />

@@ -1,17 +1,28 @@
+import type { AnimationPhase } from "@/hooks/use-replay-queue"
 import { CardDisplay, CardPlaceholder } from "@/components/card-display"
 
 export function CommunityCards({
   cards,
   dealing,
+  animationPhase,
 }: {
   cards: string[]
   dealing: boolean
+  animationPhase?: AnimationPhase
 }) {
+  const isRevealing = animationPhase === "community"
+
   const slots = []
   for (let i = 0; i < 5; i++) {
     if (i < cards.length) {
       slots.push(
-        <CardDisplay key={i} card={cards[i]} dealing={dealing} />
+        <div
+          key={i}
+          className={isRevealing ? "community-reveal" : ""}
+          style={isRevealing ? { animationDelay: `${i * 150}ms` } : undefined}
+        >
+          <CardDisplay card={cards[i]} dealing={dealing && !isRevealing} />
+        </div>
       )
     } else {
       slots.push(<CardPlaceholder key={i} />)

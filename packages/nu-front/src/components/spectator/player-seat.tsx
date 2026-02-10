@@ -14,6 +14,7 @@ interface PlayerSeatProps {
   timerUrgent: boolean
   comment: string | null
   dealing: boolean
+  actionLabel?: string | null
 }
 
 export function PlayerSeat({
@@ -27,6 +28,7 @@ export function PlayerSeat({
   timerUrgent,
   comment,
   dealing,
+  actionLabel,
 }: PlayerSeatProps) {
   const stateClass = player.is_folded
     ? "folded"
@@ -140,6 +142,13 @@ export function PlayerSeat({
           }
         >
           {timerText}
+        </div>
+      )}
+
+      {/* Action label overlay */}
+      {actionLabel && (
+        <div className="action-label">
+          {actionLabel}
         </div>
       )}
 
