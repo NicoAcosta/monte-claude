@@ -9,34 +9,34 @@ class TestGameEventStore:
     def test_append_and_query(self):
         store = GameEventStore(get_pool())
         event = GameEvent(
-            game_id=1, event_type="action", timestamp=1000.0,
+            game_id="game-1", event_type="action", timestamp=1000.0,
             hand_number=1, data=json.dumps({"player": "Alice", "action": "fold"}),
             sequence=1,
         )
         store.append(event)
 
-        results = store.get_by_game(1)
+        results = store.get_by_game("game-1")
         assert len(results) == 1
         assert results[0].event_type == "action"
-        assert results[0].game_id == 1
+        assert results[0].game_id == "game-1"
 
     def test_filter_by_game_id(self):
         store = GameEventStore(get_pool())
-        store.append(GameEvent(1, "action", 1000.0, 1, "{}", 1))
-        store.append(GameEvent(2, "action", 1001.0, 1, "{}", 1))
-        store.append(GameEvent(1, "action", 1002.0, 1, "{}", 2))
+        store.append(GameEvent("game-1", "action", 1000.0, 1, "{}", 1))
+        store.append(GameEvent("game-2", "action", 1001.0, 1, "{}", 1))
+        store.append(GameEvent("game-1", "action", 1002.0, 1, "{}", 2))
 
-        assert len(store.get_by_game(1)) == 2
-        assert len(store.get_by_game(2)) == 1
-        assert len(store.get_by_game(3)) == 0
+        assert len(store.get_by_game("game-1")) == 2
+        assert len(store.get_by_game("game-2")) == 1
+        assert len(store.get_by_game("game-3")) == 0
 
     def test_persistence_across_instances(self):
         pool = get_pool()
         store1 = GameEventStore(pool)
-        store1.append(GameEvent(1, "action", 1000.0, 1, '{"x":1}', 1))
+        store1.append(GameEvent("game-1", "action", 1000.0, 1, '{"x":1}', 1))
 
         store2 = GameEventStore(pool)
-        results = store2.get_by_game(1)
+        results = store2.get_by_game("game-1")
         assert len(results) == 1
         assert results[0].data == '{"x":1}'
 
@@ -45,14 +45,14 @@ class TestHandSummaryStore:
     def test_append_and_query(self):
         store = HandSummaryStore(get_pool())
         summary = HandSummary(
-            game_id=1, hand_number=1, dealer_id=1,
+            game_id="game-1", hand_number=1, dealer_id=1,
             player_ids=(1, 2), winner_ids=(1,),
             pot=100, community_cards=json.dumps(["Ah", "Kd", "Qs", "Jc", "Th"]),
             timestamp=1000.0,
         )
         store.append(summary)
 
-        results = store.get_by_game(1)
+        results = store.get_by_game("game-1")
         assert len(results) == 1
         assert results[0].winner_ids == (1,)
         assert results[0].player_ids == (1, 2)
@@ -60,10 +60,10 @@ class TestHandSummaryStore:
     def test_persistence(self):
         pool = get_pool()
         store1 = HandSummaryStore(pool)
-        store1.append(HandSummary(1, 1, 1, (1, 2), (2,), 200, "[]", 1000.0))
+        store1.append(HandSummary("game-1", 1, 1, (1, 2), (2,), 200, "[]", 1000.0))
 
         store2 = HandSummaryStore(pool)
-        results = store2.get_by_game(1)
+        results = store2.get_by_game("game-1")
         assert len(results) == 1
         assert results[0].pot == 200
 

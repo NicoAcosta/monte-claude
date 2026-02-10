@@ -30,7 +30,7 @@ def reset_state():
 
     poker_materializer = make_poker_materializer(game_module.summary_store)
 
-    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
+    def make_recorder(game_id: str, game_type: str = "poker") -> GameRecorder:
         return GameRecorder(
             game_id,
             game_module.event_store,
@@ -75,9 +75,9 @@ def client():
 
 # ── Helpers ──────────────────────────────────────────────
 
-def create_game(client, **kwargs) -> int:
+def create_game(client, **kwargs) -> str:
     """Helper: create a game and return its id."""
-    body = {"max_players": 0, "buy_in": 0, "game_type": "poker", **kwargs}
+    body = {"max_players": 0, "buy_in": 0, "game_type": "poker", "mode": "offchain", **kwargs}
     resp = client.post("/api/games", json=body)
     assert resp.status_code == 200
     return resp.json()["game_id"]
@@ -92,7 +92,7 @@ def auth_header(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
-def join_game(client, game_id: int, api_key: str, wallet_address: str | None = None) -> dict:
+def join_game(client, game_id: str, api_key: str, wallet_address: str | None = None) -> dict:
     """Helper: join a game with an API key, return response json."""
     body = {"wallet_address": wallet_address}
     resp = client.post(f"/api/games/{game_id}/join", json=body, headers=auth_header(api_key))
@@ -130,7 +130,7 @@ class TestJoinGame:
 
     def test_join_nonexistent_game(self, client):
         key = register_account(client, "Alice")
-        resp = client.post("/api/games/999/join", json={"wallet_address": None}, headers=auth_header(key))
+        resp = client.post("/api/games/nonexistent/join", json={"wallet_address": None}, headers=auth_header(key))
         assert resp.status_code == 404
 
 
@@ -844,7 +844,7 @@ class TestStreams:
     def test_create_stream_game_not_found(self, client):
         key = register_account(client, "Alice")
         resp = client.post(
-            "/api/games/999/streams",
+            "/api/games/nonexistent/streams",
             json={"title": "Test"},
             headers=auth_header(key),
         )
@@ -1101,6 +1101,7 @@ class TestEscrowGameCreation:
     def test_create_funded_game(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "buy_in": 100_000_000,
@@ -1113,7 +1114,7 @@ class TestEscrowGameCreation:
 
     def test_create_free_game_defaults(self, client):
         """Creating a game with default values (no token, buy_in=0)."""
-        resp = client.post("/api/games", json={"game_type": "poker"})
+        resp = client.post("/api/games", json={"game_type": "poker", "mode": "offchain"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["max_players"] == 0
@@ -1123,6 +1124,7 @@ class TestEscrowGameCreation:
     def test_join_funded_game_requires_wallet(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1142,6 +1144,7 @@ class TestEscrowGameCreation:
     def test_join_funded_game_with_wallet(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1169,7 +1172,7 @@ class TestEscrowGameCreation:
         assert resp.status_code == 200
 
     def test_join_full_game_rejected(self, client):
-        resp = client.post("/api/games", json={"game_type": "poker", "max_players": 2})
+        resp = client.post("/api/games", json={"game_type": "poker", "mode": "offchain", "max_players": 2})
         gid = resp.json()["game_id"]
 
         key_a = register_account(client, "Alice")
@@ -1189,6 +1192,7 @@ class TestEscrowGameCreation:
     def test_start_funded_game_before_funding_rejected(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1226,6 +1230,7 @@ class TestEscrowGameCreation:
         """Two players cannot join with the same wallet address."""
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 3,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1253,6 +1258,7 @@ class TestEscrowGameCreation:
         """Wallet address duplicate check is case-insensitive."""
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 3,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1287,6 +1293,7 @@ class TestEscrowEndpoints:
     def test_escrow_not_full(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1312,6 +1319,7 @@ class TestEscrowEndpoints:
     def test_funding_no_escrow_configured(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1330,6 +1338,7 @@ class TestEscrowEndpoints:
     def test_settlement_game_not_over(self, client):
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1344,6 +1353,7 @@ class TestEscrowEndpoints:
         """Settlement with game over but no escrow configured."""
         resp = client.post("/api/games", json={
             "game_type": "poker",
+            "mode": "onchain",
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,

@@ -66,7 +66,7 @@ async def run(args: argparse.Namespace) -> None:
 
         # Join game
         game_id = args.game_id
-        log.info("Joining game %d ...", game_id)
+        log.info("Joining game %s ...", game_id)
         join_resp = await client.join_game(game_id, api_key)
         player_id = join_resp["player_id"]
         log.info("Joined as player %d (%s)", player_id, join_resp["name"])
@@ -88,7 +88,7 @@ async def run(args: argparse.Namespace) -> None:
         await client.close()
 
 
-async def _game_loop(client: Client, game_id: int, api_key: str) -> None:
+async def _game_loop(client: Client, game_id: str, api_key: str) -> None:
     """Poll state and act when it's our turn."""
     last_hand = -1
 
@@ -168,7 +168,7 @@ def main() -> None:
         help="Account API URL (env: BOT_ACCOUNT_SERVER)",
     )
     parser.add_argument(
-        "--game-id", type=int, default=_env("GAME_ID") or None,
+        "--game-id", default=_env("GAME_ID") or None,
         help="Game ID to join (env: BOT_GAME_ID)",
     )
     parser.add_argument(
@@ -192,7 +192,6 @@ def main() -> None:
         parser.error("--server is required (or set BOT_SERVER)")
     if args.game_id is None:
         parser.error("--game-id is required (or set BOT_GAME_ID)")
-    args.game_id = int(args.game_id)
 
     # Auto-generate unique username if not specified
     if not args.username:

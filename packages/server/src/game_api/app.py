@@ -185,7 +185,7 @@ _materializers = {
 }
 
 
-def _make_recorder(game_id: int, game_type: str) -> GameRecorder:
+def _make_recorder(game_id: str, game_type: str) -> GameRecorder:
     materializer = _materializers.get(game_type)
     return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
@@ -199,7 +199,7 @@ def _on_event_hook(game_id, game, config, event_type, data):
         state = _build_spectator_for_game(game, config)
         _snapshot_buffer.append(game_id, game.state_version, state.model_dump())
     except Exception:
-        _log.debug("snapshot_capture_failed game_id=%d event=%s", game_id, event_type, exc_info=True)
+        _log.debug("snapshot_capture_failed game_id=%s event=%s", game_id, event_type, exc_info=True)
 
 
 manager = GameManager(
@@ -245,7 +245,7 @@ app.include_router(unified_router, prefix="/api/games")
 # ── Stream routes (under /api/) ───────────────────────────
 
 @app.post("/api/games/{game_id}/streams", response_model=CreateStreamResponse)
-def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Depends(require_auth)):
+def create_stream(game_id: str, req: CreateStreamRequest, account: Account = Depends(require_auth)):
     game = manager.get_game(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")

@@ -9,10 +9,10 @@ from poker.history_models import HandSummary
 from poker.history_store import HandSummaryStore
 
 
-def make_poker_materializer(summary_store: HandSummaryStore) -> Callable[[int, dict], None]:
+def make_poker_materializer(summary_store: HandSummaryStore) -> Callable[[str, dict], None]:
     """Return a callback that writes poker hand summaries from hand_completed events."""
 
-    def _materialize(game_id: int, data: dict) -> None:
+    def _materialize(game_id: str, data: dict) -> None:
         summary = HandSummary(
             game_id=game_id,
             hand_number=data.get("hand_number", 0),

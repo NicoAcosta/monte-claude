@@ -9,7 +9,7 @@ from core.history_store import GameEventStore, PlayerStatsStore
 
 # Callback that receives (game_id, event_data) and writes game-type-specific
 # summary records (e.g. poker hand summaries).
-SummaryMaterializer = Callable[[int, dict], None]
+SummaryMaterializer = Callable[[str, dict], None]
 
 
 class GameRecorder:
@@ -17,7 +17,7 @@ class GameRecorder:
 
     def __init__(
         self,
-        game_id: int,
+        game_id: str,
         event_store: GameEventStore,
         stats_store: PlayerStatsStore,
         summary_materializer: SummaryMaterializer | None = None,

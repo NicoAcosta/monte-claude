@@ -53,7 +53,7 @@ class HandSummaryStore:
             seed_commitment=r[13] or "",
         )
 
-    def get_by_game(self, game_id: int) -> list[HandSummary]:
+    def get_by_game(self, game_id: str) -> list[HandSummary]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 f"SELECT {self._SUMMARY_COLS} "

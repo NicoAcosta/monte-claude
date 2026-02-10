@@ -34,7 +34,7 @@ class EscrowAuditStore:
 
     def record(
         self,
-        game_id: int,
+        game_id: str,
         operation: str,
         *,
         escrow_address: str | None = None,

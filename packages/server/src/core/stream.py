@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 @dataclass
 class Stream:
     id: int
-    game_id: int
+    game_id: str
     host_username: str
     title: str
     commentary_text: str | None = None

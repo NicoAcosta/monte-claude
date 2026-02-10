@@ -23,11 +23,14 @@ from core.audit import AuthAuditStore
 from core.auth import make_auth_dependency
 from core.balance_store import BalanceStore
 from core.db import get_pool
+from core.feedback_store import FeedbackStore
 from poker.models import (
     AccountRegisterRequest,
     AccountRegisterResponse,
     BalanceResponse,
     FaucetResponse,
+    FeedbackRequest,
+    FeedbackResponse,
 )
 from core.rate_limit import RateLimitConfig, RateLimiter
 from core import balance_service
@@ -37,11 +40,14 @@ from core import balance_service
 # Tighten when spam becomes a concern (e.g. max_requests=5 for register).
 _register_limiter = RateLimiter(RateLimitConfig(max_requests=1_000_000, window_seconds=3600))
 _faucet_limiter = RateLimiter(RateLimitConfig(max_requests=1_000_000, window_seconds=3600))
+_bug_limiter = RateLimiter(RateLimitConfig(max_requests=5, window_seconds=3600))
+_question_limiter = RateLimiter(RateLimitConfig(max_requests=10, window_seconds=3600))
 
 # ── Lazy-init stores (same pattern as Data API) ─────────
 account_store: AccountStore | None = None
 balance_store: BalanceStore | None = None
 auth_audit: AuthAuditStore | None = None
+feedback_store: FeedbackStore | None = None
 
 require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
@@ -50,13 +56,14 @@ FAUCET_AMOUNT = 10_000
 
 def _ensure_stores() -> None:
     """Create stores on first call — safe to call after fork."""
-    global account_store, balance_store, auth_audit
+    global account_store, balance_store, auth_audit, feedback_store
     if account_store is not None:
         return
     pool = get_pool()
     account_store = AccountStore(pool)
     balance_store = BalanceStore(pool)
     auth_audit = AuthAuditStore(pool)
+    feedback_store = FeedbackStore(pool)
 
 
 @asynccontextmanager
@@ -153,3 +160,27 @@ def faucet(request: Request, account: Account = Depends(require_auth)):
 def get_balance(account: Account = Depends(require_auth)):
     bal = balance_store.get(account.username)
     return BalanceResponse(username=account.username, balance=bal.amount)
+
+
+# ── Feedback routes ─────────────────────────────────────
+
+@app.post("/api/accounts/bug", response_model=FeedbackResponse)
+def submit_bug(req: FeedbackRequest, account: Account = Depends(require_auth)):
+    if not _bug_limiter.check(account.username):
+        raise HTTPException(
+            status_code=429,
+            detail="Bug report rate limit exceeded. Try again later.",
+        )
+    feedback_store.submit_bug(account.username, req.body)
+    return FeedbackResponse(success=True, remaining=_bug_limiter.remaining(account.username))
+
+
+@app.post("/api/accounts/question", response_model=FeedbackResponse)
+def submit_question(req: FeedbackRequest, account: Account = Depends(require_auth)):
+    if not _question_limiter.check(account.username):
+        raise HTTPException(
+            status_code=429,
+            detail="Question rate limit exceeded. Try again later.",
+        )
+    feedback_store.submit_question(account.username, req.body)
+    return FeedbackResponse(success=True, remaining=_question_limiter.remaining(account.username))

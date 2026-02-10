@@ -10,7 +10,7 @@ from psycopg_pool import ConnectionPool
 
 @dataclass(frozen=True)
 class RoundSummary:
-    game_id: int
+    game_id: str
     game_type: str
     round_number: int
     player_ids: tuple[int, ...]
@@ -49,7 +49,7 @@ class RoundSummaryStore:
             )
             conn.commit()
 
-    def get_by_game(self, game_id: int) -> list[RoundSummary]:
+    def get_by_game(self, game_id: str) -> list[RoundSummary]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 """SELECT game_id, game_type, round_number, player_ids, winner_ids,

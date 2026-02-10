@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -13,7 +14,7 @@ GameFactory = Callable[..., GameProtocol]
 
 @dataclass(frozen=True)
 class GameSummary:
-    id: int
+    id: str
     player_count: int
     player_names: tuple[str, ...]
     started: bool
@@ -33,17 +34,16 @@ class GameSummary:
 class GameManager:
     def __init__(
         self,
-        recorder_factory: Callable[[int, str], GameRecorder] | None = None,
+        recorder_factory: Callable[[str, str], GameRecorder] | None = None,
         metadata_store: GameMetadataStore | None = None,
-        on_event_hook: Callable[[int, "GameProtocol", GameConfig, str, dict], None] | None = None,
+        on_event_hook: Callable[[str, "GameProtocol", GameConfig, str, dict], None] | None = None,
     ) -> None:
-        self._games: dict[int, GameProtocol] = {}
-        self._configs: dict[int, GameConfig] = {}
-        self._recorders: dict[int, GameRecorder] = {}
-        self._game_types: dict[int, str] = {}
+        self._games: dict[str, GameProtocol] = {}
+        self._configs: dict[str, GameConfig] = {}
+        self._recorders: dict[str, GameRecorder] = {}
+        self._game_types: dict[str, str] = {}
         self._factories: dict[str, GameFactory] = {}
         self._enabled_types: set[str] = set()
-        self._next_id = 1
         self._recorder_factory = recorder_factory
         self._metadata_store = metadata_store
         self._on_event_hook = on_event_hook
@@ -91,7 +91,7 @@ class GameManager:
         on_game_over: Callable[[GameProtocol, GameConfig], None] | None = None,
         action_timeout: float | None = None,
         extensions_per_player: int | None = None,
-    ) -> tuple[int, GameProtocol, GameConfig]:
+    ) -> tuple[str, GameProtocol, GameConfig]:
         if game_type not in self._enabled_types:
             if game_type in self._factories:
                 raise ValueError(f"Game type {game_type!r} is currently disabled")
@@ -99,8 +99,7 @@ class GameManager:
 
         factory = self._factories[game_type]
 
-        game_id = self._next_id
-        self._next_id += 1
+        game_id = uuid.uuid4().hex
 
         config = GameConfig(
             mode=mode or "offchain",
@@ -164,16 +163,16 @@ class GameManager:
 
         return game_id, game, config
 
-    def get_recorder(self, game_id: int) -> GameRecorder | None:
+    def get_recorder(self, game_id: str) -> GameRecorder | None:
         return self._recorders.get(game_id)
 
-    def get_game(self, game_id: int) -> GameProtocol | None:
+    def get_game(self, game_id: str) -> GameProtocol | None:
         return self._games.get(game_id)
 
-    def get_game_type(self, game_id: int) -> str | None:
+    def get_game_type(self, game_id: str) -> str | None:
         return self._game_types.get(game_id)
 
-    def get_config(self, game_id: int) -> GameConfig | None:
+    def get_config(self, game_id: str) -> GameConfig | None:
         return self._configs.get(game_id)
 
     def cleanup_completed(self, keep_recent: int = 5) -> int:
@@ -182,7 +181,7 @@ class GameManager:
             gid for gid, game in self._games.items()
             if game.game_over
         ]
-        completed.sort()
+        # completed is in insertion order (Python dict guarantees it)
         to_remove = completed[:-keep_recent] if len(completed) > keep_recent else []
         for gid in to_remove:
             del self._games[gid]

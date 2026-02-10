@@ -11,6 +11,7 @@ _log = logging.getLogger("poker.escrow")
 from core.attestation import NsmError, get_attestation
 from core.escrow import (
     EscrowConfig,
+    build_approve_calldata,
     build_create_and_deposit_calldata,
     build_deposit_calldata,
     check_deposit_status,
@@ -28,12 +29,52 @@ from core.payout import compute_payouts
 from web3 import Web3
 
 
+def _build_escrow_guide(
+    *,
+    token: str,
+    factory_address: str,
+    escrow_address: str,
+    calldata_approve_factory: str,
+    calldata_approve_escrow: str,
+    calldata_create_and_deposit: str,
+    calldata_deposit_example: str,
+    game_id: str,
+) -> dict[str, Any]:
+    """Build step-by-step deposit guide as structured transactions.
+
+    Each step is a {to, data, description} — agents can do:
+      cast send <to> <data> --rpc-url $RPC_URL --private-key $KEY
+    Zero ABI encoding required.
+    """
+    return {
+        "first_depositor": {
+            "steps": [
+                {"to": token, "data": calldata_approve_factory, "description": "Approve factory to spend your tokens"},
+                {"to": factory_address, "data": calldata_create_and_deposit, "description": "Deploy escrow and deposit"},
+            ],
+        },
+        "subsequent_depositor": {
+            "steps": [
+                {"to": token, "data": calldata_approve_escrow, "description": "Approve escrow to spend your tokens"},
+                {"to": escrow_address, "data": calldata_deposit_example, "description": "Deposit tokens into escrow (replace with your calldata_deposit)"},
+            ],
+        },
+        "verification": f"GET /api/games/{game_id}/funding",
+        "notes": [
+            "Each step is: cast send <to> <data> --rpc-url $RPC_URL --private-key $PRIVATE_KEY",
+            "The first depositor deploys the escrow via createAndDeposit on the factory.",
+            "Subsequent depositors MUST wait until the escrow is deployed before depositing.",
+            "Use your own address's calldata_deposit value from the response (not the example above).",
+        ],
+    }
+
+
 def get_escrow_info(
     game: GameProtocol,
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Generate or return cached escrow config for a full on-chain game.
 
@@ -103,6 +144,22 @@ def get_escrow_info(
         addr: build_deposit_calldata(addr)
         for addr in cfg.participants
     }
+    calldata_approve_factory = build_approve_calldata(env["factory_address"], cfg.deposit_amount)
+    calldata_approve_escrow = build_approve_calldata(config.escrow_address or "", cfg.deposit_amount)
+
+    # Pick first participant's deposit calldata as example for the guide
+    first_deposit_example = next(iter(calldata_deposits.values()), "")
+
+    guide = _build_escrow_guide(
+        token=cfg.token,
+        factory_address=env["factory_address"],
+        escrow_address=config.escrow_address or "",
+        calldata_approve_factory=calldata_approve_factory,
+        calldata_approve_escrow=calldata_approve_escrow,
+        calldata_create_and_deposit=calldata_create,
+        calldata_deposit_example=first_deposit_example,
+        game_id=game_id,
+    )
 
     return {
         "escrow_address": config.escrow_address,
@@ -112,8 +169,11 @@ def get_escrow_info(
         "admin_signature": admin_signature,
         "calldata_create_and_deposit": calldata_create,
         "calldata_deposit": calldata_deposits,
+        "calldata_approve_factory": calldata_approve_factory,
+        "calldata_approve_escrow": calldata_approve_escrow,
         "funding_deadline": cfg.funding_deadline,
         "settlement_deadline": cfg.settlement_deadline,
+        "guide": guide,
     }
 
 
@@ -122,7 +182,7 @@ def check_funding(
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Check deposit status for all participants.
 
@@ -140,7 +200,14 @@ def check_funding(
         if p.wallet_address is not None
     )
 
-    statuses = check_deposit_status(env["base_rpc_url"], config.escrow_address, wallets)
+    try:
+        statuses = check_deposit_status(env["base_rpc_url"], config.escrow_address, wallets)
+    except Exception:
+        raise ValueError(
+            f"Cannot check deposits — the escrow contract at {config.escrow_address} "
+            "may not be deployed yet. The first depositor must call createAndDeposit "
+            "on the factory to deploy it."
+        )
     all_deposited = all(deposited for _, deposited in statuses)
 
     _log.info("funding_check all_deposited=%s count=%d", all_deposited, len(statuses))
@@ -167,7 +234,7 @@ def get_settlement(
     config: GameConfig,
     *,
     audit: EscrowAuditStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Compute on-chain settlement payouts and sign them.
 

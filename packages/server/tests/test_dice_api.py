@@ -34,7 +34,7 @@ def reset_state():
     poker_materializer = make_poker_materializer(game_module.summary_store)
     dice_materializer = make_dice_materializer(game_module.round_summary_store)
 
-    def make_recorder(game_id: int, game_type: str = "poker") -> GameRecorder:
+    def make_recorder(game_id: str, game_type: str = "poker") -> GameRecorder:
         mat = poker_materializer if game_type == "poker" else dice_materializer
         return GameRecorder(
             game_id,
@@ -79,8 +79,8 @@ def register(username: str) -> str:
     return game_module.account_store.create_account(username)
 
 
-def create_dice_game(client, **kwargs) -> int:
-    body = {"game_type": "dice", **kwargs}
+def create_dice_game(client, **kwargs) -> str:
+    body = {"game_type": "dice", "mode": "offchain", **kwargs}
     resp = client.post("/api/games", json=body)
     assert resp.status_code == 200, resp.json()
     data = resp.json()
@@ -88,13 +88,13 @@ def create_dice_game(client, **kwargs) -> int:
     return data["game_id"]
 
 
-def join_game(client, game_id: int, api_key: str) -> dict:
+def join_game(client, game_id: str, api_key: str) -> dict:
     resp = client.post(f"/api/games/{game_id}/join", json={}, headers=auth_header(api_key))
     assert resp.status_code == 200, resp.json()
     return resp.json()
 
 
-def start_game(client, game_id: int, api_key: str) -> dict:
+def start_game(client, game_id: str, api_key: str) -> dict:
     resp = client.post(f"/api/games/{game_id}/start", headers=auth_header(api_key))
     assert resp.status_code == 200, resp.json()
     return resp.json()
@@ -105,7 +105,8 @@ def start_game(client, game_id: int, api_key: str) -> dict:
 class TestDiceCreate:
     def test_create_dice_game(self, client):
         gid = create_dice_game(client)
-        assert gid >= 1
+        assert isinstance(gid, str)
+        assert len(gid) > 0
 
     def test_onchain_rejected_for_dice(self, client):
         resp = client.post("/api/games", json={
@@ -157,7 +158,7 @@ class TestDiceJoinStart:
 # ── State & Action ───────────────────────────────────────
 
 class TestDiceAction:
-    def _setup_game(self, client) -> tuple[int, str, str]:
+    def _setup_game(self, client) -> tuple[str, str, str]:
         key_a = register("Alice")
         key_b = register("Bob")
         gid = create_dice_game(client)
@@ -280,7 +281,7 @@ class TestCrossGameIsolation:
         key_a = register("Alice")
         key_b = register("Bob")
         dice_gid = create_dice_game(client)
-        poker_resp = client.post("/api/games", json={"game_type": "poker"})
+        poker_resp = client.post("/api/games", json={"game_type": "poker", "mode": "offchain"})
         poker_gid = poker_resp.json()["game_id"]
         join_game(client, dice_gid, key_a)
         # Waiting on dice game should show 1 player
@@ -294,8 +295,8 @@ class TestCrossGameIsolation:
 
     def test_both_game_types_in_lobby(self, client):
         """Both poker and dice games appear in the lobby with correct game_type."""
-        client.post("/api/games", json={"game_type": "poker"})
-        client.post("/api/games", json={"game_type": "dice"})
+        client.post("/api/games", json={"game_type": "poker", "mode": "offchain"})
+        client.post("/api/games", json={"game_type": "dice", "mode": "offchain"})
         # Check lobby via data API is beyond scope; verify manager has both
         summaries = game_module.manager.list_games()
         types = {s.game_type for s in summaries}

@@ -19,7 +19,7 @@ class GameEventStore:
             )
             conn.commit()
 
-    def get_by_game(self, game_id: int) -> list[GameEvent]:
+    def get_by_game(self, game_id: str) -> list[GameEvent]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 "SELECT game_id, event_type, timestamp, hand_number, data, sequence "

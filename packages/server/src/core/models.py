@@ -6,6 +6,15 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+class FeedbackRequest(BaseModel):
+    body: str = Field(min_length=10, max_length=2000)
+
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    remaining: int
+
+
 class AccountRegisterRequest(BaseModel):
     username: str
 
@@ -22,7 +31,7 @@ class CreateGameRequest(BaseModel):
     buy_in: int = Field(default=0, ge=0)
     token_decimals: int = Field(default=0, ge=0, le=18)
     token_symbol: str | None = None
-    mode: Literal["onchain", "offchain"] | None = None
+    mode: Literal["onchain", "offchain"]
     action_timeout: float | None = Field(default=None, gt=0, le=600)
     extensions_per_player: int | None = Field(default=None, ge=0, le=20)
 
@@ -130,7 +139,7 @@ class ErrorResponse(BaseModel):
 
 
 class CreateGameResponse(BaseModel):
-    game_id: int
+    game_id: str
     game_type: str = "poker"
     max_players: int
     token: str | None
@@ -141,7 +150,7 @@ class CreateGameResponse(BaseModel):
 
 
 class GameListItem(BaseModel):
-    id: int
+    id: str
     game_type: str = "poker"
     player_count: int
     player_names: list[str]
@@ -165,7 +174,7 @@ class GameListResponse(BaseModel):
 # ── History models ──────────────────────────────────────
 
 class GameEventResponse(BaseModel):
-    game_id: int
+    game_id: str
     event_type: str
     timestamp: float
     hand_number: int
@@ -174,7 +183,7 @@ class GameEventResponse(BaseModel):
 
 
 class GameHistoryResponse(BaseModel):
-    game_id: int
+    game_id: str
     events: list[GameEventResponse]
 
 
@@ -224,7 +233,7 @@ class CreateStreamResponse(BaseModel):
 
 class StreamListItem(BaseModel):
     id: int
-    game_id: int
+    game_id: str
     host: str
     title: str
 
@@ -253,6 +262,23 @@ class EscrowConfigResponse(BaseModel):
     pcr0_hash: str = ""  # hex-encoded keccak256 of PCR-0 (0x00..00 = dev mode)
 
 
+class EscrowTxStep(BaseModel):
+    to: str
+    data: str
+    description: str
+
+
+class EscrowDepositGuide(BaseModel):
+    steps: list[EscrowTxStep]
+
+
+class EscrowGuide(BaseModel):
+    first_depositor: EscrowDepositGuide
+    subsequent_depositor: EscrowDepositGuide
+    verification: str
+    notes: list[str]
+
+
 class EscrowInfoResponse(BaseModel):
     escrow_address: str
     factory_address: str
@@ -261,8 +287,11 @@ class EscrowInfoResponse(BaseModel):
     admin_signature: str = ""
     calldata_create_and_deposit: str
     calldata_deposit: dict[str, str]
+    calldata_approve_factory: str = ""
+    calldata_approve_escrow: str = ""
     funding_deadline: int
     settlement_deadline: int
+    guide: EscrowGuide | None = None
 
 
 class FundingStatusResponse(BaseModel):

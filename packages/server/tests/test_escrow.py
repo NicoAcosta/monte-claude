@@ -10,6 +10,7 @@ import pytest
 
 from core.escrow import (
     EscrowConfig,
+    build_approve_calldata,
     build_create_and_deposit_calldata,
     build_deposit_calldata,
     compute_escrow_address,
@@ -250,6 +251,22 @@ class TestBuildCalldata:
         assert calldata.startswith("0x")
         # Function selector is 4 bytes = 8 hex chars
         assert len(calldata) > 10
+
+    def test_approve_calldata_has_correct_selector(self):
+        calldata = build_approve_calldata(FACTORY_ADDR, 100_000_000)
+        assert calldata.startswith("0x")
+        # approve(address,uint256) selector = 0x095ea7b3
+        expected_selector = Web3.keccak(text="approve(address,uint256)")[:4].hex()
+        assert calldata[2:10] == expected_selector
+
+    def test_approve_calldata_encodes_spender_and_amount(self):
+        calldata = build_approve_calldata(FACTORY_ADDR, 100_000_000)
+        # After 4-byte selector: 32 bytes address + 32 bytes amount = 64 bytes = 128 hex chars
+        data_hex = calldata[10:]  # skip 0x + 8 char selector
+        assert len(data_hex) == 128
+        # Last 32 bytes should encode the amount
+        amount_hex = data_hex[64:]
+        assert int(amount_hex, 16) == 100_000_000
 
     def test_deposit_calldata_has_correct_selector(self):
         calldata = build_deposit_calldata(ALICE)
