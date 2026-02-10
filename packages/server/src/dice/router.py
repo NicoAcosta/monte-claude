@@ -134,6 +134,7 @@ def _build_spectator_response(
         turn_deadline=game.turn_deadline,
         chat=_chat_log(game),
         state_version=game.state_version,
+        seed_commitment=game.seed_commitment,
     )
     base.update(overrides)
     return DiceSpectatorResponse(**base)
@@ -287,6 +288,7 @@ def state(game_id: int, account: Account = Depends(_require_auth)):
         extensions_remaining=game.get_extensions_remaining(rp.id),
         chat=_chat_log(game),
         state_version=game.state_version,
+        seed_commitment=game.seed_commitment,
     )
 
 

@@ -180,6 +180,7 @@ def _common_fields(game: Game, config: GameConfig) -> dict:
         small_blind=SMALL_BLIND,
         big_blind=BIG_BLIND,
         game_started_at=game.started_at,
+        seed_commitment=game.seed_commitment,
     )
 
 

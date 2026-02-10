@@ -265,6 +265,7 @@ def _build_poker_state(game: GameProtocol, config: GameConfig, rp: Any) -> Any:
             recent_actions=_recent_actions(game),
             player_comments=_player_comments(game),
             chat_log=_chat_log(game),
+            seed_commitment=game.seed_commitment,
         )
 
     hand_player = hand._get_player(player_id)
@@ -315,6 +316,7 @@ def _build_poker_state(game: GameProtocol, config: GameConfig, rp: Any) -> Any:
         player_comments=_player_comments(game),
         chat_log=_chat_log(game),
         timer=_timer_info(game, player_id),
+        seed_commitment=game.seed_commitment,
     )
 
 
@@ -362,6 +364,7 @@ def _build_dice_state(game: GameProtocol, rp: Any) -> Any:
             for name, msg, ts in game.chat_log
         ],
         state_version=game.state_version,
+        seed_commitment=game.seed_commitment,
     )
 
 

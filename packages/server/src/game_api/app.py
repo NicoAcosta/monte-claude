@@ -71,6 +71,74 @@ def ping():
     return {"status": "ok"}
 
 
+@app.get("/api/attestation")
+def attestation(nonce: str | None = None):
+    """Return NSM attestation document with server Ethereum address bound as user_data."""
+    from core.attestation import NsmError, get_attestation
+    from core.escrow import get_server_address
+    from core.models import AttestationResponse
+
+    server_address = get_server_address()
+    if not server_address:
+        raise HTTPException(status_code=500, detail="Server identity not configured")
+
+    # Validate and decode optional nonce
+    nonce_bytes: bytes | None = None
+    if nonce is not None:
+        try:
+            nonce_bytes = bytes.fromhex(nonce)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Nonce must be a hex string")
+        if len(nonce_bytes) > 512:
+            raise HTTPException(status_code=400, detail="Nonce too long (max 512 bytes)")
+
+    # Embed server Ethereum address as user_data (20 bytes)
+    address_bytes = bytes.fromhex(server_address[2:])  # strip 0x prefix
+
+    try:
+        result = get_attestation(user_data=address_bytes, nonce=nonce_bytes)
+    except NsmError:
+        # Dev mode — return synthetic attestation with deterministic PCR-0
+        import base64 as _b64
+        import time as _time
+
+        dev_pcr0 = b"\x00" * 48  # all-zero PCR-0 signals dev mode
+        return AttestationResponse(
+            document=_b64.b64encode(b"DEV_MODE_NO_NSM").decode(),
+            module_id="dev-mode",
+            timestamp=int(_time.time() * 1000),
+            digest="SHA384",
+            pcrs={
+                "0": dev_pcr0.hex(),
+                "1": (b"\x00" * 48).hex(),
+                "2": (b"\x00" * 48).hex(),
+            },
+            user_data=address_bytes.hex(),
+            nonce=nonce_bytes.hex() if nonce_bytes else None,
+            server_address=server_address,
+        )
+
+    import base64
+
+    payload = result.payload
+    pcrs_hex = {
+        str(k): v.hex()
+        for k, v in payload.pcrs.items()
+        if k in (0, 1, 2)
+    }
+
+    return AttestationResponse(
+        document=base64.b64encode(result.raw_document).decode(),
+        module_id=payload.module_id,
+        timestamp=payload.timestamp,
+        digest=payload.digest,
+        pcrs=pcrs_hex,
+        user_data=payload.user_data.hex() if payload.user_data else None,
+        nonce=payload.nonce.hex() if payload.nonce else None,
+        server_address=server_address,
+    )
+
+
 @app.get("/health")
 def health():
     pool = get_pool()
