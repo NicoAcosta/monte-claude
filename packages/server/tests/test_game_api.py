@@ -65,7 +65,7 @@ def client():
 def create_game(client, **kwargs) -> int:
     """Helper: create a game and return its id."""
     body = {"max_players": 0, "buy_in": 0, **kwargs}
-    resp = client.post("/poker/games", json=body)
+    resp = client.post("/game/poker/games", json=body)
     assert resp.status_code == 200
     return resp.json()["game_id"]
 
@@ -82,7 +82,7 @@ def auth_header(api_key: str) -> dict[str, str]:
 def join_game(client, game_id: int, api_key: str, wallet_address: str | None = None) -> dict:
     """Helper: join a game with an API key, return response json."""
     body = {"wallet_address": wallet_address}
-    resp = client.post(f"/poker/{game_id}/join", json=body, headers=auth_header(api_key))
+    resp = client.post(f"/game/poker/{game_id}/join", json=body, headers=auth_header(api_key))
     assert resp.status_code == 200
     return resp.json()
 
@@ -99,12 +99,12 @@ class TestJoinGame:
 
     def test_join_requires_auth(self, client):
         gid = create_game(client)
-        resp = client.post(f"/poker/{gid}/join", json={"wallet_address": None})
+        resp = client.post(f"/game/poker/{gid}/join", json={"wallet_address": None})
         assert resp.status_code == 401
 
     def test_join_invalid_key(self, client):
         gid = create_game(client)
-        resp = client.post(f"/poker/{gid}/join", json={"wallet_address": None}, headers=auth_header("pk_bogus"))
+        resp = client.post(f"/game/poker/{gid}/join", json={"wallet_address": None}, headers=auth_header("pk_bogus"))
         assert resp.status_code == 401
 
     def test_join_duplicate_name(self, client):
@@ -112,12 +112,12 @@ class TestJoinGame:
         key = register_account(client, "Alice")
         join_game(client, gid, key)
         # Same user can't join twice (game.register rejects duplicate name)
-        resp = client.post(f"/poker/{gid}/join", json={"wallet_address": None}, headers=auth_header(key))
+        resp = client.post(f"/game/poker/{gid}/join", json={"wallet_address": None}, headers=auth_header(key))
         assert resp.status_code == 400
 
     def test_join_nonexistent_game(self, client):
         key = register_account(client, "Alice")
-        resp = client.post("/poker/999/join", json={"wallet_address": None}, headers=auth_header(key))
+        resp = client.post("/game/poker/999/join", json={"wallet_address": None}, headers=auth_header(key))
         assert resp.status_code == 404
 
 
@@ -130,7 +130,7 @@ class TestWaiting:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        resp = client.get(f"/poker/{gid}/waiting")
+        resp = client.get(f"/game/poker/{gid}/waiting")
         assert resp.status_code == 200
         data = resp.json()
         assert data["started"] is False
@@ -147,7 +147,7 @@ class TestStart:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        resp = client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        resp = client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         assert resp.status_code == 200
         data = resp.json()
         assert data["hand_number"] == 1
@@ -156,12 +156,12 @@ class TestStart:
         gid = create_game(client)
         key = register_account(client, "Alice")
         join_game(client, gid, key)
-        resp = client.post(f"/poker/{gid}/start", headers=auth_header(key))
+        resp = client.post(f"/game/poker/{gid}/start", headers=auth_header(key))
         assert resp.status_code == 400
 
     def test_start_requires_auth(self, client):
         gid = create_game(client)
-        resp = client.post(f"/poker/{gid}/start")
+        resp = client.post(f"/game/poker/{gid}/start")
         assert resp.status_code == 401
 
     def test_start_non_player_forbidden(self, client):
@@ -172,7 +172,7 @@ class TestStart:
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
         # Charlie has a valid key but isn't in the game
-        resp = client.post(f"/poker/{gid}/start", headers=auth_header(key_c))
+        resp = client.post(f"/game/poker/{gid}/start", headers=auth_header(key_c))
         assert resp.status_code == 403
 
 
@@ -185,30 +185,30 @@ class TestState:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def test_state_requires_auth(self, client):
         gid, _, _ = self._setup_started_game(client)
-        resp = client.get(f"/poker/{gid}/state")
+        resp = client.get(f"/game/poker/{gid}/state")
         assert resp.status_code == 401
 
     def test_state_non_player_rejected(self, client):
         gid, _, _ = self._setup_started_game(client)
         key_c = register_account(client, "Charlie")
-        resp = client.get(f"/poker/{gid}/state", headers=auth_header(key_c))
+        resp = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_c))
         assert resp.status_code == 403
 
     def test_state_before_start(self, client):
         gid = create_game(client)
         key = register_account(client, "Alice")
         join_game(client, gid, key)
-        resp = client.get(f"/poker/{gid}/state", headers=auth_header(key))
+        resp = client.get(f"/game/poker/{gid}/state", headers=auth_header(key))
         assert resp.status_code == 400
 
     def test_state_returns_cards(self, client):
         gid, key_a, _ = self._setup_started_game(client)
-        resp = client.get(f"/poker/{gid}/state", headers=auth_header(key_a))
+        resp = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a))
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["your_cards"]) == 2
@@ -226,24 +226,24 @@ class TestAction:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def _who_acts_first(self, client, gid, key_a, key_b):
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         if s1["is_your_turn"]:
             return key_a, key_b
         return key_b, key_a
 
     def test_action_requires_auth(self, client):
         gid, _, _ = self._setup_started_game(client)
-        resp = client.post(f"/poker/{gid}/action", json={"action": "fold"})
+        resp = client.post(f"/game/poker/{gid}/action", json={"action": "fold"})
         assert resp.status_code == 401
 
     def test_action_invalid_key(self, client):
         gid, _, _ = self._setup_started_game(client)
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "fold"},
             headers=auth_header("pk_bogus"),
         )
@@ -253,7 +253,7 @@ class TestAction:
         gid, _, _ = self._setup_started_game(client)
         key_c = register_account(client, "Charlie")
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "fold"},
             headers=auth_header(key_c),
         )
@@ -263,7 +263,7 @@ class TestAction:
         gid, key_a, key_b = self._setup_started_game(client)
         first_key, _ = self._who_acts_first(client, gid, key_a, key_b)
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "fold"},
             headers=auth_header(first_key),
         )
@@ -273,7 +273,7 @@ class TestAction:
         gid, key_a, key_b = self._setup_started_game(client)
         _, second_key = self._who_acts_first(client, gid, key_a, key_b)
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "fold"},
             headers=auth_header(second_key),
         )
@@ -284,7 +284,7 @@ class TestAction:
 
         # Play through a full hand: call preflop, check all streets
         for _ in range(20):  # safety limit
-            s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+            s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
 
             if s1["hand_number"] > 1 or s1["game_over"]:
                 break
@@ -293,7 +293,7 @@ class TestAction:
                 key = key_a
                 to_call = s1["amount_to_call"]
             else:
-                s2 = client.get(f"/poker/{gid}/state", headers=auth_header(key_b)).json()
+                s2 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_b)).json()
                 if s2["is_your_turn"]:
                     key = key_b
                     to_call = s2["amount_to_call"]
@@ -301,12 +301,12 @@ class TestAction:
                     break
 
             if to_call > 0:
-                client.post(f"/poker/{gid}/action", json={"action": "call"}, headers=auth_header(key))
+                client.post(f"/game/poker/{gid}/action", json={"action": "call"}, headers=auth_header(key))
             else:
-                client.post(f"/poker/{gid}/action", json={"action": "check"}, headers=auth_header(key))
+                client.post(f"/game/poker/{gid}/action", json={"action": "check"}, headers=auth_header(key))
 
         # Hand should have completed
-        final = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        final = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         assert final["hand_number"] >= 2 or final["game_over"]
 
 
@@ -319,12 +319,12 @@ class TestSpectator:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def test_spectator_before_start(self, client):
         gid = create_game(client)
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         assert resp.status_code == 200
         data = resp.json()
         assert data["started"] is False
@@ -334,7 +334,7 @@ class TestSpectator:
     def test_spectator_during_first_hand_sees_waiting(self, client):
         """During hand 1, no previous hand exists — spectator sees waiting state."""
         gid, _, _ = self._setup_started_game(client)
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         assert resp.status_code == 200
         data = resp.json()
         assert data["started"] is True
@@ -347,12 +347,12 @@ class TestSpectator:
         gid, key_a, key_b = self._setup_started_game(client)
 
         # Complete hand 1 by folding
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
-        client.post(f"/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+        client.post(f"/game/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
         # Now on hand 2 — spectator should see hand 1
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         data = resp.json()
         assert data["hand_number"] == 1
         assert data["phase"] == "complete"
@@ -363,11 +363,11 @@ class TestSpectator:
     def test_spectator_actions_have_id_and_timestamp(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
 
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
-        client.post(f"/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+        client.post(f"/game/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         data = resp.json()
         for a in data["recent_actions"]:
             assert "id" in a
@@ -381,7 +381,7 @@ class TestSpectator:
     def test_spectator_no_auth_required(self, client):
         """Spectator endpoint is read-only, no auth needed."""
         gid, _, _ = self._setup_started_game(client)
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         assert resp.status_code == 200
 
 
@@ -394,15 +394,15 @@ class TestActionComments:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def test_comment_too_long(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "comment": "x" * 141},
             headers=auth_header(first_key),
         )
@@ -411,10 +411,10 @@ class TestActionComments:
 
     def test_comment_at_max_length(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "comment": "x" * 140},
             headers=auth_header(first_key),
         )
@@ -422,49 +422,49 @@ class TestActionComments:
 
     def test_comment_in_action(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
         second_key = key_b if first_key == key_a else key_a
 
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "comment": "I'm feeling lucky!"},
             headers=auth_header(first_key),
         )
         assert resp.status_code == 200
         # Comment should be visible in player state
-        state = client.get(f"/poker/{gid}/state", headers=auth_header(first_key)).json()
+        state = client.get(f"/game/poker/{gid}/state", headers=auth_header(first_key)).json()
         comments = [a["comment"] for a in state["recent_actions"] if a.get("comment")]
         assert "I'm feeling lucky!" in comments
         # Complete hand
-        client.post(f"/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(second_key))
-        spec = client.get(f"/poker/{gid}/spectator").json()
+        client.post(f"/game/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(second_key))
+        spec = client.get(f"/game/poker/{gid}/spectator").json()
         spec_comments = [a["comment"] for a in spec["recent_actions"] if a.get("comment")]
         assert "I'm feeling lucky!" in spec_comments
 
     def test_player_comments_in_state(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
 
         client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "comment": "Trash talk!"},
             headers=auth_header(first_key),
         )
-        state = client.get(f"/poker/{gid}/state", headers=auth_header(first_key)).json()
+        state = client.get(f"/game/poker/{gid}/state", headers=auth_header(first_key)).json()
         assert "player_comments" in state
         assert any(pc["comment"] == "Trash talk!" for pc in state["player_comments"])
 
     def test_no_commentary_in_spectator_by_default(self, client):
         gid = create_game(client)
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         assert resp.json()["commentary_text"] is None
 
     def test_no_commentary_in_player_state(self, client):
         """commentary_text was removed from PlayerStateResponse."""
         gid, key_a, _ = self._setup_started_game(client)
-        resp = client.get(f"/poker/{gid}/state", headers=auth_header(key_a))
+        resp = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a))
         assert "commentary_text" not in resp.json()
 
 
@@ -481,8 +481,8 @@ class TestGameIsolation:
         join_game(client, g1, key_a)
         join_game(client, g2, key_b)
 
-        w1 = client.get(f"/poker/{g1}/waiting").json()
-        w2 = client.get(f"/poker/{g2}/waiting").json()
+        w1 = client.get(f"/game/poker/{g1}/waiting").json()
+        w2 = client.get(f"/game/poker/{g2}/waiting").json()
 
         assert w1["player_count"] == 1
         assert w1["players"][0]["name"] == "Alice"
@@ -498,9 +498,9 @@ class TestGameIsolation:
         key_b = register_account(client, "Bob")
         join_game(client, g1, key_a)
         join_game(client, g1, key_b)
-        client.post(f"/poker/{g1}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{g1}/start", headers=auth_header(key_a))
 
-        w2 = client.get(f"/poker/{g2}/waiting").json()
+        w2 = client.get(f"/game/poker/{g2}/waiting").json()
         assert w2["started"] is False
 
 
@@ -513,19 +513,19 @@ class TestChat:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def test_chat_requires_auth(self, client):
         gid = create_game(client)
-        resp = client.post(f"/poker/{gid}/chat", json={"message": "Hello"})
+        resp = client.post(f"/game/poker/{gid}/chat", json={"message": "Hello"})
         assert resp.status_code == 401
 
     def test_chat_requires_player(self, client):
         gid, _, _ = self._setup_started_game(client)
         key_c = register_account(client, "Charlie")
         resp = client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "Hello"},
             headers=auth_header(key_c),
         )
@@ -534,7 +534,7 @@ class TestChat:
     def test_chat_empty_message(self, client):
         gid, key_a, _ = self._setup_started_game(client)
         resp = client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "   "},
             headers=auth_header(key_a),
         )
@@ -543,7 +543,7 @@ class TestChat:
     def test_chat_too_long(self, client):
         gid, key_a, _ = self._setup_started_game(client)
         resp = client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "x" * 141},
             headers=auth_header(key_a),
         )
@@ -552,7 +552,7 @@ class TestChat:
     def test_chat_at_max_length(self, client):
         gid, key_a, _ = self._setup_started_game(client)
         resp = client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "x" * 140},
             headers=auth_header(key_a),
         )
@@ -561,7 +561,7 @@ class TestChat:
     def test_chat_success(self, client):
         gid, key_a, _ = self._setup_started_game(client)
         resp = client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "Hello everyone!"},
             headers=auth_header(key_a),
         )
@@ -571,11 +571,11 @@ class TestChat:
     def test_chat_in_state_response(self, client):
         gid, key_a, _ = self._setup_started_game(client)
         client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "Good luck!"},
             headers=auth_header(key_a),
         )
-        state = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        state = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         assert "chat_log" in state
         assert len(state["chat_log"]) == 1
         assert state["chat_log"][0]["player"] == "Alice"
@@ -584,11 +584,11 @@ class TestChat:
     def test_chat_in_spectator_response(self, client):
         gid, key_a, _ = self._setup_started_game(client)
         client.post(
-            f"/poker/{gid}/chat",
+            f"/game/poker/{gid}/chat",
             json={"message": "GL HF"},
             headers=auth_header(key_a),
         )
-        spec = client.get(f"/poker/{gid}/spectator").json()
+        spec = client.get(f"/game/poker/{gid}/spectator").json()
         assert "chat_log" in spec
         assert len(spec["chat_log"]) == 1
         assert spec["chat_log"][0]["message"] == "GL HF"
@@ -603,12 +603,12 @@ class TestTimer:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def test_timer_in_state_response(self, client):
         gid, key_a, _ = self._setup_started_game(client)
-        state = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        state = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         assert "timer" in state
         timer = state["timer"]
         assert timer is not None
@@ -622,8 +622,8 @@ class TestTimer:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
-        state = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
+        state = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         assert state["timer"]["extensions_remaining"] == 7
 
     def test_zero_extensions_per_player(self, client):
@@ -632,13 +632,13 @@ class TestTimer:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
-        state = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
+        state = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         assert state["timer"]["extensions_remaining"] == 0
 
     def test_timer_in_spectator_response(self, client):
         gid, _, _ = self._setup_started_game(client)
-        spec = client.get(f"/poker/{gid}/spectator").json()
+        spec = client.get(f"/game/poker/{gid}/spectator").json()
         assert "timer" in spec
         # During hand 1 with no previous hand, spectator sees timer for live game
         timer = spec["timer"]
@@ -646,32 +646,32 @@ class TestTimer:
 
     def test_extend_requires_auth(self, client):
         gid, _, _ = self._setup_started_game(client)
-        resp = client.post(f"/poker/{gid}/extend")
+        resp = client.post(f"/game/poker/{gid}/extend")
         assert resp.status_code == 401
 
     def test_extend_requires_player(self, client):
         gid, _, _ = self._setup_started_game(client)
         key_c = register_account(client, "Charlie")
-        resp = client.post(f"/poker/{gid}/extend", headers=auth_header(key_c))
+        resp = client.post(f"/game/poker/{gid}/extend", headers=auth_header(key_c))
         assert resp.status_code == 403
 
     def test_extend_wrong_turn(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         # Find who does NOT have the turn
         if s1["is_your_turn"]:
             wrong_key = key_b
         else:
             wrong_key = key_a
-        resp = client.post(f"/poker/{gid}/extend", headers=auth_header(wrong_key))
+        resp = client.post(f"/game/poker/{gid}/extend", headers=auth_header(wrong_key))
         assert resp.status_code == 400
 
     def test_extend_success(self, client):
         gid, key_a, key_b = self._setup_started_game(client)
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         right_key = key_a if s1["is_your_turn"] else key_b
 
-        resp = client.post(f"/poker/{gid}/extend", headers=auth_header(right_key))
+        resp = client.post(f"/game/poker/{gid}/extend", headers=auth_header(right_key))
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -684,13 +684,13 @@ class TestTimer:
         gid, key_a, key_b = self._setup_started_game(client)
         game = game_module.manager.get_game(gid)
 
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         right_key = key_a if s1["is_your_turn"] else key_b
 
         # Move time to 1ms past the deadline
         deadline = game.turn_deadline
         with patch("poker.game.time.time", return_value=deadline + 0.001):
-            resp = client.post(f"/poker/{gid}/extend", headers=auth_header(right_key))
+            resp = client.post(f"/game/poker/{gid}/extend", headers=auth_header(right_key))
 
         assert resp.status_code == 200
         data = resp.json()
@@ -702,7 +702,7 @@ class TestTimer:
         gid, key_a, key_b = self._setup_started_game(client)
         game = game_module.manager.get_game(gid)
 
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         right_key = key_a if s1["is_your_turn"] else key_b
         player = game.get_player_by_name(
             "Alice" if right_key == key_a else "Bob"
@@ -717,7 +717,7 @@ class TestTimer:
 
         # Now try to extend past deadline with no extensions left
         with patch("poker.game.time.time", return_value=deadline + 0.001):
-            resp = client.post(f"/poker/{gid}/extend", headers=auth_header(right_key))
+            resp = client.post(f"/game/poker/{gid}/extend", headers=auth_header(right_key))
 
         # Should fail with 400 (no extensions left), and timeout check should have fired
         assert resp.status_code == 400
@@ -734,11 +734,11 @@ class TestReason:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def _who_acts_first(self, client, gid, key_a, key_b):
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         if s1["is_your_turn"]:
             return key_a, key_b
         return key_b, key_a
@@ -747,7 +747,7 @@ class TestReason:
         gid, key_a, key_b = self._setup_started_game(client)
         first_key, _ = self._who_acts_first(client, gid, key_a, key_b)
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "reason": "x" * 501},
             headers=auth_header(first_key),
         )
@@ -758,7 +758,7 @@ class TestReason:
         gid, key_a, key_b = self._setup_started_game(client)
         first_key, _ = self._who_acts_first(client, gid, key_a, key_b)
         resp = client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "reason": "x" * 500},
             headers=auth_header(first_key),
         )
@@ -769,13 +769,13 @@ class TestReason:
         first_key, second_key = self._who_acts_first(client, gid, key_a, key_b)
 
         client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "reason": "I have pocket aces"},
             headers=auth_header(first_key),
         )
         # Both players should NOT see reason in state
         for key in (first_key, second_key):
-            state = client.get(f"/poker/{gid}/state", headers=auth_header(key)).json()
+            state = client.get(f"/game/poker/{gid}/state", headers=auth_header(key)).json()
             for a in state["recent_actions"]:
                 assert a.get("reason") is None
 
@@ -785,17 +785,17 @@ class TestReason:
 
         # Act with reason, then fold to complete hand (spectator sees previous hand)
         client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "call", "reason": "I think they're bluffing"},
             headers=auth_header(first_key),
         )
         client.post(
-            f"/poker/{gid}/action",
+            f"/game/poker/{gid}/action",
             json={"action": "fold"},
             headers=auth_header(second_key),
         )
         # Spectator should see hand 1 with reason visible
-        spec = client.get(f"/poker/{gid}/spectator").json()
+        spec = client.get(f"/game/poker/{gid}/spectator").json()
         reasons = [a["reason"] for a in spec["recent_actions"] if a.get("reason")]
         assert "I think they're bluffing" in reasons
 
@@ -809,7 +809,7 @@ class TestStreams:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b
 
     def test_create_stream(self, client):
@@ -974,9 +974,9 @@ class TestStreams:
         gid, key_a, key_b = self._setup_started_game(client)
 
         # Complete hand 1
-        s1 = client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+        s1 = client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
         first_key = key_a if s1["is_your_turn"] else key_b
-        client.post(f"/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+        client.post(f"/game/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
         # Create a stream
         key_c = register_account(client, "Charlie")
@@ -1029,7 +1029,7 @@ class TestStreams:
         client.post(f"/stream/{sid}/commentate", json={"text": "Hello!"}, headers=auth_header(key))
 
         # Raw spectator should have no commentary
-        resp = client.get(f"/poker/{gid}/spectator")
+        resp = client.get(f"/game/poker/{gid}/spectator")
         assert resp.json()["commentary_text"] is None
 
 
@@ -1044,23 +1044,23 @@ class TestResign:
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
         join_game(client, gid, key_c)
-        client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         return gid, key_a, key_b, key_c
 
     def test_resign_requires_auth(self, client):
         gid = create_game(client)
-        resp = client.post(f"/poker/{gid}/resign")
+        resp = client.post(f"/game/poker/{gid}/resign")
         assert resp.status_code == 401
 
     def test_resign_requires_player(self, client):
         gid, key_a, key_b, _ = self._setup_3player_game(client)
         key_d = register_account(client, "Dave")
-        resp = client.post(f"/poker/{gid}/resign", headers=auth_header(key_d))
+        resp = client.post(f"/game/poker/{gid}/resign", headers=auth_header(key_d))
         assert resp.status_code == 404
 
     def test_resign_success(self, client):
         gid, _, key_b, _ = self._setup_3player_game(client)
-        resp = client.post(f"/poker/{gid}/resign", headers=auth_header(key_b))
+        resp = client.post(f"/game/poker/{gid}/resign", headers=auth_header(key_b))
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -1068,8 +1068,8 @@ class TestResign:
 
     def test_resign_visible_in_spectator(self, client):
         gid, key_a, key_b, key_c = self._setup_3player_game(client)
-        client.post(f"/poker/{gid}/resign", headers=auth_header(key_b))
-        spec = client.get(f"/poker/{gid}/spectator").json()
+        client.post(f"/game/poker/{gid}/resign", headers=auth_header(key_b))
+        spec = client.get(f"/game/poker/{gid}/spectator").json()
         bob = next(p for p in spec["players"] if p["name"] == "Bob")
         assert bob["is_resigned"] is True
 
@@ -1077,7 +1077,7 @@ class TestResign:
         gid = create_game(client)
         key = register_account(client, "Alice")
         join_game(client, gid, key)
-        resp = client.post(f"/poker/{gid}/resign", headers=auth_header(key))
+        resp = client.post(f"/game/poker/{gid}/resign", headers=auth_header(key))
         assert resp.status_code == 400
         assert "not started" in resp.json()["detail"].lower()
 
@@ -1086,7 +1086,7 @@ class TestEscrowGameCreation:
     """Test funded game creation, joining, and lifecycle."""
 
     def test_create_funded_game(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "buy_in": 100_000_000,
@@ -1099,7 +1099,7 @@ class TestEscrowGameCreation:
 
     def test_create_free_game_defaults(self, client):
         """Creating a game with default values (no token, buy_in=0)."""
-        resp = client.post("/poker/games", json={})
+        resp = client.post("/game/poker/games", json={})
         assert resp.status_code == 200
         data = resp.json()
         assert data["max_players"] == 0
@@ -1107,7 +1107,7 @@ class TestEscrowGameCreation:
         assert data["buy_in"] == 0
 
     def test_join_funded_game_requires_wallet(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1117,7 +1117,7 @@ class TestEscrowGameCreation:
         key = register_account(client, "Alice")
         # No wallet_address provided
         resp = client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": None},
             headers=auth_header(key),
         )
@@ -1125,7 +1125,7 @@ class TestEscrowGameCreation:
         assert "Wallet address required" in resp.json()["detail"]
 
     def test_join_funded_game_with_wallet(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1134,7 +1134,7 @@ class TestEscrowGameCreation:
 
         key = register_account(client, "Alice")
         resp = client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
             headers=auth_header(key),
         )
@@ -1146,14 +1146,14 @@ class TestEscrowGameCreation:
         gid = create_game(client)
         key = register_account(client, "Alice")
         resp = client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": None},
             headers=auth_header(key),
         )
         assert resp.status_code == 200
 
     def test_join_full_game_rejected(self, client):
-        resp = client.post("/poker/games", json={"max_players": 2})
+        resp = client.post("/game/poker/games", json={"max_players": 2})
         gid = resp.json()["game_id"]
 
         key_a = register_account(client, "Alice")
@@ -1163,7 +1163,7 @@ class TestEscrowGameCreation:
         join_game(client, gid, key_b)
 
         resp = client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": None},
             headers=auth_header(key_c),
         )
@@ -1171,7 +1171,7 @@ class TestEscrowGameCreation:
         assert "full" in resp.json()["detail"].lower()
 
     def test_start_funded_game_before_funding_rejected(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1181,17 +1181,17 @@ class TestEscrowGameCreation:
         key_a = register_account(client, "Alice")
         key_b = register_account(client, "Bob")
         client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
             headers=auth_header(key_a),
         )
         client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"},
             headers=auth_header(key_b),
         )
 
-        resp = client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        resp = client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         assert resp.status_code == 400
         assert "Deposits not confirmed" in resp.json()["detail"]
 
@@ -1202,12 +1202,12 @@ class TestEscrowGameCreation:
         key_b = register_account(client, "Bob")
         join_game(client, gid, key_a)
         join_game(client, gid, key_b)
-        resp = client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+        resp = client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
         assert resp.status_code == 200
 
     def test_duplicate_wallet_rejected(self, client):
         """Two players cannot join with the same wallet address."""
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 3,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1219,12 +1219,12 @@ class TestEscrowGameCreation:
         key_b = register_account(client, "Bob")
 
         client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": wallet},
             headers=auth_header(key_a),
         )
         resp = client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": wallet},
             headers=auth_header(key_b),
         )
@@ -1233,7 +1233,7 @@ class TestEscrowGameCreation:
 
     def test_duplicate_wallet_case_insensitive(self, client):
         """Wallet address duplicate check is case-insensitive."""
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 3,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1244,12 +1244,12 @@ class TestEscrowGameCreation:
         key_b = register_account(client, "Bob")
 
         client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"},
             headers=auth_header(key_a),
         )
         resp = client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
             headers=auth_header(key_b),
         )
@@ -1261,12 +1261,12 @@ class TestEscrowEndpoints:
 
     def test_escrow_not_funded_game(self, client):
         gid = create_game(client)
-        resp = client.get(f"/poker/{gid}/escrow")
+        resp = client.get(f"/game/poker/{gid}/escrow")
         assert resp.status_code == 400
         assert "on-chain" in resp.json()["detail"].lower()
 
     def test_escrow_not_full(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1275,52 +1275,52 @@ class TestEscrowEndpoints:
 
         key = register_account(client, "Alice")
         client.post(
-            f"/poker/{gid}/join",
+            f"/game/poker/{gid}/join",
             json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"},
             headers=auth_header(key),
         )
 
-        resp = client.get(f"/poker/{gid}/escrow")
+        resp = client.get(f"/game/poker/{gid}/escrow")
         assert resp.status_code == 400
         assert "not full" in resp.json()["detail"].lower()
 
     def test_funding_not_funded_game(self, client):
         gid = create_game(client)
-        resp = client.get(f"/poker/{gid}/funding")
+        resp = client.get(f"/game/poker/{gid}/funding")
         assert resp.status_code == 400
 
     def test_funding_no_escrow_configured(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
 
-        resp = client.get(f"/poker/{gid}/funding")
+        resp = client.get(f"/game/poker/{gid}/funding")
         assert resp.status_code == 400
         assert "Escrow not yet configured" in resp.json()["detail"]
 
     def test_settlement_not_funded_game(self, client):
         gid = create_game(client)
-        resp = client.get(f"/poker/{gid}/settlement")
+        resp = client.get(f"/game/poker/{gid}/settlement")
         assert resp.status_code == 400
 
     def test_settlement_game_not_over(self, client):
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
         })
         gid = resp.json()["game_id"]
 
-        resp = client.get(f"/poker/{gid}/settlement")
+        resp = client.get(f"/game/poker/{gid}/settlement")
         assert resp.status_code == 400
         assert "not over" in resp.json()["detail"].lower()
 
     def test_settlement_no_escrow(self, client):
         """Settlement with game over but no escrow configured."""
-        resp = client.post("/poker/games", json={
+        resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
@@ -1331,6 +1331,6 @@ class TestEscrowEndpoints:
         game = game_module.manager.get_game(gid)
         game.game_over = True
 
-        resp = client.get(f"/poker/{gid}/settlement")
+        resp = client.get(f"/game/poker/{gid}/settlement")
         assert resp.status_code == 400
         assert "Escrow not configured" in resp.json()["detail"]

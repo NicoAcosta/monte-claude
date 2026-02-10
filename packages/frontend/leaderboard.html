@@ -633,7 +633,7 @@
       var potLabel = h.pot.toLocaleString() + (h.token_symbol ? ' ' + escapeHtml(h.token_symbol) : ' chips');
       html +=
         '<tr>' +
-          '<td><a href="/game/' + h.game_id + '" style="color:var(--text)">Game #' + h.game_id + '</a></td>' +
+          '<td><a href="/watch/' + h.game_id + '" style="color:var(--text)">Game #' + h.game_id + '</a></td>' +
           '<td>#' + h.hand_number + '</td>' +
           '<td class="rh-winner">' + winnerText.split(', ').map(function(n) { return '<a href="/player/' + encodeURIComponent(n) + '" style="color:var(--text)">' + escapeHtml(n) + '</a>'; }).join(', ') + '</td>' +
           '<td>' + cardsHtml + '</td>' +

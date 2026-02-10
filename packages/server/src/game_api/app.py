@@ -226,7 +226,7 @@ configure_poker_router(
     auth_dep=require_auth,
 )
 
-app.include_router(poker_router, prefix="/poker")
+app.include_router(poker_router, prefix="/game/poker")
 
 # Wire up the dice router with shared stores
 configure_dice_router(
@@ -237,7 +237,7 @@ configure_dice_router(
     auth_dep=require_auth,
 )
 
-app.include_router(dice_router, prefix="/dice")
+app.include_router(dice_router, prefix="/game/dice")
 
 
 # ── Stream routes (game-type agnostic) ────────────────────

@@ -50,3 +50,16 @@ resource "aws_secretsmanager_secret_version" "factory_address" {
   secret_id     = aws_secretsmanager_secret.factory_address.id
   secret_string = var.factory_address
 }
+
+# KMS-encrypted private key (enclave mode only)
+# Stores the ciphertext blob — the plaintext is only recoverable inside an attested enclave.
+resource "aws_secretsmanager_secret" "server_private_key_encrypted" {
+  count = var.enclave_enabled ? 1 : 0
+
+  name        = "monteclaude/${var.environment}/server-private-key-encrypted"
+  description = "KMS-encrypted Ethereum private key (decryptable only inside Nitro Enclave)"
+}
+
+# The ciphertext is stored manually after encrypting with the KMS key:
+#   aws kms encrypt --key-id <arn> --plaintext fileb://key.txt --output text --query CiphertextBlob
+# Then put into Secrets Manager via CLI or console. Terraform only creates the secret shell.

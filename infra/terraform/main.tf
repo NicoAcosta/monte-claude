@@ -18,11 +18,13 @@ terraform {
     region         = "us-east-1"
     dynamodb_table = "monteclaude-terraform-locks"
     encrypt        = true
+    profile        = "monte"
   }
 }
 
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = "monte"
 
   default_tags {
     tags = {

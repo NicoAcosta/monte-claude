@@ -4,7 +4,7 @@
 aws_region  = "us-east-1"
 environment = "prod"
 
-# Domain — leave empty to use ALB DNS name
+# Domain — leave empty to use ALB DNS name (e.g., "monteclaude.ai")
 domain_name = ""
 
 # EC2
@@ -23,6 +23,10 @@ factory_address    = "0x..."
 rake_bps           = "250"
 rake_beneficiary   = "0x..."
 chain_id           = "8453"
+
+# Nitro Enclave — set to true after encrypting key and noting PCR-0
+enclave_enabled = false
+enclave_pcr0    = ""
 
 # WAF
 waf_rate_limit = 2000

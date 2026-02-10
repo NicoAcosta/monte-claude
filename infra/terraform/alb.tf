@@ -154,8 +154,12 @@ resource "aws_lb_listener" "http" {
 
 # ---------- ALB Routing Rules ----------
 # Account API handles: register, faucet, balance
-# Game API handles: game creation, game POST endpoints, live state reads, spectator, streams
+# Game API handles: /game/* (all game types + game-agnostic), /stream/* writes + data
 # Data API handles: everything else (default action above)
+#
+# All game traffic is under /game/*. Adding a new game type requires
+# NO terraform changes — just mount the router in Python under /game/{type}.
+# Toggling a game on/off is an app-level concern; ALB routes regardless.
 
 # Rule 1: POST /api/register → Account API
 resource "aws_lb_listener_rule" "account_register" {
@@ -176,8 +180,12 @@ resource "aws_lb_listener_rule" "account_register" {
   }
 }
 
-# Rule 2: POST /api/games → Game API
-resource "aws_lb_listener_rule" "game_create" {
+# Rule 2: /game/* → Game API (all methods, all game types)
+# Covers all game-type routes (/game/poker/*, /game/dice/*, etc.)
+# and game-agnostic routes (/game/{id}/spectator, /game/{id}/streams).
+# Adding a new game type requires NO terraform changes — just mount
+# the router in Python under /game/{type} and it works.
+resource "aws_lb_listener_rule" "game_routes" {
   listener_arn = local.main_listener_arn
   priority     = 200
 
@@ -187,11 +195,7 @@ resource "aws_lb_listener_rule" "game_create" {
   }
 
   condition {
-    path_pattern { values = ["/api/games"] }
-  }
-
-  condition {
-    http_request_method { values = ["POST"] }
+    path_pattern { values = ["/game/*"] }
   }
 }
 
@@ -233,80 +237,10 @@ resource "aws_lb_listener_rule" "account_balance" {
   }
 }
 
-# Rule 4a: Game API GET reads (batch 1 — ALB max 5 path patterns per condition)
-resource "aws_lb_listener_rule" "game_state_reads_1" {
-  listener_arn = local.main_listener_arn
-  priority     = 400
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
-  }
-
-  condition {
-    path_pattern {
-      values = [
-        "/game/*/state",
-        "/game/*/spectator",
-        "/game/*/waiting",
-        "/game/*/escrow",
-        "/game/*/funding",
-      ]
-    }
-  }
-
-  condition {
-    http_request_method { values = ["GET"] }
-  }
-}
-
-# Rule 4b: Game API GET reads (batch 2)
-resource "aws_lb_listener_rule" "game_state_reads_2" {
-  listener_arn = local.main_listener_arn
-  priority     = 410
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
-  }
-
-  condition {
-    path_pattern {
-      values = [
-        "/game/*/settlement",
-        "/game/*/offchain-settlement",
-      ]
-    }
-  }
-
-  condition {
-    http_request_method { values = ["GET"] }
-  }
-}
-
-# Rule 5: All POST /game/* → Game API (join, start, action, resign, chat, extend, streams)
-resource "aws_lb_listener_rule" "game_writes" {
-  listener_arn = local.main_listener_arn
-  priority     = 500
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
-  }
-
-  condition {
-    path_pattern { values = ["/game/*"] }
-  }
-
-  condition {
-    http_request_method { values = ["POST"] }
-  }
-}
-
-# Rule 6: POST /stream/* → Game API (commentate)
+# Rule 4: POST /stream/* → Game API (commentate)
 resource "aws_lb_listener_rule" "stream_writes" {
   listener_arn = local.main_listener_arn
-  priority     = 600
+  priority     = 400
 
   action {
     type             = "forward"
@@ -322,10 +256,10 @@ resource "aws_lb_listener_rule" "stream_writes" {
   }
 }
 
-# Rule 7: GET /stream/*/data → Game API (live stream data)
+# Rule 5: GET /stream/*/data → Game API (live stream data)
 resource "aws_lb_listener_rule" "stream_data_reads" {
   listener_arn = local.main_listener_arn
-  priority     = 610
+  priority     = 410
 
   action {
     type             = "forward"
@@ -341,6 +275,5 @@ resource "aws_lb_listener_rule" "stream_data_reads" {
   }
 }
 
-# Everything else (/, /leaderboard, /player/*, /api/games (GET), /api/leaderboard,
-# /api/recent-hands, /api/stats/*, /api/streams, /api/config,
-# /api/instructions, /game/*/streams (GET), static HTML) → Data API (default action)
+# Everything else (/, /watch/{id}, /leaderboard, /player/*, /api/* (GET),
+# /api/streams, /stream/{id} (HTML), static files) → Data API (default)
