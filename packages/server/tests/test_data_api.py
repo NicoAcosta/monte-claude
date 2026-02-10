@@ -87,18 +87,18 @@ def seed_game(game_client) -> tuple[int, str, str]:
     """Create a started 2-player game via Game API. Returns (game_id, key_a, key_b)."""
     key_a = game_module.account_store.create_account("Alice")
     key_b = game_module.account_store.create_account("Bob")
-    gid = game_client.post("/poker/games", json={"max_players": 2}).json()["game_id"]
-    game_client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key_a))
-    game_client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key_b))
-    game_client.post(f"/poker/{gid}/start", headers=auth_header(key_a))
+    gid = game_client.post("/game/poker/games", json={"max_players": 2}).json()["game_id"]
+    game_client.post(f"/game/poker/{gid}/join", json={}, headers=auth_header(key_a))
+    game_client.post(f"/game/poker/{gid}/join", json={}, headers=auth_header(key_b))
+    game_client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
     return gid, key_a, key_b
 
 
 def fold_hand(game_client, gid: int, key_a: str, key_b: str) -> None:
     """Fold to complete the current hand."""
-    s1 = game_client.get(f"/poker/{gid}/state", headers=auth_header(key_a)).json()
+    s1 = game_client.get(f"/game/poker/{gid}/state", headers=auth_header(key_a)).json()
     first_key = key_a if s1["is_your_turn"] else key_b
-    game_client.post(f"/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
+    game_client.post(f"/game/poker/{gid}/action", json={"action": "fold"}, headers=auth_header(first_key))
 
 
 # ── Lobby (game list from game_metadata) ─────────────────
@@ -110,16 +110,16 @@ class TestLobby:
         assert resp.json()["games"] == []
 
     def test_list_games_after_create(self, game_client, client):
-        game_client.post("/poker/games", json={"max_players": 2})
+        game_client.post("/game/poker/games", json={"max_players": 2})
         resp = client.get("/api/games")
         games = resp.json()["games"]
         assert len(games) == 1
         assert games[0]["started"] is False
 
     def test_lobby_reflects_player_join(self, game_client, client):
-        gid = game_client.post("/poker/games", json={"max_players": 2}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={"max_players": 2}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
-        game_client.post(f"/poker/{gid}/join", json={}, headers=auth_header(key))
+        game_client.post(f"/game/poker/{gid}/join", json={}, headers=auth_header(key))
         games = client.get("/api/games").json()["games"]
         assert games[0]["player_count"] == 1
         assert games[0]["player_names"] == ["Alice"]
@@ -130,12 +130,12 @@ class TestLobby:
         assert games[0]["started"] is True
 
     def test_game_page_404(self, client):
-        resp = client.get("/game/999")
+        resp = client.get("/watch/999")
         assert resp.status_code == 404
 
     def test_game_page_exists(self, game_client, client):
-        game_client.post("/poker/games", json={})
-        resp = client.get("/game/1")
+        game_client.post("/game/poker/games", json={})
+        resp = client.get("/watch/1")
         assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
 
@@ -213,7 +213,7 @@ class TestStreamsRead:
         assert resp.json()["streams"] == []
 
     def test_list_all_streams(self, game_client, client):
-        gid = game_client.post("/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "Test Stream"}, headers=auth_header(key))
 
@@ -224,11 +224,11 @@ class TestStreamsRead:
         assert streams[0]["host"] == "Alice"
 
     def test_list_streams_for_game(self, game_client, client):
-        gid = game_client.post("/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "G1 Stream"}, headers=auth_header(key))
 
-        resp = client.get(f"/game/{gid}/streams")
+        resp = client.get(f"/api/games/{gid}/streams")
         assert resp.status_code == 200
         assert len(resp.json()["streams"]) == 1
 
@@ -237,7 +237,7 @@ class TestStreamsRead:
         assert resp.status_code == 404
 
     def test_stream_page_exists(self, game_client, client):
-        gid = game_client.post("/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         sid = game_client.post(
             f"/game/{gid}/streams", json={"title": "Test"}, headers=auth_header(key)

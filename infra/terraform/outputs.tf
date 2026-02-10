@@ -47,3 +47,13 @@ output "nat_instance_public_ip" {
   description = "Public IP of the NAT instance"
   value       = aws_instance.nat.public_ip
 }
+
+output "enclave_kms_key_arn" {
+  description = "KMS key ARN for enclave attestation (empty if enclave disabled)"
+  value       = var.enclave_enabled ? aws_kms_key.enclave[0].arn : ""
+}
+
+output "encrypted_privkey_secret_arn" {
+  description = "Secrets Manager ARN for encrypted private key (empty if enclave disabled)"
+  value       = var.enclave_enabled ? aws_secretsmanager_secret.server_private_key_encrypted[0].arn : ""
+}

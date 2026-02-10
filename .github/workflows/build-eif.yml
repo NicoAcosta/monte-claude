@@ -1,16 +1,23 @@
-# Phase 2: Build Nitro Enclave Image (EIF) for Game API
-# Produces PCR values for attestation verification.
+# Build Nitro Enclave Image (EIF) for Game API
+# Produces PCR values needed for KMS attestation policy.
 #
-# This workflow is NOT used in Phase 1. It exists as a placeholder for Phase 2
-# when the Game API moves inside a Nitro Enclave.
+# Outputs:
+#   - PCR-0 (image hash) in job summary for copy-paste to terraform.tfvars
+#   - EIF + PCR JSON as release artifacts (when publish_release=true)
 
 name: Build Enclave Image
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/server/**"
+      - "infra/docker/Dockerfile.game.enclave"
+      - "infra/docker/enclave/**"
   workflow_dispatch:
     inputs:
-      publish_pcr:
-        description: "Publish PCR values as release artifact"
+      publish_release:
+        description: "Create a GitHub release with EIF + PCR values"
         required: false
         default: "false"
 
@@ -24,30 +31,78 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image (amazonlinux base for enclave compatibility)
+      - name: Build enclave Docker image
         run: |
-          # Phase 2: Replace Dockerfile.game with amazonlinux-based image
-          # and build EIF here.
-          echo "Phase 2 TODO: Build enclave image"
-          echo "1. docker build -f infra/docker/Dockerfile.game.enclave ."
-          echo "2. nitro-cli build-enclave --docker-uri <image> --output-file game-api.eif"
-          echo "3. Extract PCR-0, PCR-1, PCR-2 from build output"
+          docker build \
+            -f infra/docker/Dockerfile.game.enclave \
+            -t monteclaude-game-api-enclave:latest \
+            .
 
-      # Phase 2: Uncomment when ready
-      # - name: Build enclave image
-      #   uses: richardfan1126/nitro-enclaves-eif-build-action@v1
-      #   with:
-      #     docker-image: monteclaude-game-api
-      #     dockerfile: infra/docker/Dockerfile.game.enclave
-      #     eif-file-name: game-api.eif
+      - name: Build EIF and extract PCR values
+        uses: richardfan1126/nitro-enclaves-eif-build-action@v1
+        with:
+          docker-image: monteclaude-game-api-enclave:latest
+          eif-file-name: game-api.eif
 
-      # - name: Extract PCR values
-      #   run: |
-      #     cat game-api.eif.pcr | tee pcr-values.json
+      - name: Parse PCR values
+        id: pcr
+        run: |
+          # The action outputs PCR values to <eif-file-name>.pcr
+          cat game-api.eif.pcr | tee pcr-values.json
 
-      # - name: Upload PCR values
-      #   if: inputs.publish_pcr == 'true'
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     files: pcr-values.json
-      #     tag_name: eif-${{ github.sha }}
+          PCR0=$(python3 -c "import json; print(json.load(open('pcr-values.json'))['PCR0'])")
+          PCR1=$(python3 -c "import json; print(json.load(open('pcr-values.json'))['PCR1'])")
+          PCR2=$(python3 -c "import json; print(json.load(open('pcr-values.json'))['PCR2'])")
+
+          echo "pcr0=$PCR0" >> "$GITHUB_OUTPUT"
+          echo "pcr1=$PCR1" >> "$GITHUB_OUTPUT"
+          echo "pcr2=$PCR2" >> "$GITHUB_OUTPUT"
+
+      - name: Write job summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Enclave Image Built
+
+          | PCR | Value |
+          |-----|-------|
+          | **PCR-0** (image) | \`${{ steps.pcr.outputs.pcr0 }}\` |
+          | **PCR-1** (kernel) | \`${{ steps.pcr.outputs.pcr1 }}\` |
+          | **PCR-2** (app) | \`${{ steps.pcr.outputs.pcr2 }}\` |
+
+          ### Usage
+
+          Set in \`terraform.tfvars\`:
+          \`\`\`hcl
+          enclave_enabled = true
+          enclave_pcr0    = "${{ steps.pcr.outputs.pcr0 }}"
+          \`\`\`
+
+          Then run \`terraform apply\` to update the KMS key policy.
+          EOF
+
+      - name: Upload EIF as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-api-eif
+          path: |
+            game-api.eif
+            pcr-values.json
+          retention-days: 30
+
+      - name: Create release
+        if: github.event.inputs.publish_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: eif-${{ github.sha }}
+          name: "Enclave Image ${{ github.sha }}"
+          body: |
+            ## PCR Values
+
+            | PCR | Value |
+            |-----|-------|
+            | **PCR-0** | `${{ steps.pcr.outputs.pcr0 }}` |
+            | **PCR-1** | `${{ steps.pcr.outputs.pcr1 }}` |
+            | **PCR-2** | `${{ steps.pcr.outputs.pcr2 }}` |
+          files: |
+            game-api.eif
+            pcr-values.json

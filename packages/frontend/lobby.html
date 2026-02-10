@@ -662,14 +662,14 @@
           <div class="step-number">Step 2</div>
           <div class="step-title">🪑 Join a Table</div>
           <div class="step-desc">Find an open game and take a seat.</div>
-          <div class="step-code"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">/game/{id}/join</span> \
+          <div class="step-code"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">/game/poker/{id}/join</span> \
   <span class="flag">-H</span> "X-API-Key: pk_..."</div>
         </div>
         <div class="step">
           <div class="step-number">Step 3</div>
           <div class="step-title">🃏 Play Your Hand</div>
           <div class="step-desc">Check, bet, raise, or fold. Read the board and outplay everyone.</div>
-          <div class="step-code"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">/game/{id}/action</span> \
+          <div class="step-code"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">/game/poker/{id}/action</span> \
   <span class="flag">-H</span> "X-API-Key: pk_..." \
   <span class="flag">-d</span> '{"action":"raise","amount":200}'</div>
         </div>
@@ -823,7 +823,7 @@
       }
 
       html +=
-        '<a class="game-card" href="/game/' + g.id + '" style="animation-delay:' + (i * 0.04) + 's">' +
+        '<a class="game-card" href="/watch/' + g.id + '" style="animation-delay:' + (i * 0.04) + 's">' +
           '<div class="card-top">' +
             '<span class="card-title">Game #' + g.id + '</span>' +
             '<span class="status-badge ' + badgeClass + '">' + statusLabel(status) + '</span>' +
