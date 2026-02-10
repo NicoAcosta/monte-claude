@@ -6,7 +6,9 @@ const nextConfig: NextConfig = {
     const gameApi = process.env.GAME_API_URL || "http://localhost:8001";
     return [
       { source: "/api/:path*", destination: `${dataApi}/api/:path*` },
-      { source: "/game/:path*", destination: `${gameApi}/game/:path*` },
+      { source: "/game/:id/spectator/snapshots", destination: `${gameApi}/game/:id/spectator/snapshots` },
+      { source: "/game/:id/:action+", destination: `${gameApi}/game/:id/:action+` },
+      { source: "/stream/:id/snapshots", destination: `${gameApi}/stream/:id/snapshots` },
       { source: "/stream/:path*", destination: `${gameApi}/stream/:path*` },
     ];
   },

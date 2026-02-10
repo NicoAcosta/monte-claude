@@ -121,6 +121,7 @@ export interface SpectatorPlayer {
 }
 
 export interface SpectatorState {
+  state_version: number
   hand_number: number
   phase: string
   community_cards: string[]
