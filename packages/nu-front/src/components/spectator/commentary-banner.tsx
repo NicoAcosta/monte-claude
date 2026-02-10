@@ -1,31 +1,11 @@
 "use client"
 
-import { useEffect, useRef } from "react"
-
-export function CommentaryBanner({
-  text,
-  audioEnabled,
-}: {
-  text: string
-  audioEnabled: boolean
-}) {
-  const lastSpoken = useRef("")
-
-  useEffect(() => {
-    if (!audioEnabled || !text || text === lastSpoken.current) return
-    if (typeof window === "undefined" || !window.speechSynthesis) return
-
-    lastSpoken.current = text
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 1
-    utterance.pitch = 1
-    window.speechSynthesis.speak(utterance)
-  }, [text, audioEnabled])
-
+export function CommentaryBanner({ text }: { text: string | null }) {
   if (!text) return null
 
   return (
     <div
+      key={text}
       className="flex-shrink-0 border-t border-[#d4a843]/20 bg-black/45 px-6 py-2 text-center"
       style={{ animation: "fade-slide-in 0.4s ease" }}
     >
