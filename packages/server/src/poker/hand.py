@@ -51,7 +51,7 @@ class Hand:
         dealer_index: int,
         small_blind: int = 10,
         big_blind: int = 20,
-        deck_seed: int | None = None,
+        deck_seed_hex: str | None = None,
         starting_action_id: int = 1,
         event_callback: Callable[[str, dict], None] | None = None,
     ) -> None:
@@ -63,7 +63,7 @@ class Hand:
         self.small_blind = small_blind
         self.big_blind = big_blind
         self._event_callback = event_callback
-        self.deck = Deck(seed=deck_seed)
+        self.deck = Deck(seed_hex=deck_seed_hex)
         self.community_cards: list[Card] = []
         self.phase = "preflop"
         self.pot = 0

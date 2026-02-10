@@ -2,6 +2,7 @@
 
 import pytest
 
+from core.fairness import verify_seed
 from dice.round import categorize, resolve_round, RoundResult
 from dice.game import DiceGame
 
@@ -255,8 +256,13 @@ class TestDiceGameOver:
     def test_game_ends_when_only_one_can_ante(self):
         """Game ends when fewer than 2 players can afford the next ante."""
         from unittest.mock import patch
-        # Fix dice to (5, 4) = 9 → high. Alice bets high (wins), Bob bets low (loses).
-        with patch("dice.round.roll_dice", return_value=(5, 4)):
+        from core.fairness import SeedCommitment
+        # Seed 0x00*32 with HMAC-DRBG produces dice (5, 3) = 8 → high.
+        fixed_seed = SeedCommitment(
+            seed_hex="00" * 32,
+            commitment="66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+        )
+        with patch("dice.game.generate_seed", return_value=fixed_seed):
             g = DiceGame(ante=100, action_timeout=0)
             p1 = g.register("Alice")
             p2 = g.register("Bob")
@@ -266,7 +272,91 @@ class TestDiceGameOver:
             # Both anted: Alice=900, Bob=0
             g.do_action(1, "high")  # Alice picks high
             g.do_action(2, "low")   # Bob picks low
-            # Dice=(5,4)=9 → high wins → Alice gets pot (200)
+            # Dice=(5,3)=8 → high wins → Alice gets pot (200)
             # Alice=1100, Bob=0 → only 1 can ante → game over
             assert g.game_over is True
             assert g.winner == "Alice"
+
+
+class TestDiceSeedCommitment:
+    """Provable fairness: seed commitment and reveal for dice rounds."""
+
+    def test_seed_commitment_empty_before_start(self):
+        g = DiceGame()
+        g.register("Alice")
+        g.register("Bob")
+        assert g.seed_commitment == ""
+
+    def test_seed_commitment_set_after_start(self):
+        g = DiceGame(action_timeout=0)
+        g.register("Alice")
+        g.register("Bob")
+        g.start()
+        assert len(g.seed_commitment) == 64
+        int(g.seed_commitment, 16)
+
+    def test_hand_started_event_has_commitment(self):
+        events = []
+        g = DiceGame(event_callback=lambda t, d: events.append((t, d)), action_timeout=0)
+        g.register("Alice")
+        g.register("Bob")
+        g.start()
+        started = [d for t, d in events if t == "hand_started"]
+        assert len(started) >= 1
+        assert "seed_commitment" in started[0]
+        assert len(started[0]["seed_commitment"]) == 64
+
+    def test_round_resolved_event_reveals_seed(self):
+        events = []
+        g = DiceGame(event_callback=lambda t, d: events.append((t, d)), ante=20, action_timeout=0)
+        g.register("Alice")
+        g.register("Bob")
+        g.start()
+        g.do_action(1, "high")
+        g.do_action(2, "low")
+        resolved = [d for t, d in events if t == "round_resolved"]
+        assert len(resolved) >= 1
+        assert "seed_hex" in resolved[0]
+        assert "seed_commitment" in resolved[0]
+
+    def test_hand_completed_event_reveals_seed(self):
+        events = []
+        g = DiceGame(event_callback=lambda t, d: events.append((t, d)), ante=20, action_timeout=0)
+        g.register("Alice")
+        g.register("Bob")
+        g.start()
+        g.do_action(1, "high")
+        g.do_action(2, "low")
+        completed = [d for t, d in events if t == "hand_completed"]
+        assert len(completed) >= 1
+        assert "seed_hex" in completed[0]
+        assert "seed_commitment" in completed[0]
+
+    def test_seed_verifies(self):
+        events = []
+        g = DiceGame(event_callback=lambda t, d: events.append((t, d)), ante=20, action_timeout=0)
+        g.register("Alice")
+        g.register("Bob")
+        g.start()
+        g.do_action(1, "high")
+        g.do_action(2, "low")
+        completed = [d for t, d in events if t == "hand_completed"]
+        assert verify_seed(completed[0]["seed_hex"], completed[0]["seed_commitment"])
+
+    def test_replay_dice_matches_result(self):
+        """Verify that replaying FairRng produces the same dice."""
+        from core.fairness import FairRng
+        events = []
+        g = DiceGame(event_callback=lambda t, d: events.append((t, d)), ante=20, action_timeout=0)
+        g.register("Alice")
+        g.register("Bob")
+        g.start()
+        g.do_action(1, "high")
+        g.do_action(2, "low")
+        resolved = [d for t, d in events if t == "round_resolved"]
+        completed = [d for t, d in events if t == "hand_completed"]
+        actual_dice = tuple(resolved[0]["dice"])
+        seed_hex = completed[0]["seed_hex"]
+        rng = FairRng(bytes.fromhex(seed_hex))
+        replay_dice = (1 + rng.randbelow(6), 1 + rng.randbelow(6))
+        assert replay_dice == actual_dice

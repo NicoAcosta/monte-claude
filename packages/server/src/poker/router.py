@@ -196,6 +196,7 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides: Any) 
             small_blind=SMALL_BLIND,
             big_blind=BIG_BLIND,
             game_started_at=game.started_at,
+            seed_commitment=game.seed_commitment,
         )
         base.update(overrides)
         return SpectatorResponse(**base)
@@ -246,6 +247,7 @@ def _build_spectator_response(game: Game, config: GameConfig, **overrides: Any) 
         small_blind=SMALL_BLIND,
         big_blind=BIG_BLIND,
         game_started_at=game.started_at,
+        seed_commitment=game.seed_commitment,
     )
     base.update(overrides)
     return SpectatorResponse(**base)
@@ -387,6 +389,7 @@ def state(game_id: int, account: Account = Depends(_require_auth)):
             recent_actions=_recent_actions(game),
             player_comments=_player_comments(game),
             chat_log=_chat_log(game),
+            seed_commitment=game.seed_commitment,
         )
 
     hand_player = hand._get_player(player_id)
@@ -437,6 +440,7 @@ def state(game_id: int, account: Account = Depends(_require_auth)):
         player_comments=_player_comments(game),
         chat_log=_chat_log(game),
         timer=_timer_info(game, player_id),
+        seed_commitment=game.seed_commitment,
     )
 
 

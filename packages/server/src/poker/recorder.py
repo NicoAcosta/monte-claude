@@ -26,6 +26,8 @@ def make_poker_materializer(summary_store: HandSummaryStore) -> Callable[[int, d
             winning_cards=json.dumps(data.get("winning_cards", {})),
             result_type=data.get("result_type", "fold"),
             token_symbol=data.get("token_symbol"),
+            seed_hex=data.get("seed_hex", ""),
+            seed_commitment=data.get("seed_commitment", ""),
         )
         summary_store.append(summary)
 

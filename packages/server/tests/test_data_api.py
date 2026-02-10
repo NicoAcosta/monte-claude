@@ -167,6 +167,20 @@ class TestHistory:
         assert resp.status_code == 200
         assert len(resp.json()["events"]) <= 2
 
+    def test_game_history_strips_seed_hex(self, game_client, client):
+        """seed_hex must never appear in raw event data — use summary endpoints."""
+        import json as _json
+        gid, key_a, key_b = seed_game(game_client)
+        fold_hand(game_client, gid, key_a, key_b)
+
+        resp = client.get(f"/api/games/{gid}/history")
+        assert resp.status_code == 200
+        for event in resp.json()["events"]:
+            parsed = _json.loads(event["data"])
+            assert "seed_hex" not in parsed, (
+                f"seed_hex leaked in {event['event_type']} event"
+            )
+
 
 # ── Hand summaries ───────────────────────────────────────
 

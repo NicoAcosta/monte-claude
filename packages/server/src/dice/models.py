@@ -40,6 +40,7 @@ class DiceStateResponse(BaseModel):
     # Chat
     chat: list[dict] = []
     state_version: int = 0
+    seed_commitment: str = ""
 
 
 class DiceSpectatorPlayerState(BaseModel):
@@ -74,3 +75,4 @@ class DiceSpectatorResponse(BaseModel):
     stream_title: str | None = None
     stream_host: str | None = None
     stream_created_at: float | None = None
+    seed_commitment: str = ""

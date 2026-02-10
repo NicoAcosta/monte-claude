@@ -37,20 +37,20 @@ def test_card_from_str_bad_length():
 
 
 def test_deck_deal():
-    deck = Deck(seed=42)
+    deck = Deck(seed_hex="2a")
     cards = deck.deal(2)
     assert len(cards) == 2
     assert deck.remaining == 50
 
 
 def test_deck_deterministic_with_seed():
-    d1 = Deck(seed=1)
-    d2 = Deck(seed=1)
+    d1 = Deck(seed_hex="01")
+    d2 = Deck(seed_hex="01")
     assert d1.deal(5) == d2.deal(5)
 
 
 def test_deck_exhaustion():
-    deck = Deck(seed=0)
+    deck = Deck(seed_hex="00")
     deck.deal(52)
     with pytest.raises(RuntimeError):
         deck.deal(1)

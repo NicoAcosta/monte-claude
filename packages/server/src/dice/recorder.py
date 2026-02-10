@@ -31,6 +31,8 @@ def make_dice_materializer(
                 "payouts": data.get("payouts", {}),
             },
             timestamp=time.time(),
+            seed_hex=data.get("seed_hex", ""),
+            seed_commitment=data.get("seed_commitment", ""),
         )
         summary_store.append(summary)
 

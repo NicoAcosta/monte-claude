@@ -92,6 +92,7 @@ class PlayerStateResponse(BaseModel):
     player_comments: list[PlayerComment] = []
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
+    seed_commitment: str = ""
 
 
 class SpectatorPlayerState(BaseModel):
@@ -140,6 +141,7 @@ class SpectatorResponse(BaseModel):
     small_blind: int = 10
     big_blind: int = 20
     game_started_at: float | None = None
+    seed_commitment: str = ""
 
 
 class HandSummaryResponse(BaseModel):
@@ -155,6 +157,8 @@ class HandSummaryResponse(BaseModel):
     winning_cards: dict[str, list[str]] = {}
     result_type: str = "fold"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class HandSummariesResponse(BaseModel):
@@ -172,6 +176,8 @@ class RecentHandItem(BaseModel):
     winning_cards: dict[str, list[str]] = {}
     result_type: str = "fold"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class RecentHandsResponse(BaseModel):

@@ -1,6 +1,8 @@
 from unittest.mock import patch
 
 import pytest
+from core.fairness import verify_seed
+from poker.deck import Deck
 from poker.game import Game, STARTING_CHIPS
 
 
@@ -527,3 +529,105 @@ class TestOffTurnResignHandContinues:
                 game.resign(off_turn_hand[0].id)
                 # Hand should advance or game should end since only 1 active remains
                 assert game.hand_number > hand_num or game.game_over
+
+
+class TestSeedCommitment:
+    """Provable fairness: seed commitment and reveal for poker hands."""
+
+    def test_seed_commitment_empty_before_start(self):
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        assert game.seed_commitment == ""
+
+    def test_seed_commitment_set_after_start(self):
+        game = Game()
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        assert len(game.seed_commitment) == 64
+        # Valid hex
+        int(game.seed_commitment, 16)
+
+    def test_hand_started_event_has_commitment(self):
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        started = [d for t, d in events if t == "hand_started"]
+        assert len(started) >= 1
+        assert "seed_commitment" in started[0]
+        assert len(started[0]["seed_commitment"]) == 64
+
+    def test_hand_completed_event_reveals_seed(self):
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        # Fold to complete the hand
+        cp = game.current_hand.current_player
+        game.do_action(cp.id, "fold")
+        completed = [d for t, d in events if t == "hand_completed"]
+        assert len(completed) >= 1
+        assert "seed_hex" in completed[0]
+        assert "seed_commitment" in completed[0]
+        assert len(completed[0]["seed_hex"]) == 64
+        assert len(completed[0]["seed_commitment"]) == 64
+
+    def test_seed_verifies(self):
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        cp = game.current_hand.current_player
+        game.do_action(cp.id, "fold")
+        completed = [d for t, d in events if t == "hand_completed"]
+        assert verify_seed(completed[0]["seed_hex"], completed[0]["seed_commitment"])
+
+    def test_replay_deck_matches_dealt_cards(self):
+        """Verify that replaying Deck(seed_hex=seed_hex) produces the same cards dealt."""
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+
+        # Capture cards dealt in hand 1
+        hand = game.current_hand
+        dealt_cards = []
+        for p in hand.players:
+            dealt_cards.extend([str(c) for c in p.hole_cards])
+
+        # Complete the hand to reveal seed
+        cp = hand.current_player
+        game.do_action(cp.id, "fold")
+
+        completed = [d for t, d in events if t == "hand_completed"][0]
+        seed_hex = completed["seed_hex"]
+
+        # Replay: same seed → same deck → same deal order
+        replay_deck = Deck(seed_hex=seed_hex)
+        num_players = len(hand.players)
+        replay_cards = []
+        for _ in range(num_players):
+            cards = replay_deck.deal(2)
+            replay_cards.extend([str(c) for c in cards])
+
+        assert replay_cards == dealt_cards
+
+    def test_commitment_changes_each_hand(self):
+        events = []
+        game = Game(event_callback=lambda t, d: events.append((t, d)))
+        game.register("Alice")
+        game.register("Bob")
+        game.start()
+        # Complete first hand
+        cp = game.current_hand.current_player
+        game.do_action(cp.id, "fold")
+        if not game.game_over:
+            started = [d for t, d in events if t == "hand_started"]
+            assert len(started) >= 2
+            assert started[0]["seed_commitment"] != started[1]["seed_commitment"]

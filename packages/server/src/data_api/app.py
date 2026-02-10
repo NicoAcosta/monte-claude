@@ -249,6 +249,20 @@ def list_games():
 
 # ── History routes ──────────────────────────────────────
 
+# Keys stripped from raw event JSON — seeds are available via summary endpoints.
+_EVENT_REDACTED_KEYS = frozenset({"seed_hex"})
+
+
+def _sanitize_event_data(raw: str) -> str:
+    """Remove sensitive fields from event JSON before returning to clients."""
+    parsed = json.loads(raw)
+    if any(k in parsed for k in _EVENT_REDACTED_KEYS):
+        for k in _EVENT_REDACTED_KEYS:
+            parsed.pop(k, None)
+        return json.dumps(parsed, separators=(",", ":"))
+    return raw
+
+
 @app.get("/api/games/{game_id}/history", response_model=GameHistoryResponse)
 def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS)):
     if not metadata_store.exists(game_id):
@@ -264,7 +278,7 @@ def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=M
                 event_type=e.event_type,
                 timestamp=e.timestamp,
                 hand_number=e.hand_number,
-                data=e.data,
+                data=_sanitize_event_data(e.data),
                 sequence=e.sequence,
             )
             for e in events
@@ -295,6 +309,8 @@ def hand_summaries(game_id: int, limit: int = Query(default=MAX_HANDS, ge=1, le=
                 winning_cards=json.loads(s.winning_cards) if isinstance(s.winning_cards, str) else s.winning_cards,
                 result_type=s.result_type,
                 token_symbol=s.token_symbol,
+                seed_hex=s.seed_hex,
+                seed_commitment=s.seed_commitment,
             )
             for s in summaries
         ],
@@ -384,6 +400,8 @@ def recent_hands(
                 winning_cards=json.loads(h.winning_cards) if isinstance(h.winning_cards, str) else h.winning_cards,
                 result_type=h.result_type,
                 token_symbol=h.token_symbol,
+                seed_hex=h.seed_hex,
+                seed_commitment=h.seed_commitment,
             )
             for h in hands
         ],

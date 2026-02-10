@@ -43,7 +43,11 @@ CREATE TABLE hand_summaries (
     winner_names    TEXT NOT NULL DEFAULT '[]',
     winning_cards   TEXT NOT NULL DEFAULT '{}',
     result_type     TEXT NOT NULL DEFAULT 'fold',
-    token_symbol    TEXT
+    token_symbol    TEXT,
+    seed_hex        TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_hex = '' OR seed_hex ~ '^[0-9a-f]{64}$'),
+    seed_commitment TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_commitment = '' OR seed_commitment ~ '^[0-9a-f]{64}$')
 );
 CREATE INDEX idx_hand_summaries_game_id ON hand_summaries (game_id);
 CREATE INDEX idx_hand_summaries_timestamp ON hand_summaries (timestamp DESC);
@@ -150,6 +154,10 @@ CREATE TABLE round_summaries (
     pot             BIGINT NOT NULL DEFAULT 0,
     details         JSONB NOT NULL DEFAULT '{}',
     timestamp       DOUBLE PRECISION NOT NULL,
+    seed_hex        TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_hex = '' OR seed_hex ~ '^[0-9a-f]{64}$'),
+    seed_commitment TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_commitment = '' OR seed_commitment ~ '^[0-9a-f]{64}$'),
     UNIQUE(game_id, game_type, round_number)
 );
 CREATE INDEX idx_round_summaries_game_id ON round_summaries (game_id);

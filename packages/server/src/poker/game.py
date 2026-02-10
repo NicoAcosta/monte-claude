@@ -5,6 +5,7 @@ import re
 import time
 from collections.abc import Callable
 
+from core.fairness import generate_seed
 from core.game_protocol import (
     STARTING_CHIPS,
     ACTION_TIMEOUT,
@@ -52,6 +53,9 @@ class Game:
         self._extra_time: float = 0.0  # extensions used on current turn
         self.first_hand_grace = first_hand_grace
         self._state_version: int = 0
+        # Provable fairness
+        self._seed_commitment: str = ""
+        self._seed_hex: str = ""
 
     def _notify(self, event_type: str, data: dict) -> None:
         if self._event_callback:
@@ -140,6 +144,10 @@ class Game:
     @property
     def starting_chips(self) -> int:
         return STARTING_CHIPS
+
+    @property
+    def seed_commitment(self) -> str:
+        return self._seed_commitment
 
     def register(self, name: str, wallet_address: str | None = None) -> RegisteredPlayer:
         """Register a player. Callers must check capacity and mode requirements."""
@@ -298,6 +306,12 @@ class Game:
 
         self.hand_number += 1
 
+        # Provable fairness: generate seed before dealing.
+        # TODO: persist seed to DB so a server crash doesn't lose the reveal.
+        sc = generate_seed()
+        self._seed_commitment = sc.commitment
+        self._seed_hex = sc.seed_hex
+
         # Build hand players from alive registered players
         hand_players = [
             PlayerInHand(id=p.id, name=p.name, chips=p.chips)
@@ -317,6 +331,7 @@ class Game:
             ],
             "small_blind": SMALL_BLIND,
             "big_blind": BIG_BLIND,
+            "seed_commitment": sc.commitment,
         })
 
         self.current_hand = Hand(
@@ -324,6 +339,7 @@ class Game:
             dealer_index=self.dealer_index,
             small_blind=SMALL_BLIND,
             big_blind=BIG_BLIND,
+            deck_seed_hex=sc.seed_hex,
             starting_action_id=self._next_action_id,
             event_callback=self._event_callback,
         )
@@ -390,6 +406,8 @@ class Game:
                 p.name: [str(c) for c in p.hole_cards]
                 for p in hand.players if not p.is_folded
             },
+            "seed_hex": self._seed_hex,
+            "seed_commitment": self._seed_commitment,
         })
 
         # Eliminate busted players (chips == 0 means they're out)
