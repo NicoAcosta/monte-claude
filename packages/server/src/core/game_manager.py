@@ -35,6 +35,7 @@ class GameManager:
         self,
         recorder_factory: Callable[[int, str], GameRecorder] | None = None,
         metadata_store: GameMetadataStore | None = None,
+        on_event_hook: Callable[[int, "GameProtocol", GameConfig, str, dict], None] | None = None,
     ) -> None:
         self._games: dict[int, GameProtocol] = {}
         self._configs: dict[int, GameConfig] = {}
@@ -45,6 +46,7 @@ class GameManager:
         self._next_id = 1
         self._recorder_factory = recorder_factory
         self._metadata_store = metadata_store
+        self._on_event_hook = on_event_hook
 
     def register_game_type(self, game_type: str, factory: GameFactory) -> None:
         """Register a factory for a game type (e.g. 'poker', 'dice').
@@ -116,6 +118,8 @@ class GameManager:
 
         meta = self._metadata_store
 
+        hook = self._on_event_hook
+
         def _event_callback(event_type: str, data: dict) -> None:
             if event_type == "hand_completed" and config.token_symbol:
                 data["token_symbol"] = config.token_symbol
@@ -128,6 +132,8 @@ class GameManager:
                     meta.update_hand_number(game_id, data.get("hand_number", 0))
                 elif event_type == "game_over":
                     meta.update_game_over(game_id, data.get("winner"))
+            if hook is not None:
+                hook(game_id, game, config, event_type, data)
             if event_type == "game_over" and on_game_over is not None:
                 on_game_over(game, config)
 
