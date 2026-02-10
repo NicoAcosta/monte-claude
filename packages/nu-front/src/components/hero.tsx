@@ -1,4 +1,3 @@
-import Image from "next/image"
 import Link from "next/link"
 
 const FLOATING_CHIPS = [
@@ -28,11 +27,11 @@ export function Hero() {
 
 			{/* Floating chips */}
 			{FLOATING_CHIPS.map((chip, i) => (
-				<Image
+				<img
 					key={i}
 					src="/logo.png"
 					alt=""
-					aria-hidden
+					aria-hidden="true"
 					width={chip.size}
 					height={chip.size}
 					className="pointer-events-none absolute select-none"
