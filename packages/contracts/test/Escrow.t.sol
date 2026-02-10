@@ -99,7 +99,8 @@ contract EscrowTest is BaseEscrowTest {
             rakeBps: RAKE_BPS,
             fundingDeadline: FUNDING_DEADLINE,
             settlementDeadline: SETTLEMENT_DEADLINE,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
     }
 
@@ -112,17 +113,19 @@ contract EscrowTest is BaseEscrowTest {
             rakeBps: RAKE_BPS,
             fundingDeadline: FUNDING_DEADLINE,
             settlementDeadline: SETTLEMENT_DEADLINE,
-            participants: _sorted3(alice, bob, charlie)
+            participants: _sorted3(alice, bob, charlie),
+            pcr0Hash: bytes32(0)
         });
     }
 
     function _deployEscrow(Escrow.Config memory cfg) internal returns (Escrow escrow) {
         // First participant in sorted order deposits via factory
         address firstParticipant = cfg.participants[0];
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(1)), adminPk);
         vm.prank(firstParticipant);
         token.approve(address(factory), cfg.depositAmount);
         vm.prank(firstParticipant);
-        address addr = factory.createAndDeposit(cfg, bytes32(uint256(1)));
+        address addr = factory.createAndDeposit(cfg, bytes32(uint256(1)), adminSig);
         escrow = Escrow(addr);
     }
 
@@ -326,7 +329,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 0);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
 
@@ -366,15 +369,16 @@ contract EscrowTest is BaseEscrowTest {
         payoutHashes[1] = keccak256(abi.encode(keccak256("Payout(address recipient,uint256 amount)"), player2, 0));
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)"),
-                keccak256(abi.encodePacked(payoutHashes))
+                keccak256("Settle(Payout[] payouts,bytes pcr0)Payout(address recipient,uint256 amount)"),
+                keccak256(abi.encodePacked(payoutHashes)),
+                keccak256(bytes(""))
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, digest);
 
         vm.expectRevert(Escrow.InvalidSignature.selector);
-        escrow.settle(payouts, abi.encodePacked(r, s, v));
+        escrow.settle(payouts, bytes(""), abi.encodePacked(r, s, v));
     }
 
     function test_settle_wrongPayoutSumReverts() public {
@@ -391,7 +395,7 @@ contract EscrowTest is BaseEscrowTest {
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         vm.expectRevert(abi.encodeWithSelector(Escrow.PayoutSumMismatch.selector, DEPOSIT * 2, DEPOSIT * 2 + 1));
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
     }
 
     function test_settle_nonParticipantRecipientReverts() public {
@@ -408,7 +412,7 @@ contract EscrowTest is BaseEscrowTest {
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
         vm.expectRevert(abi.encodeWithSelector(Escrow.NotParticipant.selector, charlie));
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
     }
 
     function test_settle_rakeDeduction() public {
@@ -425,7 +429,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, balance / 2);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         uint256 expectedRakePerPlayer = (DEPOSIT * RAKE_BPS) / 10_000;
         uint256 expectedNet = DEPOSIT - expectedRakePerPlayer;
@@ -448,7 +452,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 0);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
     }
@@ -466,7 +470,7 @@ contract EscrowTest is BaseEscrowTest {
         vm.expectRevert(
             abi.encodeWithSelector(Escrow.InvalidStatus.selector, Escrow.Status.EXPIRED, Escrow.Status.ACTIVE)
         );
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
     }
 
     function test_settle_doubleSettleReverts() public {
@@ -482,13 +486,13 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 0);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         // Second settle should fail
         vm.expectRevert(
             abi.encodeWithSelector(Escrow.InvalidStatus.selector, Escrow.Status.SETTLED, Escrow.Status.ACTIVE)
         );
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -508,7 +512,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 0);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         vm.prank(player2);
         vm.expectRevert(abi.encodeWithSelector(Escrow.NoFailedClaim.selector, player2));
@@ -541,13 +545,15 @@ contract EscrowTest is BaseEscrowTest {
             rakeBps: RAKE_BPS,
             fundingDeadline: FUNDING_DEADLINE,
             settlementDeadline: SETTLEMENT_DEADLINE,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
 
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(42)), adminPk);
         vm.prank(player1);
         frt.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address addr = factory.createAndDeposit(cfg, bytes32(uint256(42)));
+        address addr = factory.createAndDeposit(cfg, bytes32(uint256(42)), adminSig);
         Escrow escrow = Escrow(addr);
 
         vm.prank(player2);
@@ -565,7 +571,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 0);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         // player1's payout should be in failedClaims
         uint256 expectedRake = (balance * RAKE_BPS) / 10_000;
@@ -787,7 +793,8 @@ contract EscrowTest is BaseEscrowTest {
             uint16 rakeBps_,
             uint256 fundDeadline_,
             uint256 settleDeadline_,
-            address[] memory participants_
+            address[] memory participants_,
+            bytes32 pcr0Hash_
         ) = escrow.getConfig();
 
         assertEq(token_, address(token));
@@ -800,6 +807,7 @@ contract EscrowTest is BaseEscrowTest {
         assertEq(participants_.length, 2);
         assertEq(participants_[0], player1);
         assertEq(participants_[1], player2);
+        assertEq(pcr0Hash_, bytes32(0));
     }
 
     function test_getParticipants() public {
@@ -830,7 +838,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, p2Share);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
     }
@@ -846,13 +854,15 @@ contract EscrowTest is BaseEscrowTest {
             rakeBps: bps,
             fundingDeadline: FUNDING_DEADLINE,
             settlementDeadline: SETTLEMENT_DEADLINE,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
 
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(bps)), adminPk);
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address addr = factory.createAndDeposit(cfg, bytes32(uint256(bps)));
+        address addr = factory.createAndDeposit(cfg, bytes32(uint256(bps)), adminSig);
         Escrow escrow = Escrow(addr);
 
         vm.prank(player2);
@@ -866,7 +876,7 @@ contract EscrowTest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 0);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         uint256 expectedRake = (balance * bps) / 10_000;
         assertEq(token.balanceOf(rakeBeneficiary), expectedRake);
@@ -878,10 +888,11 @@ contract EscrowTest is BaseEscrowTest {
         address second = cfg.participants[1];
         address third = cfg.participants[2];
 
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(99)), adminPk);
         vm.prank(first);
         token.approve(address(factory), DEPOSIT);
         vm.prank(first);
-        address addr = factory.createAndDeposit(cfg, bytes32(uint256(99)));
+        address addr = factory.createAndDeposit(cfg, bytes32(uint256(99)), adminSig);
         Escrow escrow = Escrow(addr);
 
         if (secondFirst) {
@@ -924,13 +935,15 @@ contract EscrowTest is BaseEscrowTest {
             rakeBps: RAKE_BPS,
             fundingDeadline: fundDeadline,
             settlementDeadline: settleDeadline,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
 
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(fundDeadline)), adminPk);
         vm.prank(player1);
         token.approve(address(factory), DEPOSIT);
         vm.prank(player1);
-        address addr = factory.createAndDeposit(cfg, bytes32(uint256(fundDeadline)));
+        address addr = factory.createAndDeposit(cfg, bytes32(uint256(fundDeadline)), adminSig);
         Escrow escrow = Escrow(addr);
 
         vm.warp(warpTo);

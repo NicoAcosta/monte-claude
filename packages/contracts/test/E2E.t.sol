@@ -73,7 +73,8 @@ contract E2ETest is BaseEscrowTest {
             rakeBps: RAKE_BPS,
             fundingDeadline: block.timestamp + 300,
             settlementDeadline: block.timestamp + 7200,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
     }
 
@@ -85,10 +86,11 @@ contract E2ETest is BaseEscrowTest {
         Escrow.Config memory cfg = _makeConfig();
 
         // player1 creates escrow and deposits
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(1)), adminPk);
         vm.prank(player1);
         IERC20(USDC).approve(address(factory), BUY_IN);
         vm.prank(player1);
-        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(1)));
+        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(1)), adminSig);
         Escrow escrow = Escrow(escrowAddr);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.FUNDING));
@@ -112,7 +114,7 @@ contract E2ETest is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 50e6);
 
         bytes memory sig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, sig);
+        escrow.settle(payouts, bytes(""), sig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
 
@@ -136,10 +138,11 @@ contract E2ETest is BaseEscrowTest {
         Escrow.Config memory cfg = _makeConfig();
 
         // player1 creates escrow and deposits
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(2)), adminPk);
         vm.prank(player1);
         IERC20(USDC).approve(address(factory), BUY_IN);
         vm.prank(player1);
-        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(2)));
+        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(2)), adminSig);
         Escrow escrow = Escrow(escrowAddr);
 
         // player2 never deposits -- funding deadline passes
@@ -166,10 +169,11 @@ contract E2ETest is BaseEscrowTest {
         Escrow.Config memory cfg = _makeConfig();
 
         // Both deposit
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(3)), adminPk);
         vm.prank(player1);
         IERC20(USDC).approve(address(factory), BUY_IN);
         vm.prank(player1);
-        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(3)));
+        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(3)), adminSig);
         Escrow escrow = Escrow(escrowAddr);
 
         vm.prank(player2);
@@ -207,10 +211,11 @@ contract E2ETest is BaseEscrowTest {
 
         address predicted = factory.getEscrowAddress(cfg, salt);
 
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, salt, adminPk);
         vm.prank(player1);
         IERC20(USDC).approve(address(factory), BUY_IN);
         vm.prank(player1);
-        address actual = factory.createAndDeposit(cfg, salt);
+        address actual = factory.createAndDeposit(cfg, salt, adminSig);
 
         assertEq(predicted, actual);
     }
@@ -286,7 +291,8 @@ contract E2EPermit2Test is BaseEscrowTest {
             rakeBps: RAKE_BPS,
             fundingDeadline: block.timestamp + 300,
             settlementDeadline: block.timestamp + 7200,
-            participants: _sorted2(alice, bob)
+            participants: _sorted2(alice, bob),
+            pcr0Hash: bytes32(0)
         });
     }
 
@@ -314,9 +320,10 @@ contract E2EPermit2Test is BaseEscrowTest {
             deadline: block.timestamp + 100
         });
         bytes memory sig1 = _signPermit2Transfer(permit1, player1Pk, address(factory));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(1)), adminPk);
 
         vm.prank(player1);
-        address escrowAddr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(1)), permit1, sig1);
+        address escrowAddr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(1)), adminSig, permit1, sig1);
         Escrow escrow = Escrow(escrowAddr);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.FUNDING));
@@ -344,7 +351,7 @@ contract E2EPermit2Test is BaseEscrowTest {
         payouts[1] = Escrow.Payout(player2, 500e18);
 
         bytes memory settleSig = _signSettlement(escrow, payouts, adminPk);
-        escrow.settle(payouts, settleSig);
+        escrow.settle(payouts, bytes(""), settleSig);
 
         assertEq(uint256(escrow.status()), uint256(Escrow.Status.SETTLED));
 
@@ -371,9 +378,10 @@ contract E2EPermit2Test is BaseEscrowTest {
             deadline: block.timestamp + 100
         });
         bytes memory sig1 = _signPermit2Transfer(permit1, player1Pk, address(factory));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(2)), adminPk);
 
         vm.prank(player1);
-        address escrowAddr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(2)), permit1, sig1);
+        address escrowAddr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(2)), adminSig, permit1, sig1);
         Escrow escrow = Escrow(escrowAddr);
 
         // player2 deposits via standard approve
@@ -394,10 +402,11 @@ contract E2EPermit2Test is BaseEscrowTest {
         Escrow.Config memory cfg = _makeConfig();
 
         // player1 creates via standard approve
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(3)), adminPk);
         vm.prank(player1);
         monte.approve(address(factory), BUY_IN);
         vm.prank(player1);
-        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(3)));
+        address escrowAddr = factory.createAndDeposit(cfg, bytes32(uint256(3)), adminSig);
         Escrow escrow = Escrow(escrowAddr);
 
         // player2 deposits via Permit2
@@ -430,9 +439,10 @@ contract E2EPermit2Test is BaseEscrowTest {
             deadline: block.timestamp + 100
         });
         bytes memory sig1 = _signPermit2Transfer(permit1, player1Pk, address(factory));
+        bytes memory adminSig = _signCreateEscrow(address(factory), cfg, bytes32(uint256(4)), adminPk);
 
         vm.prank(player1);
-        address escrowAddr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(4)), permit1, sig1);
+        address escrowAddr = factory.createAndDepositWithPermit2(cfg, bytes32(uint256(4)), adminSig, permit1, sig1);
         Escrow escrow = Escrow(escrowAddr);
 
         uint256 p1BalBefore = monte.balanceOf(player1);
