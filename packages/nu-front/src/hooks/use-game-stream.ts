@@ -25,8 +25,8 @@ export function useGameStream(
 ): UseGameStreamResult {
   const snapshotUrl =
     mode === "stream"
-      ? `/stream/${streamId}/snapshots`
-      : `/game/${gameId}/spectator/snapshots`
+      ? `/api/streams/${streamId}/snapshots`
+      : `/api/games/${gameId}/spectator/snapshots`
 
   const [status, setStatus] = useState<ConnectionStatus>("connecting")
   const [latestState, setLatestState] = useState<SpectatorState | null>(initialState)
@@ -37,8 +37,8 @@ export function useGameStream(
   // Regular polling fallback URL
   const fallbackUrl =
     mode === "stream"
-      ? `/stream/${streamId}/data`
-      : `/game/${gameId}/spectator`
+      ? `/api/streams/${streamId}/data`
+      : `/api/games/${gameId}/spectator`
 
   // Snapshot polling
   const pollSnapshots = useCallback(async () => {

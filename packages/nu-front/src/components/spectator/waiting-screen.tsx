@@ -14,7 +14,7 @@ export function WaitingScreen({
   const isOnchain = state.mode === "onchain"
 
   const { data: funding } = usePoll<FundingStatus>(
-    `/game/${gameId}/funding`,
+    `/api/games/${gameId}/funding`,
     5000,
     { enabled: isOnchain }
   )

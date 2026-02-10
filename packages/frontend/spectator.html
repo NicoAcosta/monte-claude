@@ -866,9 +866,9 @@
 
   function buildPollUrl() {
     if (streamIdMatch) {
-      POLL_URL = GAME_API_BASE + '/stream/' + streamIdMatch[1] + '/data';
+      POLL_URL = GAME_API_BASE + '/api/streams/' + streamIdMatch[1] + '/data';
     } else {
-      POLL_URL = GAME_API_BASE + '/game/' + GAME_ID + '/spectator';
+      POLL_URL = GAME_API_BASE + '/api/games/' + GAME_ID + '/spectator';
     }
   }
 
@@ -1623,7 +1623,7 @@
   }
 
   function pollFunding() {
-    fetch(GAME_API_BASE + '/game/' + GAME_ID + '/funding')
+    fetch(GAME_API_BASE + '/api/games/' + GAME_ID + '/funding')
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (data) {

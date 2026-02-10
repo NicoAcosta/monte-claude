@@ -55,7 +55,7 @@ export async function fetchPlayerStats(
 export async function fetchSpectatorState(
   gameId: string
 ): Promise<SpectatorState | null> {
-  const res = await fetch(`${GAME_API}/game/${gameId}/spectator`, {
+  const res = await fetch(`${GAME_API}/api/games/${gameId}/spectator`, {
     cache: "no-store",
   })
   if (res.status === 404) return null
@@ -66,7 +66,7 @@ export async function fetchSpectatorState(
 export async function fetchStreamState(
   streamId: string
 ): Promise<SpectatorState | null> {
-  const res = await fetch(`${GAME_API}/stream/${streamId}/data`, {
+  const res = await fetch(`${GAME_API}/api/streams/${streamId}/data`, {
     cache: "no-store",
   })
   if (res.status === 404) return null
