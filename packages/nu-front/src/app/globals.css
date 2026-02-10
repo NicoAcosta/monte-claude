@@ -19,9 +19,13 @@
   --color-chip-green: #27ae60;
   --color-danger: #e74c3c;
   --color-dealer-gold: #d4a843;
+  --color-gold-muted: #a17e2f;
   --color-sb-blue: #2980b9;
   --color-bb-purple: #8e44ad;
   --color-felt-green: #0f2d1a;
+  --color-table-green: #236b3e;
+  --color-sage: #8a9a7c;
+  --color-felt-text: #e8e0d0;
   --color-warning: #f39c12;
   --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
     monospace;

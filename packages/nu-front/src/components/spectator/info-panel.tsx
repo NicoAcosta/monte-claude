@@ -36,10 +36,10 @@ export function InfoPanel({
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span className="text-[9px] uppercase tracking-[1.2px] text-[#8a9a7c]">
+      <span className="text-[9px] uppercase tracking-[1.2px] text-sage">
         {label}
       </span>
-      <span className="text-sm font-semibold text-[#e8e0d0]">{value}</span>
+      <span className="text-sm font-semibold text-felt-text">{value}</span>
     </div>
   )
 }
