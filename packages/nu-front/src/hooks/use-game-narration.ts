@@ -1,11 +1,11 @@
 "use client"
 
-import { useRef, useState, useEffect } from "react"
+import { useRef, useState, useEffect, useCallback } from "react"
 import type { SpectatorState } from "@/lib/types"
 import { type GameEvent, detectGameEvents } from "@/lib/narration"
 
 interface UseGameNarrationResult {
-  events: GameEvent[]
+  consumeEvents: () => GameEvent[]
   latestNarration: string | null
 }
 
@@ -33,9 +33,11 @@ export function useGameNarration(
     }
   }, [displayState])
 
-  // Consume events (caller reads and clears)
-  const events = eventsRef.current
-  eventsRef.current = []
+  const consumeEvents = useCallback(() => {
+    const items = eventsRef.current
+    eventsRef.current = []
+    return items
+  }, [])
 
-  return { events, latestNarration }
+  return { consumeEvents, latestNarration }
 }

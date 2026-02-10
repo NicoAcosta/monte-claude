@@ -7,14 +7,16 @@ const SPEECH_RATE = 1.1
 const MAX_QUEUE = 3
 
 export function useGameAudio(
-  events: GameEvent[],
+  consumeEvents: () => GameEvent[],
   audioEnabled: boolean,
 ): void {
   const queueRef = useRef<GameEvent[]>([])
   const speakingRef = useRef(false)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const enabledRef = useRef(audioEnabled)
-  enabledRef.current = audioEnabled
+  useEffect(() => {
+    enabledRef.current = audioEnabled
+  }, [audioEnabled])
 
   // Cancel speech when toggled off or unmount
   useEffect(() => {
@@ -29,30 +31,34 @@ export function useGameAudio(
     }
   }, [audioEnabled])
 
-  // Enqueue and process new events
+  // Poll for new events every 200ms
   useEffect(() => {
-    if (!audioEnabled || events.length === 0) return
+    if (!audioEnabled) return
 
-    queueRef.current.push(...events)
+    const interval = setInterval(() => {
+      const events = consumeEvents()
+      if (events.length === 0) return
 
-    // If queue is too long, keep only the highest-priority events
-    if (queueRef.current.length > MAX_QUEUE) {
-      queueRef.current.sort((a, b) => b.priority - a.priority)
-      queueRef.current = queueRef.current.slice(0, MAX_QUEUE)
-    }
+      queueRef.current.push(...events)
 
-    // Play sound effects immediately (non-blocking)
-    for (const ev of events) {
-      if (ev.soundEffect) {
-        playSound(ev.soundEffect, audioCtxRef)
+      if (queueRef.current.length > MAX_QUEUE) {
+        queueRef.current.sort((a, b) => b.priority - a.priority)
+        queueRef.current = queueRef.current.slice(0, MAX_QUEUE)
       }
-    }
 
-    // Start speaking if not already
-    if (!speakingRef.current) {
-      speakNext(queueRef, speakingRef, enabledRef)
-    }
-  }, [events, audioEnabled])
+      for (const ev of events) {
+        if (ev.soundEffect) {
+          playSound(ev.soundEffect, audioCtxRef)
+        }
+      }
+
+      if (!speakingRef.current) {
+        speakNext(queueRef, speakingRef, enabledRef)
+      }
+    }, 200)
+
+    return () => clearInterval(interval)
+  }, [consumeEvents, audioEnabled])
 }
 
 function speakNext(
