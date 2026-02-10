@@ -139,6 +139,7 @@ export default async function LeaderboardPage({
         pageSize={LB_PAGE_SIZE}
         basePath="/leaderboard"
         paramName="lbPage"
+        searchParams={params}
       />
 
       {/* Recent hands */}
@@ -244,6 +245,7 @@ export default async function LeaderboardPage({
         pageSize={RH_PAGE_SIZE}
         basePath="/leaderboard"
         paramName="rhPage"
+        searchParams={params}
       />
     </div>
   )
