@@ -112,7 +112,7 @@ def health():
 
 # ── Account routes ───────────────────────────────────────
 
-@app.post("/api/register", response_model=AccountRegisterResponse)
+@app.post("/api/accounts/register", response_model=AccountRegisterResponse)
 def register_account(req: AccountRegisterRequest, request: Request):
     ip = client_ip_var.get("")
     if not _register_limiter.check(ip):
@@ -127,7 +127,7 @@ def register_account(req: AccountRegisterRequest, request: Request):
     return AccountRegisterResponse(api_key=api_key, username=req.username)
 
 
-@app.post("/api/faucet", response_model=FaucetResponse)
+@app.post("/api/accounts/faucet", response_model=FaucetResponse)
 def faucet(request: Request, account: Account = Depends(require_auth)):
     ip = client_ip_var.get("")
     if not _faucet_limiter.check(ip):
@@ -149,7 +149,7 @@ def faucet(request: Request, account: Account = Depends(require_auth)):
     )
 
 
-@app.get("/api/balance", response_model=BalanceResponse)
+@app.get("/api/accounts/balance", response_model=BalanceResponse)
 def get_balance(account: Account = Depends(require_auth)):
     bal = balance_store.get(account.username)
     return BalanceResponse(username=account.username, balance=bal.amount)
