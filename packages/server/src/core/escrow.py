@@ -400,7 +400,7 @@ def get_env_config() -> dict:
         "rake_beneficiary": os.environ.get("RAKE_BENEFICIARY", ""),
         "factory_address": os.environ.get("FACTORY_ADDRESS", ""),
         "funding_timeout": int(os.environ.get("FUNDING_TIMEOUT", "300")),
-        "settlement_timeout": int(os.environ.get("SETTLEMENT_TIMEOUT", "7200")),
+        "settlement_timeout": int(os.environ.get("SETTLEMENT_TIMEOUT", "86400")),
         "chain_id": int(os.environ.get("CHAIN_ID", "8453")),
     }
 

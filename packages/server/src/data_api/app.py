@@ -253,7 +253,7 @@ def list_games():
                 mode=r.mode or GameMode.OFFCHAIN,
             )
             for r in rows
-        ]
+        ],
     )
     _cache.set("games", result, ttl=3)
     return result

@@ -127,3 +127,4 @@ class GameMetadataStore:
                 (game_id,),
             ).fetchone()
         return row is not None
+

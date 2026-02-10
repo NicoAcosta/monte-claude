@@ -77,6 +77,10 @@ class GameManager:
     def enabled_game_types(self) -> frozenset[str]:
         return frozenset(self._enabled_types)
 
+    @property
+    def registered_game_types(self) -> frozenset[str]:
+        return frozenset(self._factories)
+
     def create_game(
         self,
         game_type: str = "poker",

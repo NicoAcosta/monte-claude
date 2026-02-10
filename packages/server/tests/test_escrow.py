@@ -16,6 +16,7 @@ from core.escrow import (
     compute_escrow_address,
     compute_payouts,
     generate_salt,
+    get_env_config,
     sign_create_escrow,
     sign_settlement,
 )
@@ -580,3 +581,9 @@ class TestEscrowConfigPcr0:
     def test_config_default_pcr0_hash_is_zero(self):
         config = _make_config()
         assert config.pcr0_hash == b"\x00" * 32
+
+
+class TestGetEnvConfig:
+    def test_settlement_timeout_default_is_24h(self):
+        cfg = get_env_config()
+        assert cfg["settlement_timeout"] == 86400

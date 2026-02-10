@@ -180,6 +180,22 @@ resource "aws_lb_listener_rule" "account_register" {
   }
 }
 
+# Rule 1b: /admin/* → Game API (runtime game type controls)
+# Auth handled at application level via ADMIN_API_KEYS env var.
+resource "aws_lb_listener_rule" "admin_routes" {
+  listener_arn = local.main_listener_arn
+  priority     = 150
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.game_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/admin/*"] }
+  }
+}
+
 # Rule 2: /game/* → Game API (all methods, all game types)
 # Covers all game-type routes (/game/poker/*, /game/dice/*, etc.)
 # and game-agnostic routes (/game/{id}/spectator, /game/{id}/streams).

@@ -43,6 +43,7 @@ from core.round_summary_store import RoundSummaryStore
 from dice.game import DiceGame
 from dice.recorder import make_dice_materializer
 from dice.router import router as dice_router, configure as configure_dice_router
+from game_api.admin_router import router as admin_router, configure as configure_admin_router
 from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
@@ -216,6 +217,10 @@ escrow_audit = EscrowAuditStore(_pool)
 
 require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
+# Wire up the admin router (in-memory toggles, API key auth via ADMIN_API_KEYS env)
+configure_admin_router(mgr=manager)
+app.include_router(admin_router)
+
 # Wire up the poker router with shared stores
 configure_poker_router(
     mgr=manager,
@@ -238,6 +243,17 @@ configure_dice_router(
 )
 
 app.include_router(dice_router, prefix="/game/dice")
+
+
+# ── Public game type status (no auth) ────────────────────
+
+@app.get("/game/types")
+def game_types():
+    """Live enabled/disabled status of each game type (in-memory)."""
+    return {
+        gt: manager.is_game_type_enabled(gt)
+        for gt in sorted(manager.registered_game_types)
+    }
 
 
 # ── Stream routes (game-type agnostic) ────────────────────

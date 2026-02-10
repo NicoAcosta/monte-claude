@@ -26,6 +26,11 @@ make run-account       # Start Account API at localhost:8002 (dev, single worker
 make run-account-prod  # Start Account API at localhost:8002 (2 workers, no reload)
 make test              # Run test suite (uv run pytest -v)
 make db-down           # Stop PostgreSQL
+
+# Admin CLI (requires ADMIN_KEY env var)
+ADMIN_KEY=mykey ./scripts/monte-admin.sh status           # Show game type status
+ADMIN_KEY=mykey ./scripts/monte-admin.sh pause poker      # Disable new poker games
+ADMIN_KEY=mykey ./scripts/monte-admin.sh unpause poker    # Re-enable new poker games
 ```
 
 ### Prerequisites
@@ -57,6 +62,7 @@ make db-down           # Stop PostgreSQL
 | Logging | `packages/server/src/poker/logging_config.py` | JSON structured logging, request context middleware |
 | Audit | `packages/server/src/poker/audit.py` | Auth event and escrow operation audit stores |
 | Rate Limit | `packages/server/src/poker/rate_limit.py` | Thread-safe sliding-window rate limiter for Account API |
+| Admin | `packages/server/src/game_api/admin_router.py` | Runtime game type enable/disable (`X-Admin-Key` auth via `ADMIN_API_KEYS` env) |
 | Attestation | `packages/server/src/core/attestation.py` | NSM ioctl, COSE_Sign1 parsing, Nitro Enclave attestation |
 | Token | `packages/contracts/src/MonteClaudio.sol` | MONTE: ownerless ERC-20 casino token with daily faucet and Permit2 support |
 | Contracts | `packages/contracts/src/Escrow.sol`, `EscrowFactory.sol` | Solidity: time-based escrow with EIP-1167 minimal proxies |
@@ -68,6 +74,19 @@ The system uses three FastAPI apps sharing one Python package (`poker.*`) and on
 - **Tier 2 — In-process TTL cache:** `poker.cache.TTLCache` keyed by endpoint + params. Each worker has its own cache. TTLs: lobby 3s, recent-hands 10s, leaderboard 15s, player stats 30s. Tests clear the cache via `conftest.py`.
 
 DB stores are initialised lazily at startup (via `lifespan`) so each uvicorn worker creates its own PostgreSQL connections after fork.
+
+### Admin Endpoints (Game API)
+
+Runtime game type control — **in-memory only** (no DB persistence, state resets on restart). Admin endpoints require `X-Admin-Key` header matching one of the keys in `ADMIN_API_KEYS` env var. If `ADMIN_API_KEYS` is not set, all admin endpoints return 403. Use `./scripts/monte-admin.sh` CLI for convenience.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /game/types` | No | **Public** — live enabled/disabled status for all game types |
+| `GET /admin/status` | `X-Admin-Key` | Returns enabled/disabled status (same data, admin-only path) |
+| `POST /admin/games/{type}/disable` | `X-Admin-Key` | Disables new game creation for a type (existing games unaffected) |
+| `POST /admin/games/{type}/enable` | `X-Admin-Key` | Re-enables game creation for a type |
+
+Startup defaults controlled via `ENABLED_GAME_TYPES` env var. Admin endpoints override at runtime (in-memory). Set `GAME_API_URL` and `ADMIN_KEY` env vars for the CLI in production (default: `http://localhost:8001`).
 
 ### MonteClaudio Token (MONTE)
 
@@ -114,7 +133,9 @@ The escrow system enables funded games with real ERC-20 token deposits on Base c
 | `RAKE_BENEFICIARY` | Address for rake payouts | (none) |
 | `CHAIN_ID` | Chain ID for EIP-712 | `8453` (Base) |
 | `FUNDING_TIMEOUT` | Seconds for deposits | `300` |
-| `SETTLEMENT_TIMEOUT` | Seconds for settlement | `7200` |
+| `SETTLEMENT_TIMEOUT` | Seconds for settlement | `86400` (24h) |
+| `ENABLED_GAME_TYPES` | Comma-separated game types to enable at startup (e.g. `poker,dice`) | all registered |
+| `ADMIN_API_KEYS` | Comma-separated admin API keys for `/admin/*` endpoints | (none — admin locked) |
 | `LOG_LEVEL` | Python log level | `INFO` |
 | `LOG_FILE` | Path to log file (enables rotation) | (none) |
 | `SLOW_QUERY_MS` | Threshold for slow query warnings | `100` |
