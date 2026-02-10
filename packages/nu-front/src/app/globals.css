@@ -15,6 +15,14 @@
   --color-cream: #F5F0E8;
   --color-gold-dim: oklch(from #D7A640 l c h / 0.15);
   --color-crimson-dim: oklch(from #B2171D l c h / 0.15);
+  /* Spectator color tokens */
+  --color-chip-green: #27ae60;
+  --color-danger: #e74c3c;
+  --color-dealer-gold: #d4a843;
+  --color-sb-blue: #2980b9;
+  --color-bb-purple: #8e44ad;
+  --color-felt-green: #0f2d1a;
+  --color-warning: #f39c12;
   --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
     monospace;
 }
@@ -424,15 +432,15 @@ html {
   flex-shrink: 0;
 }
 .conn-dot.ok {
-  background: #27ae60;
-  box-shadow: 0 0 6px rgba(39, 174, 96, 0.5);
+  background: var(--color-chip-green);
+  box-shadow: 0 0 6px oklch(from var(--color-chip-green) l c h / 0.5);
 }
 .conn-dot.err {
-  background: #e74c3c;
-  box-shadow: 0 0 6px rgba(231, 76, 60, 0.5);
+  background: var(--color-danger);
+  box-shadow: 0 0 6px oklch(from var(--color-danger) l c h / 0.5);
 }
 .conn-dot.loading {
-  background: #f39c12;
+  background: var(--color-warning);
   animation: dot-pulse 1s infinite;
 }
 
@@ -444,13 +452,13 @@ html {
 }
 
 .player-seat.current-turn .player-info {
-  border-color: #d4a843;
-  box-shadow: 0 0 14px rgba(212, 168, 67, 0.7), 0 0 30px rgba(212, 168, 67, 0.25);
+  border-color: var(--color-dealer-gold);
+  box-shadow: 0 0 14px oklch(from var(--color-dealer-gold) l c h / 0.7), 0 0 30px oklch(from var(--color-dealer-gold) l c h / 0.25);
 }
 
 .player-seat.all-in .player-info {
-  border-color: #e74c3c;
-  box-shadow: 0 0 10px rgba(231, 76, 60, 0.4);
+  border-color: var(--color-danger);
+  box-shadow: 0 0 10px oklch(from var(--color-danger) l c h / 0.4);
 }
 
 /* Speech bubble */
@@ -537,6 +545,12 @@ html {
   z-index: 10;
   box-shadow: 0 2px 10px rgba(212, 168, 67, 0.5);
   animation: action-flash 1s ease-in-out both;
+}
+
+/* Live pulse dot (nav + hero CTA) */
+.live-dot {
+  animation: live-pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
 }
 
 /* Reduced motion ── */

@@ -78,7 +78,7 @@ export function PlayerSeat({
         <div className="truncate text-[13px] font-bold text-white">
           {player.name}
         </div>
-        <div className="text-xs font-semibold text-[#27ae60]">
+        <div className="text-xs font-semibold text-chip-green">
           {formatChips(player.chips)}
         </div>
         {player.current_bet > 0 && (
@@ -90,22 +90,22 @@ export function PlayerSeat({
         {/* Badges */}
         <div className="mt-0.5 flex flex-wrap justify-center gap-1">
           {isDealer && (
-            <span className="rounded-full bg-[#d4a843] px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-[#1a1a1a]">
+            <span className="rounded-full bg-dealer-gold px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-[#1a1a1a]">
               D
             </span>
           )}
           {isSmallBlind && (
-            <span className="rounded-full bg-[#2980b9] px-1.5 py-px text-[9px] font-bold uppercase text-white">
+            <span className="rounded-full bg-sb-blue px-1.5 py-px text-[9px] font-bold uppercase text-white">
               SB
             </span>
           )}
           {isBigBlind && (
-            <span className="rounded-full bg-[#8e44ad] px-1.5 py-px text-[9px] font-bold uppercase text-white">
+            <span className="rounded-full bg-bb-purple px-1.5 py-px text-[9px] font-bold uppercase text-white">
               BB
             </span>
           )}
           {player.is_all_in && (
-            <span className="rounded-full bg-[#e74c3c] px-1.5 py-px text-[9px] font-bold uppercase text-white">
+            <span className="rounded-full bg-danger px-1.5 py-px text-[9px] font-bold uppercase text-white">
               ALL-IN
             </span>
           )}
@@ -115,12 +115,12 @@ export function PlayerSeat({
             </span>
           )}
           {player.is_resigned && (
-            <span className="rounded-full bg-[#e74c3c]/50 px-1.5 py-px text-[9px] font-bold uppercase text-white">
+            <span className="rounded-full bg-danger/50 px-1.5 py-px text-[9px] font-bold uppercase text-white">
               QUIT
             </span>
           )}
           {player.extensions_remaining > 0 && (
-            <span className="rounded-full bg-[#2980b9]/50 px-1.5 py-px text-[9px] font-bold uppercase text-white">
+            <span className="rounded-full bg-sb-blue/50 px-1.5 py-px text-[9px] font-bold uppercase text-white">
               +{player.extensions_remaining}
             </span>
           )}
@@ -132,8 +132,8 @@ export function PlayerSeat({
         <div
           className={`text-sm font-bold tabular-nums ${
             timerUrgent
-              ? "text-[#e74c3c]"
-              : "text-[#d4a843]"
+              ? "text-danger"
+              : "text-dealer-gold"
           }`}
           style={
             timerUrgent
