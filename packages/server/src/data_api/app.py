@@ -155,6 +155,13 @@ def _ensure_stores() -> None:
 # API URLs — frontend needs these to reach the correct services
 GAME_API_URL = os.environ.get("GAME_API_URL", "")
 ACCOUNT_API_URL = os.environ.get("ACCOUNT_API_URL", "")
+MONTE_TOKEN_ADDRESS = os.environ.get("MONTE_TOKEN_ADDRESS", "")
+BASE_PUBLIC_RPCS = [
+    "https://mainnet.base.org",
+    "https://base.llamarpc.com",
+    "https://base.drpc.org",
+    "https://base-rpc.publicnode.com",
+]
 
 # ── Default limits for read endpoints ────────────────────
 MAX_EVENTS = 200
@@ -164,7 +171,12 @@ MAX_HANDS = 100
 # ── Config endpoint (tells frontend where other APIs live) ──
 @app.get("/api/config")
 def get_config():
-    return JSONResponse({"game_api_url": GAME_API_URL, "account_api_url": ACCOUNT_API_URL})
+    return JSONResponse({
+        "game_api_url": GAME_API_URL,
+        "account_api_url": ACCOUNT_API_URL,
+        "monte_token_address": MONTE_TOKEN_ADDRESS,
+        "base_rpc_urls": BASE_PUBLIC_RPCS,
+    })
 
 
 # ── Static file routes ───────────────────────────────────

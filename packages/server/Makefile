@@ -5,6 +5,7 @@ ACCOUNT_WORKERS ?= 2
 
 # Anvil account #0 — deterministic dev key for local testing
 SERVER_PRIVATE_KEY ?= 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+MONTE_TOKEN_ADDRESS ?=
 
 install:
 	uv pip install -e ".[dev]"
@@ -13,10 +14,10 @@ run-game:
 	SERVER_PRIVATE_KEY=$(SERVER_PRIVATE_KEY) uv run uvicorn game_api.app:app --host 0.0.0.0 --port 8001 --reload
 
 run-data:
-	uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --reload
+	MONTE_TOKEN_ADDRESS=$(MONTE_TOKEN_ADDRESS) uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --reload
 
 run-data-prod:
-	uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --workers $(DATA_WORKERS)
+	MONTE_TOKEN_ADDRESS=$(MONTE_TOKEN_ADDRESS) uv run uvicorn data_api.app:app --host 0.0.0.0 --port 8000 --workers $(DATA_WORKERS)
 
 run-account:
 	uv run uvicorn account_api.app:app --host 0.0.0.0 --port 8002 --reload

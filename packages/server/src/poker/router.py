@@ -32,7 +32,10 @@ from poker.models import (
     CreateGameResponse,
     DepositStatus,
     EscrowConfigResponse,
+    EscrowDepositGuide,
+    EscrowGuide,
     EscrowInfoResponse,
+    EscrowTxStep,
     ExtendResponse,
     FundingStatusResponse,
     JoinGameRequest,
@@ -261,7 +264,7 @@ def create_game(req: CreateGameRequest) -> CreateGameResponse:
     assert manager is not None and balance_store is not None
 
     try:
-        mode = game_service.infer_mode(req.mode, req.token)
+        mode = game_service.validate_mode(req.mode, req.token)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -553,6 +556,17 @@ def escrow_info(game_id: str) -> EscrowInfoResponse:
         raise HTTPException(status_code=500, detail="On-chain escrow is not configured on this server")
 
     cfg = info["config"]
+    guide_data = info["guide"]
+    guide = EscrowGuide(
+        first_depositor=EscrowDepositGuide(
+            steps=[EscrowTxStep(**s) for s in guide_data["first_depositor"]],
+        ),
+        subsequent_depositor=EscrowDepositGuide(
+            steps=[EscrowTxStep(**s) for s in guide_data["subsequent_depositor"]],
+        ),
+        verification=guide_data["verification"],
+        notes=guide_data["notes"],
+    )
     return EscrowInfoResponse(
         escrow_address=info["escrow_address"],
         factory_address=info["factory_address"],
@@ -571,8 +585,11 @@ def escrow_info(game_id: str) -> EscrowInfoResponse:
         admin_signature=info["admin_signature"],
         calldata_create_and_deposit=info["calldata_create_and_deposit"],
         calldata_deposit=info["calldata_deposit"],
+        calldata_approve_factory=info["calldata_approve_factory"],
+        calldata_approve_escrow=info["calldata_approve_escrow"],
         funding_deadline=info["funding_deadline"],
         settlement_deadline=info["settlement_deadline"],
+        guide=guide,
     )
 
 

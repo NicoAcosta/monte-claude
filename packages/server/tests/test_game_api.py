@@ -64,7 +64,7 @@ def client():
 
 def create_game(client, **kwargs) -> str:
     """Helper: create a game and return its id."""
-    body = {"max_players": 0, "buy_in": 0, **kwargs}
+    body = {"max_players": 0, "buy_in": 0, "mode": "offchain", **kwargs}
     resp = client.post("/game/poker/games", json=body)
     assert resp.status_code == 200
     return resp.json()["game_id"]
@@ -1090,6 +1090,7 @@ class TestEscrowGameCreation:
             "max_players": 2,
             "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "buy_in": 100_000_000,
+            "mode": "onchain",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -1097,20 +1098,17 @@ class TestEscrowGameCreation:
         assert data["token"] == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         assert data["buy_in"] == 100_000_000
 
-    def test_create_free_game_defaults(self, client):
-        """Creating a game with default values (no token, buy_in=0)."""
+    def test_create_without_mode_rejected(self, client):
+        """Mode is required — omitting it returns 422."""
         resp = client.post("/game/poker/games", json={})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["max_players"] == 0
-        assert data["token"] is None
-        assert data["buy_in"] == 0
+        assert resp.status_code == 422
 
     def test_join_funded_game_requires_wallet(self, client):
         resp = client.post("/game/poker/games", json={
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1129,6 +1127,7 @@ class TestEscrowGameCreation:
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1153,7 +1152,7 @@ class TestEscrowGameCreation:
         assert resp.status_code == 200
 
     def test_join_full_game_rejected(self, client):
-        resp = client.post("/game/poker/games", json={"max_players": 2})
+        resp = client.post("/game/poker/games", json={"max_players": 2, "mode": "offchain"})
         gid = resp.json()["game_id"]
 
         key_a = register_account(client, "Alice")
@@ -1175,6 +1174,7 @@ class TestEscrowGameCreation:
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1211,6 +1211,7 @@ class TestEscrowGameCreation:
             "max_players": 3,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1237,6 +1238,7 @@ class TestEscrowGameCreation:
             "max_players": 3,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1270,6 +1272,7 @@ class TestEscrowEndpoints:
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1294,12 +1297,105 @@ class TestEscrowEndpoints:
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
         resp = client.get(f"/game/poker/{gid}/funding")
         assert resp.status_code == 400
         assert "Escrow not yet configured" in resp.json()["detail"]
+
+    def test_funding_escrow_not_deployed_returns_400(self, client):
+        """When check_deposit_status raises (escrow not deployed), return 400 not 500."""
+        resp = client.post("/game/poker/games", json={
+            "max_players": 2,
+            "token": "0x0000000000000000000000000000000000000001",
+            "buy_in": 100,
+            "mode": "onchain",
+        })
+        gid = resp.json()["game_id"]
+
+        # Manually set escrow_address to simulate escrow config done but not deployed
+        config = game_module.manager.get_config(gid)
+        config.escrow_address = "0x" + "ee" * 20
+
+        with patch("core.escrow_service.check_deposit_status", side_effect=Exception("execution reverted")):
+            resp = client.get(f"/game/poker/{gid}/funding")
+
+        assert resp.status_code == 400
+        assert "may not be deployed yet" in resp.json()["detail"]
+        assert "createAndDeposit" in resp.json()["detail"]
+
+    def test_escrow_response_includes_guide(self, client):
+        """The /escrow response should include a guide with deposit instructions."""
+        from core.escrow import EscrowConfig
+
+        resp = client.post("/game/poker/games", json={
+            "max_players": 2,
+            "token": "0x0000000000000000000000000000000000000001",
+            "buy_in": 100,
+            "mode": "onchain",
+        })
+        gid = resp.json()["game_id"]
+
+        key_a = register_account(client, "EscrowAlice")
+        key_b = register_account(client, "EscrowBob")
+        join_game(client, gid, key_a, wallet_address="0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+        join_game(client, gid, key_b, wallet_address="0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC")
+
+        fake_config = EscrowConfig(
+            token="0x0000000000000000000000000000000000000001",
+            admin="0x" + "aa" * 20,
+            rake_beneficiary="0x" + "bb" * 20,
+            deposit_amount=100,
+            rake_bps=250,
+            funding_deadline=9999999999,
+            settlement_deadline=9999999999,
+            participants=("0x70997970C51812dc3A010C7d01b50e0d17dc79C8", "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"),
+            pcr0_hash=b"\x00" * 32,
+        )
+        fake_escrow_result = {
+            "escrow_address": "0x" + "ee" * 20,
+            "factory_address": "0x" + "ff" * 20,
+            "salt": "0x" + "00" * 32,
+            "config": fake_config,
+            "admin_signature": "0x" + "ab" * 65,
+            "calldata_create_and_deposit": "0xdeadbeef",
+            "calldata_deposit": {
+                "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": "0xcafe",
+                "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": "0xbabe",
+            },
+            "calldata_approve_factory": "0xapprove1",
+            "calldata_approve_escrow": "0xapprove2",
+            "funding_deadline": 9999999999,
+            "settlement_deadline": 9999999999,
+            "guide": {
+                "first_depositor": [
+                    {"to": "0x0000000000000000000000000000000000000001", "data": "0xapprove1", "description": "Approve factory"},
+                    {"to": "0x" + "ff" * 20, "data": "0xdeadbeef", "description": "Deploy and deposit"},
+                ],
+                "subsequent_depositor": [
+                    {"to": "0x0000000000000000000000000000000000000001", "data": "0xapprove2", "description": "Approve escrow"},
+                    {"to": "0x" + "ee" * 20, "data": "0xcafe", "description": "Deposit"},
+                ],
+                "verification": "GET /game/poker/test/funding",
+                "notes": ["note 1"],
+            },
+        }
+
+        with patch("core.escrow_service.get_escrow_info", return_value=fake_escrow_result):
+            resp = client.get(f"/game/poker/{gid}/escrow")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "guide" in data
+        guide = data["guide"]
+        assert len(guide["first_depositor"]["steps"]) == 2
+        assert len(guide["subsequent_depositor"]["steps"]) == 2
+        assert all("to" in s and "data" in s and "description" in s for s in guide["first_depositor"]["steps"])
+        assert all("to" in s and "data" in s and "description" in s for s in guide["subsequent_depositor"]["steps"])
+        assert guide["verification"]
+        assert len(guide["notes"]) == 1
 
     def test_settlement_not_funded_game(self, client):
         gid = create_game(client)
@@ -1311,6 +1407,7 @@ class TestEscrowEndpoints:
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 
@@ -1324,6 +1421,7 @@ class TestEscrowEndpoints:
             "max_players": 2,
             "token": "0x0000000000000000000000000000000000000001",
             "buy_in": 100,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
 

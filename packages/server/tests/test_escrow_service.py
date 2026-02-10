@@ -8,7 +8,7 @@ import pytest
 from web3 import Web3
 
 from core.attestation import AttestationPayload, AttestationResult, NsmError
-from core.escrow_service import get_escrow_info, get_settlement
+from core.escrow_service import check_funding, get_escrow_info, get_settlement
 from core.game_config import GameConfig
 
 
@@ -183,3 +183,143 @@ class TestGetSettlementPcr0:
 
         with pytest.raises(RuntimeError, match="Attestation required"):
             get_settlement(game, config)
+
+
+# ══════════════════════════════════════════════════════════
+# get_escrow_info — guide field
+# ══════════════════════════════════════════════════════════
+
+class TestEscrowGuide:
+    @patch("core.escrow_service.compute_escrow_address", return_value="0xaabbccdd" + "00" * 16)
+    @patch("core.escrow_service.get_env_config")
+    @patch("core.escrow_service.get_server_address", return_value="0x" + "aa" * 20)
+    @patch("core.escrow_service.get_attestation")
+    def test_guide_present_in_result(self, mock_attest, mock_addr, mock_env_cfg, mock_compute):
+        mock_env_cfg.return_value = _mock_env()
+        mock_attest.side_effect = NsmError("NSM device not found")
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token="0x" + "ff" * 20)
+
+        result = get_escrow_info(game, config, game_id="test-123")
+
+        assert "guide" in result
+        guide = result["guide"]
+        # Guide steps are now structured: list of {to, data, description}
+        assert len(guide["first_depositor"]) > 0
+        assert len(guide["subsequent_depositor"]) > 0
+        for step in guide["first_depositor"]:
+            assert "to" in step and "data" in step and "description" in step
+        assert guide["verification"]
+        assert len(guide["notes"]) > 0
+
+    @patch("core.escrow_service.compute_escrow_address", return_value="0xaabbccdd" + "00" * 16)
+    @patch("core.escrow_service.get_env_config")
+    @patch("core.escrow_service.get_server_address", return_value="0x" + "aa" * 20)
+    @patch("core.escrow_service.get_attestation")
+    def test_guide_contains_concrete_addresses(self, mock_attest, mock_addr, mock_env_cfg, mock_compute):
+        mock_env_cfg.return_value = _mock_env()
+        mock_attest.side_effect = NsmError("NSM device not found")
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        token = "0x" + "ff" * 20
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token=token)
+
+        result = get_escrow_info(game, config, game_id="test-456")
+
+        guide = result["guide"]
+        factory = _mock_env()["factory_address"]
+        # First depositor steps reference factory (as `to` target)
+        first_tos = [s["to"].lower() for s in guide["first_depositor"]]
+        assert factory.lower() in first_tos
+        assert token.lower() in first_tos
+        # Subsequent depositor steps reference escrow address
+        sub_tos = [s["to"].lower() for s in guide["subsequent_depositor"]]
+        assert result["escrow_address"].lower() in sub_tos
+
+    @patch("core.escrow_service.compute_escrow_address", return_value="0xaabbccdd" + "00" * 16)
+    @patch("core.escrow_service.get_env_config")
+    @patch("core.escrow_service.get_server_address", return_value="0x" + "aa" * 20)
+    @patch("core.escrow_service.get_attestation")
+    def test_guide_verification_includes_game_id(self, mock_attest, mock_addr, mock_env_cfg, mock_compute):
+        mock_env_cfg.return_value = _mock_env()
+        mock_attest.side_effect = NsmError("NSM device not found")
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token="0x" + "ff" * 20)
+
+        result = get_escrow_info(game, config, game_id="my-game-id")
+
+        assert "my-game-id" in result["guide"]["verification"]
+
+    @patch("core.escrow_service.compute_escrow_address", return_value="0xaabbccdd" + "00" * 16)
+    @patch("core.escrow_service.get_env_config")
+    @patch("core.escrow_service.get_server_address", return_value="0x" + "aa" * 20)
+    @patch("core.escrow_service.get_attestation")
+    def test_approve_calldata_in_result(self, mock_attest, mock_addr, mock_env_cfg, mock_compute):
+        """Result should include pre-built ERC20 approve calldata."""
+        mock_env_cfg.return_value = _mock_env()
+        mock_attest.side_effect = NsmError("NSM device not found")
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token="0x" + "ff" * 20)
+
+        result = get_escrow_info(game, config, game_id="test-approve")
+
+        assert "calldata_approve_factory" in result
+        assert "calldata_approve_escrow" in result
+        # Both should be hex-encoded calldata starting with 0x
+        assert result["calldata_approve_factory"].startswith("0x")
+        assert result["calldata_approve_escrow"].startswith("0x")
+        # approve(address,uint256) selector = 0x095ea7b3
+        assert result["calldata_approve_factory"].startswith("0x095ea7b3")
+        assert result["calldata_approve_escrow"].startswith("0x095ea7b3")
+
+
+# ══════════════════════════════════════════════════════════
+# check_funding — Web3 error handling
+# ══════════════════════════════════════════════════════════
+
+class TestCheckFundingErrors:
+    @patch("core.escrow_service.check_deposit_status")
+    @patch("core.escrow_service.get_env_config")
+    def test_web3_error_raises_value_error(self, mock_env_cfg, mock_check):
+        """When check_deposit_status raises (e.g. escrow not deployed), we get ValueError."""
+        mock_env_cfg.return_value = _mock_env()
+        mock_check.side_effect = Exception("execution reverted")
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token="0x" + "ff" * 20)
+        config.escrow_address = "0x" + "ee" * 20
+
+        with pytest.raises(ValueError, match="may not be deployed yet"):
+            check_funding(game, config)
+
+    @patch("core.escrow_service.check_deposit_status")
+    @patch("core.escrow_service.get_env_config")
+    def test_error_message_mentions_factory(self, mock_env_cfg, mock_check):
+        """Error message should tell the user to use createAndDeposit on the factory."""
+        mock_env_cfg.return_value = _mock_env()
+        mock_check.side_effect = Exception("could not decode")
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token="0x" + "ff" * 20)
+        config.escrow_address = "0x" + "ee" * 20
+
+        with pytest.raises(ValueError, match="createAndDeposit"):
+            check_funding(game, config)
+
+    @patch("core.escrow_service.check_deposit_status")
+    @patch("core.escrow_service.get_env_config")
+    def test_successful_funding_check(self, mock_env_cfg, mock_check):
+        """Normal case — no exception, returns deposit statuses."""
+        mock_env_cfg.return_value = _mock_env()
+        mock_check.return_value = [(WALLET_A, True), (WALLET_B, False)]
+
+        game = _mock_game(WALLET_A, WALLET_B)
+        config = GameConfig(mode="onchain", buy_in=100, max_players=2, token="0x" + "ff" * 20)
+        config.escrow_address = "0x" + "ee" * 20
+
+        result = check_funding(game, config)
+        assert result["all_deposited"] is False
+        assert len(result["statuses"]) == 2

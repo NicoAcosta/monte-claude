@@ -148,7 +148,7 @@ def create_game(req: CreateGameRequest) -> CreateGameResponse:
     assert manager is not None and balance_store is not None
 
     try:
-        mode = game_service.infer_mode(req.mode, req.token, game_type="dice")
+        mode = game_service.validate_mode(req.mode, req.token, game_type="dice")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

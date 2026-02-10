@@ -87,7 +87,7 @@ def seed_game(game_client) -> tuple[str, str, str]:
     """Create a started 2-player game via Game API. Returns (game_id, key_a, key_b)."""
     key_a = game_module.account_store.create_account("Alice")
     key_b = game_module.account_store.create_account("Bob")
-    gid = game_client.post("/game/poker/games", json={"max_players": 2}).json()["game_id"]
+    gid = game_client.post("/game/poker/games", json={"max_players": 2, "mode": "offchain"}).json()["game_id"]
     game_client.post(f"/game/poker/{gid}/join", json={}, headers=auth_header(key_a))
     game_client.post(f"/game/poker/{gid}/join", json={}, headers=auth_header(key_b))
     game_client.post(f"/game/poker/{gid}/start", headers=auth_header(key_a))
@@ -110,14 +110,14 @@ class TestLobby:
         assert resp.json()["games"] == []
 
     def test_list_games_after_create(self, game_client, client):
-        game_client.post("/game/poker/games", json={"max_players": 2})
+        game_client.post("/game/poker/games", json={"max_players": 2, "mode": "offchain"})
         resp = client.get("/api/games")
         games = resp.json()["games"]
         assert len(games) == 1
         assert games[0]["started"] is False
 
     def test_lobby_reflects_player_join(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={"max_players": 2}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={"max_players": 2, "mode": "offchain"}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/poker/{gid}/join", json={}, headers=auth_header(key))
         games = client.get("/api/games").json()["games"]
@@ -134,7 +134,7 @@ class TestLobby:
         assert resp.status_code == 404
 
     def test_game_page_exists(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={"mode": "offchain"}).json()["game_id"]
         resp = client.get(f"/watch/{gid}")
         assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
@@ -227,7 +227,7 @@ class TestStreamsRead:
         assert resp.json()["streams"] == []
 
     def test_list_all_streams(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={"mode": "offchain"}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "Test Stream"}, headers=auth_header(key))
 
@@ -238,7 +238,7 @@ class TestStreamsRead:
         assert streams[0]["host"] == "Alice"
 
     def test_list_streams_for_game(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={"mode": "offchain"}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         game_client.post(f"/game/{gid}/streams", json={"title": "G1 Stream"}, headers=auth_header(key))
 
@@ -251,7 +251,7 @@ class TestStreamsRead:
         assert resp.status_code == 404
 
     def test_stream_page_exists(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={}).json()["game_id"]
+        gid = game_client.post("/game/poker/games", json={"mode": "offchain"}).json()["game_id"]
         key = game_module.account_store.create_account("Alice")
         sid = game_client.post(
             f"/game/{gid}/streams", json={"title": "Test"}, headers=auth_header(key)
@@ -266,3 +266,18 @@ class TestInstructions:
     def test_instructions(self, client):
         resp = client.get("/api/instructions")
         assert resp.status_code in (200, 404)
+
+
+# ── Config ───────────────────────────────────────────────
+
+class TestConfig:
+    def test_config_returns_token_and_rpcs(self, client):
+        resp = client.get("/api/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "monte_token_address" in data
+        assert "base_rpc_urls" in data
+        assert isinstance(data["base_rpc_urls"], list)
+        assert len(data["base_rpc_urls"]) > 0
+        assert "game_api_url" in data
+        assert "account_api_url" in data

@@ -91,7 +91,7 @@ def get_balance(client, api_key: str) -> int:
 
 
 def create_offchain_game(client, buy_in: int, max_players: int = 0) -> str:
-    resp = client.post("/game/poker/games", json={"buy_in": buy_in, "max_players": max_players})
+    resp = client.post("/game/poker/games", json={"buy_in": buy_in, "max_players": max_players, "mode": "offchain"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "offchain"
@@ -110,19 +110,20 @@ def start_game(client, game_id: str, api_key: str) -> dict:
     return resp.json()
 
 
-# ── Mode inference tests ─────────────────────────────────
+# ── Mode validation tests ────────────────────────────────
 
-class TestModeInference:
-    def test_no_token_is_offchain(self, client):
-        resp = client.post("/game/poker/games", json={"buy_in": 100})
+class TestModeValidation:
+    def test_explicit_offchain(self, client):
+        resp = client.post("/game/poker/games", json={"buy_in": 100, "mode": "offchain"})
         assert resp.status_code == 200
         assert resp.json()["mode"] == "offchain"
 
-    def test_with_token_is_onchain(self, client):
+    def test_explicit_onchain(self, client):
         resp = client.post("/game/poker/games", json={
             "buy_in": 100,
             "token": "0x1234567890abcdef1234567890abcdef12345678",
             "max_players": 2,
+            "mode": "onchain",
         })
         assert resp.status_code == 200
         assert resp.json()["mode"] == "onchain"
@@ -136,6 +137,11 @@ class TestModeInference:
         resp = client.post("/game/poker/games", json={"buy_in": 100, "mode": "onchain"})
         assert resp.status_code == 400
         assert "token" in resp.json()["detail"].lower()
+
+    def test_missing_mode_rejected(self, client):
+        """Mode is required — omitting it returns 422."""
+        resp = client.post("/game/poker/games", json={"buy_in": 100})
+        assert resp.status_code == 422
 
 
 # ── Join debit/refund tests ──────────────────────────────
@@ -277,6 +283,7 @@ class TestOffchainSettlementEndpoint:
             "buy_in": 100,
             "token": "0x1234567890abcdef1234567890abcdef12345678",
             "max_players": 2,
+            "mode": "onchain",
         })
         gid = resp.json()["game_id"]
         resp = client.get(f"/game/poker/{gid}/offchain-settlement")

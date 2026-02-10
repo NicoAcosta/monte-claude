@@ -88,7 +88,8 @@ def register(username: str) -> str:
 
 
 def create_dice_game(client, **kwargs) -> str:
-    resp = client.post("/game/dice/games", json=kwargs)
+    body = {"mode": "offchain", **kwargs}
+    resp = client.post("/game/dice/games", json=body)
     assert resp.status_code == 200, resp.json()
     data = resp.json()
     assert data["mode"] == "offchain"
@@ -291,7 +292,7 @@ class TestCrossGameIsolation:
 
     def test_dice_routes_reject_poker_game(self, client):
         key = register("Alice")
-        resp = client.post("/game/poker/games", json={})
+        resp = client.post("/game/poker/games", json={"mode": "offchain"})
         gid = resp.json()["game_id"]
         # Try accessing poker game via dice endpoint
         resp = client.get(f"/game/dice/{gid}/waiting")
@@ -299,8 +300,8 @@ class TestCrossGameIsolation:
 
     def test_both_game_types_in_lobby(self, client):
         """Both poker and dice games appear in the lobby with correct game_type."""
-        client.post("/game/poker/games", json={})
-        client.post("/game/dice/games", json={})
+        client.post("/game/poker/games", json={"mode": "offchain"})
+        client.post("/game/dice/games", json={"mode": "offchain"})
         # Check lobby via data API is beyond scope; verify manager has both
         summaries = game_module.manager.list_games()
         types = {s.game_type for s in summaries}

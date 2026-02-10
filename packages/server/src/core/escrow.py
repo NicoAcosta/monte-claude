@@ -210,6 +210,13 @@ def build_deposit_calldata(participant: str) -> str:
     return "0x" + selector.hex() + encoded_addr.hex()
 
 
+def build_approve_calldata(spender: str, amount: int) -> str:
+    """ABI-encoded calldata for ERC20.approve(spender, amount)."""
+    selector = Web3.keccak(text="approve(address,uint256)")[:4]
+    encoded = abi_encode(["address", "uint256"], [Web3.to_checksum_address(spender), amount])
+    return "0x" + selector.hex() + encoded.hex()
+
+
 # ── Chain queries ─────────────────────────────────────────
 
 def check_all_deposited(rpc_url: str, escrow_address: str) -> bool:
