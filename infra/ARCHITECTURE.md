@@ -105,22 +105,25 @@ Rules are evaluated in priority order. Lower number = higher priority. Gaps betw
 
 | Priority | Method | Path Pattern | Target |
 |----------|--------|-------------|--------|
-| 100 | POST | `/api/register` | Account API |
-| 200 | Any | `/game/*` | Game API |
-| 300 | POST | `/api/faucet` | Account API |
-| 350 | GET | `/api/balance` | Account API |
-| 400 | POST | `/stream/*` | Game API |
-| 410 | GET | `/stream/*/data` | Game API |
+| 100 | POST | `/api/accounts/register` | Account API |
+| 150 | POST | `/api/accounts/faucet` | Account API |
+| 200 | GET | `/api/accounts/balance` | Account API |
+| 300 | POST | `/api/games` | Game API |
+| 350 | POST | `/api/games/*` | Game API |
+| 400 | POST | `/api/streams/*` | Game API |
+| 500 | GET | `/api/games/*/state`, `spectator`, `snapshots`, `waiting`, `escrow` | Game API |
+| 510 | GET | `/api/games/*/funding`, `settlement`, `offchain-settlement` | Game API |
+| 600 | GET | `/api/streams/*/data`, `snapshots` | Game API |
 | Default | Any | Everything else | Data API |
 
-All game traffic is routed by a single `/game/*` wildcard. Game-type routes live at `/game/poker/*`, `/game/dice/*`, etc. Adding a new game type requires **no terraform changes** — just mount the router in Python. Toggling a game on/off is an app-level concern; the ALB routes regardless and the Game API returns an error for paused games.
+All game traffic uses the unified `/api/games/*` path convention. Game-type is specified in the request body (`game_type: "poker"` or `"dice"`). Adding a new game type requires **no terraform or ALB changes** — just register the game type in the server.
 
 **Key routing invariants:**
-- `POST /api/register`, `POST /api/faucet`, `GET /api/balance` → Account API. Served by the Account API co-located on the Data API EC2.
-- `GET /api/games` (list games) → Data API (default). `POST /game/poker/games` / `POST /game/dice/games` (create) → Game API (caught by `/game/*`).
-- `GET /api/games/{id}/streams` (list streams) → Data API (default). `POST /game/{id}/streams` (create stream) → Game API (caught by `/game/*`).
-- `GET /watch/{id}` (spectator HTML) → Data API (default). `GET /game/{id}/spectator` (JSON) → Game API (caught by `/game/*`).
-- All game-type traffic (`/game/poker/*`, `/game/dice/*`) and game-agnostic traffic (`/game/{id}/spectator`, `/game/{id}/streams`) is caught by the single priority 200 rule.
+- `POST /api/accounts/register`, `POST /api/accounts/faucet`, `GET /api/accounts/balance` → Account API. Served by the Account API co-located on the Data API EC2.
+- `GET /api/games` (list games) → Data API (default). `POST /api/games` (create) → Game API.
+- `GET /api/games/{id}/streams` (list streams) → Data API (default). `POST /api/streams/{id}` (create stream) → Game API.
+- `GET /watch/{id}` (spectator HTML) → Data API (default). `GET /api/games/{id}/spectator` (JSON) → Game API.
+- All POST writes to `/api/games/*` are caught by priority 350. Specific GET reads (state, spectator, funding, etc.) are routed by explicit path patterns.
 
 ### Health Checks
 
@@ -327,7 +330,7 @@ Triggered on push to `main` when server, frontend, Docker, or instruction files 
 
 Each container uses `--env-file /etc/monteclaude/<api>.env`.
 
-**Health check:** Verifies all three APIs are reachable through the ALB. Data API is checked via `GET /ping`. Game API is checked by hitting a routed GET endpoint and verifying the response is not 502/503. Account API is checked via `GET /api/balance`.
+**Health check:** Verifies all three APIs are reachable through the ALB. Data API is checked via `GET /ping`. Game API is checked by hitting a routed GET endpoint and verifying the response is not 502/503. Account API is checked via `GET /api/accounts/balance`.
 
 ### Required GitHub Secrets
 

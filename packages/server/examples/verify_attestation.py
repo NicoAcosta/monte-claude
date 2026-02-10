@@ -12,7 +12,7 @@ Usage:
     python verify_attestation.py http://localhost:8001 --expected-pcr0 aabb...
 
 What this does:
-    1. Generates a random nonce and requests GET /attestation?nonce=<hex>
+    1. Generates a random nonce and requests GET /api/attestation?nonce=<hex>
     2. Decodes the base64 COSE_Sign1 document
     3. Verifies the certificate chain against the AWS Nitro root CA
     4. Verifies the ECDSA-P384 signature over the attestation payload
@@ -51,7 +51,7 @@ _AWS_ROOT_CERT_FINGERPRINT = (
 
 def _fetch_attestation(server_url: str, nonce_hex: str) -> dict:
     """GET /attestation?nonce=<hex> and return JSON response."""
-    url = f"{server_url.rstrip('/')}/attestation?nonce={nonce_hex}"
+    url = f"{server_url.rstrip('/')}/api/attestation?nonce={nonce_hex}"
     resp = requests.get(url, timeout=10)
     if resp.status_code != 200:
         print(f"FAIL: Server returned HTTP {resp.status_code}: {resp.text}")
