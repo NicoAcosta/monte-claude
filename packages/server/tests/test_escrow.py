@@ -585,6 +585,222 @@ class TestEscrowConfigPcr0:
         assert config.pcr0_hash == b"\x00" * 32
 
 
+# ══════════════════════════════════════════════════════════
+# Settle digest cross-validation (Solidity ↔ Python)
+# ══════════════════════════════════════════════════════════
+
+class TestSettleDigestCrossValidation:
+    """Cross-validate: manual EIP-712 (matching Solidity abi.encode) == encode_typed_data.
+
+    This mirrors Escrow._hashSettlement + _domainSeparator + _hashTypedData
+    step by step, using eth_abi.encode to produce the same bytes as Solidity abi.encode.
+    """
+
+    def test_digest_matches_manual_solidity_computation(self):
+        from eth_abi import encode as abi_encode
+
+        payouts = [(ALICE, 150_000_000), (BOB, 50_000_000)]
+        escrow_addr = Web3.to_checksum_address(ESCROW_ADDR)
+
+        # ── Domain separator (mirrors Escrow._domainSeparator) ──
+        domain_type_hash = Web3.keccak(
+            text="EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+        )
+        name_hash = Web3.keccak(text="TimeBasedEscrow")
+        version_hash = Web3.keccak(text="1")
+        domain_sep = Web3.keccak(
+            abi_encode(
+                ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+                [domain_type_hash, name_hash, version_hash, CHAIN_ID, escrow_addr],
+            )
+        )
+
+        # ── Struct hash (mirrors Escrow._hashSettlement) ──
+        payout_type_hash = Web3.keccak(
+            text="Payout(address recipient,uint256 amount)"
+        )
+        settle_type_hash = Web3.keccak(
+            text="Settle(Payout[] payouts,bytes pcr0)Payout(address recipient,uint256 amount)"
+        )
+
+        # Hash each Payout struct: keccak256(abi.encode(PAYOUT_TYPEHASH, recipient, amount))
+        payout_hashes = []
+        for addr, amount in payouts:
+            h = Web3.keccak(
+                abi_encode(
+                    ["bytes32", "address", "uint256"],
+                    [payout_type_hash, Web3.to_checksum_address(addr), amount],
+                )
+            )
+            payout_hashes.append(h)
+
+        # Array hash: keccak256(abi.encodePacked(payoutHashes)) — tight concatenation
+        array_hash = Web3.keccak(b"".join(payout_hashes))
+
+        # pcr0 = empty bytes (default case)
+        pcr0 = b""
+        pcr0_hash = Web3.keccak(pcr0)
+
+        struct_hash = Web3.keccak(
+            abi_encode(
+                ["bytes32", "bytes32", "bytes32"],
+                [settle_type_hash, array_hash, pcr0_hash],
+            )
+        )
+
+        # ── Final digest (mirrors Escrow._hashTypedData) ──
+        manual_digest = Web3.keccak(b"\x19\x01" + domain_sep + struct_hash)
+
+        # ── Library digest via encode_typed_data ──
+        signable = encode_typed_data(
+            full_message={
+                "types": {
+                    "EIP712Domain": [
+                        {"name": "name", "type": "string"},
+                        {"name": "version", "type": "string"},
+                        {"name": "chainId", "type": "uint256"},
+                        {"name": "verifyingContract", "type": "address"},
+                    ],
+                    "Payout": [
+                        {"name": "recipient", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "Settle": [
+                        {"name": "payouts", "type": "Payout[]"},
+                        {"name": "pcr0", "type": "bytes"},
+                    ],
+                },
+                "primaryType": "Settle",
+                "domain": {
+                    "name": "TimeBasedEscrow",
+                    "version": "1",
+                    "chainId": CHAIN_ID,
+                    "verifyingContract": escrow_addr,
+                },
+                "message": {
+                    "payouts": [
+                        {"recipient": Web3.to_checksum_address(ALICE), "amount": 150_000_000},
+                        {"recipient": Web3.to_checksum_address(BOB), "amount": 50_000_000},
+                    ],
+                    "pcr0": b"",
+                },
+            }
+        )
+        lib_domain_sep = signable.header
+        lib_struct_hash = signable.body
+        lib_digest = Web3.keccak(b"\x19\x01" + lib_domain_sep + lib_struct_hash)
+
+        assert domain_sep == lib_domain_sep, "domain separator mismatch"
+        assert struct_hash == lib_struct_hash, "struct hash mismatch"
+        assert manual_digest == lib_digest, "final digest mismatch"
+
+        # Also verify signature round-trip via sign_settlement
+        sig_hex = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
+
+    def test_digest_matches_with_pcr0(self):
+        """Same cross-validation but with a non-empty pcr0 value (enclave mode)."""
+        from eth_abi import encode as abi_encode
+
+        payouts = [(ALICE, 150_000_000), (BOB, 50_000_000)]
+        pcr0 = FAKE_PCR0  # 48 bytes
+        escrow_addr = Web3.to_checksum_address(ESCROW_ADDR)
+
+        # ── Domain separator ──
+        domain_type_hash = Web3.keccak(
+            text="EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+        )
+        name_hash = Web3.keccak(text="TimeBasedEscrow")
+        version_hash = Web3.keccak(text="1")
+        domain_sep = Web3.keccak(
+            abi_encode(
+                ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+                [domain_type_hash, name_hash, version_hash, CHAIN_ID, escrow_addr],
+            )
+        )
+
+        # ── Struct hash ──
+        payout_type_hash = Web3.keccak(
+            text="Payout(address recipient,uint256 amount)"
+        )
+        settle_type_hash = Web3.keccak(
+            text="Settle(Payout[] payouts,bytes pcr0)Payout(address recipient,uint256 amount)"
+        )
+
+        payout_hashes = []
+        for addr, amount in payouts:
+            h = Web3.keccak(
+                abi_encode(
+                    ["bytes32", "address", "uint256"],
+                    [payout_type_hash, Web3.to_checksum_address(addr), amount],
+                )
+            )
+            payout_hashes.append(h)
+
+        array_hash = Web3.keccak(b"".join(payout_hashes))
+        pcr0_hash = Web3.keccak(pcr0)
+
+        struct_hash = Web3.keccak(
+            abi_encode(
+                ["bytes32", "bytes32", "bytes32"],
+                [settle_type_hash, array_hash, pcr0_hash],
+            )
+        )
+
+        manual_digest = Web3.keccak(b"\x19\x01" + domain_sep + struct_hash)
+
+        # ── Library digest ──
+        signable = encode_typed_data(
+            full_message={
+                "types": {
+                    "EIP712Domain": [
+                        {"name": "name", "type": "string"},
+                        {"name": "version", "type": "string"},
+                        {"name": "chainId", "type": "uint256"},
+                        {"name": "verifyingContract", "type": "address"},
+                    ],
+                    "Payout": [
+                        {"name": "recipient", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "Settle": [
+                        {"name": "payouts", "type": "Payout[]"},
+                        {"name": "pcr0", "type": "bytes"},
+                    ],
+                },
+                "primaryType": "Settle",
+                "domain": {
+                    "name": "TimeBasedEscrow",
+                    "version": "1",
+                    "chainId": CHAIN_ID,
+                    "verifyingContract": escrow_addr,
+                },
+                "message": {
+                    "payouts": [
+                        {"recipient": Web3.to_checksum_address(ALICE), "amount": 150_000_000},
+                        {"recipient": Web3.to_checksum_address(BOB), "amount": 50_000_000},
+                    ],
+                    "pcr0": pcr0,
+                },
+            }
+        )
+        lib_domain_sep = signable.header
+        lib_struct_hash = signable.body
+        lib_digest = Web3.keccak(b"\x19\x01" + lib_domain_sep + lib_struct_hash)
+
+        assert domain_sep == lib_domain_sep, "domain separator mismatch"
+        assert struct_hash == lib_struct_hash, "struct hash mismatch"
+        assert manual_digest == lib_digest, "final digest mismatch"
+
+        # Verify signature round-trip
+        sig_hex = sign_settlement(ADMIN_PK, CHAIN_ID, ESCROW_ADDR, payouts, pcr0=pcr0)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
+
+
 class TestGetEnvConfig:
     def test_settlement_timeout_default_is_24h(self):
         cfg = get_env_config()
