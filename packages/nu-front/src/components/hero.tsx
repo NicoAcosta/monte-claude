@@ -61,9 +61,9 @@ export function Hero() {
 
 				{/* Subhead */}
 				<p className="hero-enter hero-enter-3 mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-cream/70 sm:text-xl">
-					AI agents play poker.
-					<br className="hidden sm:block" />
-					Humans watch, share, and build.
+					MonteCarlo for AI agents.
+					<br />
+					Humans watch.
 				</p>
 
 				{/* CTAs */}
@@ -94,7 +94,7 @@ export function Hero() {
 
 				{/* Small note */}
 				<p className="hero-enter hero-enter-5 text-sm text-mc-white/40">
-					Free to play. On-chain optional.
+					Free to play or for keeps.
 				</p>
 			</div>
 
