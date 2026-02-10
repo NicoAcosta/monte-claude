@@ -153,11 +153,11 @@ resource "aws_lb_listener" "http" {
 }
 
 # ---------- ALB Routing Rules ----------
-# Account API handles: register, faucet, balance
-# Game API handles: game creation, game POST endpoints, live state reads, spectator, streams
+# Account API handles: /api/accounts/* (register, faucet, balance)
+# Game API handles: /api/games/* writes + live state reads, /api/streams/* writes + reads
 # Data API handles: everything else (default action above)
 
-# Rule 1: POST /api/register → Account API
+# Rule 1: POST /api/accounts/register → Account API
 resource "aws_lb_listener_rule" "account_register" {
   listener_arn = local.main_listener_arn
   priority     = 100
@@ -168,7 +168,7 @@ resource "aws_lb_listener_rule" "account_register" {
   }
 
   condition {
-    path_pattern { values = ["/api/register"] }
+    path_pattern { values = ["/api/accounts/register"] }
   }
 
   condition {
@@ -176,10 +176,48 @@ resource "aws_lb_listener_rule" "account_register" {
   }
 }
 
-# Rule 2: POST /api/games → Game API
-resource "aws_lb_listener_rule" "game_create" {
+# Rule 2: POST /api/accounts/faucet → Account API
+resource "aws_lb_listener_rule" "account_faucet" {
+  listener_arn = local.main_listener_arn
+  priority     = 150
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.account_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/api/accounts/faucet"] }
+  }
+
+  condition {
+    http_request_method { values = ["POST"] }
+  }
+}
+
+# Rule 3: GET /api/accounts/balance → Account API
+resource "aws_lb_listener_rule" "account_balance" {
   listener_arn = local.main_listener_arn
   priority     = 200
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.account_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/api/accounts/balance"] }
+  }
+
+  condition {
+    http_request_method { values = ["GET"] }
+  }
+}
+
+# Rule 4: POST /api/games → Game API (create game)
+resource "aws_lb_listener_rule" "game_create" {
+  listener_arn = local.main_listener_arn
+  priority     = 300
 
   action {
     type             = "forward"
@@ -195,18 +233,18 @@ resource "aws_lb_listener_rule" "game_create" {
   }
 }
 
-# Rule 3: POST /api/faucet → Account API
-resource "aws_lb_listener_rule" "account_faucet" {
+# Rule 5: POST /api/games/* → Game API (join, start, action, resign, chat, extend)
+resource "aws_lb_listener_rule" "game_writes" {
   listener_arn = local.main_listener_arn
-  priority     = 300
+  priority     = 350
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.account_api.arn
+    target_group_arn = aws_lb_target_group.game_api.arn
   }
 
   condition {
-    path_pattern { values = ["/api/faucet"] }
+    path_pattern { values = ["/api/games/*"] }
   }
 
   condition {
@@ -214,27 +252,8 @@ resource "aws_lb_listener_rule" "account_faucet" {
   }
 }
 
-# Rule 3b: GET /api/balance → Account API
-resource "aws_lb_listener_rule" "account_balance" {
-  listener_arn = local.main_listener_arn
-  priority     = 350
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.account_api.arn
-  }
-
-  condition {
-    path_pattern { values = ["/api/balance"] }
-  }
-
-  condition {
-    http_request_method { values = ["GET"] }
-  }
-}
-
-# Rule 4a: Game API GET reads (batch 1 — ALB max 5 path patterns per condition)
-resource "aws_lb_listener_rule" "game_state_reads_1" {
+# Rule 6: POST /api/streams/* → Game API (commentate)
+resource "aws_lb_listener_rule" "stream_writes" {
   listener_arn = local.main_listener_arn
   priority     = 400
 
@@ -244,48 +263,16 @@ resource "aws_lb_listener_rule" "game_state_reads_1" {
   }
 
   condition {
-    path_pattern {
-      values = [
-        "/game/*/state",
-        "/game/*/spectator",
-        "/game/*/waiting",
-        "/game/*/escrow",
-        "/game/*/funding",
-      ]
-    }
+    path_pattern { values = ["/api/streams/*"] }
   }
 
   condition {
-    http_request_method { values = ["GET"] }
+    http_request_method { values = ["POST"] }
   }
 }
 
-# Rule 4b: Game API GET reads (batch 2)
-resource "aws_lb_listener_rule" "game_state_reads_2" {
-  listener_arn = local.main_listener_arn
-  priority     = 410
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
-  }
-
-  condition {
-    path_pattern {
-      values = [
-        "/game/*/settlement",
-        "/game/*/offchain-settlement",
-      ]
-    }
-  }
-
-  condition {
-    http_request_method { values = ["GET"] }
-  }
-}
-
-# Rule 5: All POST /game/* → Game API (join, start, action, resign, chat, extend, streams)
-resource "aws_lb_listener_rule" "game_writes" {
+# Rule 7a: Game API GET reads (batch 1 — ALB max 5 path patterns per condition)
+resource "aws_lb_listener_rule" "game_state_reads_1" {
   listener_arn = local.main_listener_arn
   priority     = 500
 
@@ -295,16 +282,49 @@ resource "aws_lb_listener_rule" "game_writes" {
   }
 
   condition {
-    path_pattern { values = ["/game/*"] }
+    path_pattern {
+      values = [
+        "/api/games/*/state",
+        "/api/games/*/spectator",
+        "/api/games/*/spectator/snapshots",
+        "/api/games/*/waiting",
+        "/api/games/*/escrow",
+      ]
+    }
   }
 
   condition {
-    http_request_method { values = ["POST"] }
+    http_request_method { values = ["GET"] }
   }
 }
 
-# Rule 6: POST /stream/* → Game API (commentate)
-resource "aws_lb_listener_rule" "stream_writes" {
+# Rule 7b: Game API GET reads (batch 2)
+resource "aws_lb_listener_rule" "game_state_reads_2" {
+  listener_arn = local.main_listener_arn
+  priority     = 510
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.game_api.arn
+  }
+
+  condition {
+    path_pattern {
+      values = [
+        "/api/games/*/funding",
+        "/api/games/*/settlement",
+        "/api/games/*/offchain-settlement",
+      ]
+    }
+  }
+
+  condition {
+    http_request_method { values = ["GET"] }
+  }
+}
+
+# Rule 8: GET /api/streams/* → Game API (live stream data + snapshots)
+resource "aws_lb_listener_rule" "stream_data_reads" {
   listener_arn = local.main_listener_arn
   priority     = 600
 
@@ -314,26 +334,12 @@ resource "aws_lb_listener_rule" "stream_writes" {
   }
 
   condition {
-    path_pattern { values = ["/stream/*"] }
-  }
-
-  condition {
-    http_request_method { values = ["POST"] }
-  }
-}
-
-# Rule 7: GET /stream/*/data → Game API (live stream data)
-resource "aws_lb_listener_rule" "stream_data_reads" {
-  listener_arn = local.main_listener_arn
-  priority     = 610
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.game_api.arn
-  }
-
-  condition {
-    path_pattern { values = ["/stream/*/data"] }
+    path_pattern {
+      values = [
+        "/api/streams/*/data",
+        "/api/streams/*/snapshots",
+      ]
+    }
   }
 
   condition {
@@ -341,6 +347,6 @@ resource "aws_lb_listener_rule" "stream_data_reads" {
   }
 }
 
-# Everything else (/, /leaderboard, /player/*, /api/games (GET), /api/leaderboard,
-# /api/recent-hands, /api/stats/*, /api/streams, /api/config,
-# /api/instructions, /game/*/streams (GET), static HTML) → Data API (default action)
+# Everything else (/, /api/games (GET list), /api/leaderboard, /api/recent-hands,
+# /api/stats/*, /api/streams (GET list), /api/config, /api/instructions,
+# /api/play, static HTML) → Data API (default action)
