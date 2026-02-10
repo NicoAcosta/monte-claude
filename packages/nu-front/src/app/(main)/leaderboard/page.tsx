@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { fetchLeaderboard, fetchRecentHands } from "@/lib/api"
-import { formatChips, formatSignedChips, formatTimeAgo } from "@/lib/format"
+import { formatChips, formatSignedChips } from "@/lib/format"
+import { TimeAgo } from "@/components/time-ago"
 import { Pagination } from "@/components/pagination"
 import { CardDisplay } from "@/components/card-display"
 
@@ -30,14 +31,8 @@ export default async function LeaderboardPage({
   const rhPage = Math.max(0, parseInt(params.rhPage || "0", 10) || 0)
 
   const [lb, rh] = await Promise.all([
-    fetchLeaderboard(LB_PAGE_SIZE, lbPage * LB_PAGE_SIZE).catch(() => ({
-      total: 0,
-      players: [],
-    })),
-    fetchRecentHands(RH_PAGE_SIZE, rhPage * RH_PAGE_SIZE).catch(() => ({
-      total: 0,
-      hands: [],
-    })),
+    fetchLeaderboard(LB_PAGE_SIZE, lbPage * LB_PAGE_SIZE),
+    fetchRecentHands(RH_PAGE_SIZE, rhPage * RH_PAGE_SIZE),
   ])
 
   return (
@@ -230,7 +225,7 @@ export default async function LeaderboardPage({
                     )}
                   </td>
                   <td className="px-4 py-3 text-mc-white/30">
-                    {formatTimeAgo(h.timestamp)}
+                    <TimeAgo timestamp={h.timestamp} />
                   </td>
                 </tr>
               ))
