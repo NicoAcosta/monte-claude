@@ -45,10 +45,10 @@ async def _ensure_balance(client: Client, api_key: str) -> bool:
 
 
 async def run(args: argparse.Namespace) -> None:
-    game_server = args.server
-    account_server = args.account_server or game_server.replace(":8001", ":8002")
+    server = args.server
+    account_server = args.account_server or server.replace(":8001", ":8002")
 
-    client = Client(game_server=game_server, account_server=account_server)
+    client = Client(server, account_server=account_server)
 
     try:
         # Register or reuse key
