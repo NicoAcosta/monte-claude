@@ -72,8 +72,8 @@ class Client:
     async def create_game(self, api_key: str, max_players: int = 2) -> str:
         """Create a new free game and return game_id."""
         resp = await self._game.post(
-            "/api/games",
-            json={"max_players": max_players},
+            "/game/poker/games",
+            json={"max_players": max_players, "mode": "offchain"},
             headers=_auth(api_key),
         )
         _check(resp)
@@ -82,7 +82,7 @@ class Client:
     async def join_game(self, game_id: str, api_key: str) -> dict[str, Any]:
         """Join a game. Returns {player_id, name}."""
         resp = await self._game.post(
-            f"/game/{game_id}/join",
+            f"/game/poker/{game_id}/join",
             json={},
             headers=_auth(api_key),
         )
@@ -92,7 +92,7 @@ class Client:
     async def start_game(self, game_id: str, api_key: str) -> None:
         """Start a game."""
         resp = await self._game.post(
-            f"/game/{game_id}/start",
+            f"/game/poker/{game_id}/start",
             json={},
             headers=_auth(api_key),
         )
@@ -100,7 +100,7 @@ class Client:
 
     async def get_waiting(self, game_id: str) -> dict[str, Any]:
         """Get waiting room status."""
-        resp = await self._game.get(f"/game/{game_id}/waiting")
+        resp = await self._game.get(f"/game/poker/{game_id}/waiting")
         _check(resp)
         return resp.json()
 
@@ -116,7 +116,7 @@ class Client:
     async def get_state(self, game_id: str, api_key: str) -> dict[str, Any]:
         """Get player state."""
         resp = await self._game.get(
-            f"/game/{game_id}/state", headers=_auth(api_key),
+            f"/game/poker/{game_id}/state", headers=_auth(api_key),
         )
         _check(resp)
         return resp.json()
@@ -141,7 +141,7 @@ class Client:
 
         for attempt in range(_MAX_RETRIES):
             resp = await self._game.post(
-                f"/game/{game_id}/action",
+                f"/game/poker/{game_id}/action",
                 json=body,
                 headers=_auth(api_key),
             )
