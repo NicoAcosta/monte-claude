@@ -12,6 +12,8 @@ from collections import deque
 from dataclasses import dataclass, field
 
 
+SPECTATOR_DELAY = 30.0  # seconds before spectators see a snapshot
+
 @dataclass
 class Snapshot:
     sequence: int
@@ -22,9 +24,9 @@ class Snapshot:
 class SnapshotBuffer:
     """Thread-safe per-game ring buffer of spectator state snapshots."""
 
-    def __init__(self, max_per_game: int = 200, spectator_delay: float = 0) -> None:
+    def __init__(self, max_per_game: int = 200) -> None:
         self._max = max_per_game
-        self._delay = spectator_delay
+        self._delay = SPECTATOR_DELAY
         self._buffers: dict[int, deque[Snapshot]] = {}
         self._lock = threading.Lock()
 

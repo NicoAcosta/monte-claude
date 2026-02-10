@@ -123,8 +123,7 @@ def _make_recorder(game_id: int, game_type: str) -> GameRecorder:
     return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
 
-_spectator_delay = float(os.environ.get("SPECTATOR_DELAY_SECONDS", "0"))
-_snapshot_buffer = SnapshotBuffer(spectator_delay=_spectator_delay)
+_snapshot_buffer = SnapshotBuffer()
 
 
 def _on_event_hook(game_id, game, config, event_type, data):
