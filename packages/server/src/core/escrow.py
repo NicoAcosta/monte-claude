@@ -130,6 +130,8 @@ class EscrowConfig:
         participants: tuple[str, ...],
         pcr0_hash: bytes = b"\x00" * 32,
     ) -> None:
+        if not participants:
+            raise ValueError("EscrowConfig requires at least one participant")
         object.__setattr__(self, "token", Web3.to_checksum_address(token))
         object.__setattr__(self, "admin", Web3.to_checksum_address(admin))
         object.__setattr__(self, "rake_beneficiary", Web3.to_checksum_address(rake_beneficiary))
@@ -246,6 +248,20 @@ def check_deposit_status(
     ]
 
 
+# ── Participants hash ─────────────────────────────────────
+
+def compute_participants_hash(participants: tuple[str, ...]) -> bytes:
+    """Compute keccak256 of ABI-encoded participants array.
+
+    Must match Solidity's ``keccak256(abi.encodePacked(config.participants))``.
+    For dynamic arrays, ``abi.encodePacked`` ABI-encodes each element to 32 bytes
+    (standard encoding for reference-type array contents), NOT 20-byte tight packing.
+    """
+    return Web3.keccak(
+        b"".join(abi_encode(["address"], [addr]) for addr in participants)
+    )
+
+
 # ── Admin signature for factory creation ──────────────────
 
 def sign_create_escrow(
@@ -263,14 +279,7 @@ def sign_create_escrow(
     Returns the hex-encoded signature (r + s + v, 65 bytes).
     """
     factory_addr = Web3.to_checksum_address(factory_address)
-
-    # participantsHash = keccak256(abi.encodePacked(participants))
-    # Solidity's abi.encodePacked(address[]) pads each element to 32 bytes
-    participants_hash = Web3.keccak(
-        b"".join(
-            abi_encode(["address"], [addr]) for addr in config.participants
-        )
-    )
+    participants_hash = compute_participants_hash(config.participants)
 
     structured_data = {
         "types": {

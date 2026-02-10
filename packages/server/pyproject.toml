@@ -28,3 +28,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: cross-language tests requiring Anvil + compiled Foundry artifacts",
+]

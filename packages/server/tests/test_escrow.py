@@ -14,6 +14,7 @@ from core.escrow import (
     build_create_and_deposit_calldata,
     build_deposit_calldata,
     compute_escrow_address,
+    compute_participants_hash,
     compute_payouts,
     generate_salt,
     get_env_config,
@@ -174,19 +175,12 @@ class TestSignCreateEscrow:
         assert len(sig_bytes) == 65
 
     def test_recovers_to_admin(self):
-        from eth_abi import encode as abi_encode
-
         config = _make_config()
         salt = generate_salt()
         sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
 
         factory_addr = Web3.to_checksum_address(FACTORY_ADDR)
-        # Solidity's abi.encodePacked(address[]) pads each element to 32 bytes
-        participants_hash = Web3.keccak(
-            b"".join(
-                abi_encode(["address"], [addr]) for addr in config.participants
-            )
-        )
+        participants_hash = compute_participants_hash(config.participants)
 
         structured_data = {
             "types": {
@@ -303,12 +297,7 @@ class TestSignCreateEscrow:
                 "bytes32 pcr0Hash,bytes32 salt)"
             )
         )
-        # Solidity's abi.encodePacked(address[]) pads each element to 32 bytes
-        participants_hash = Web3.keccak(
-            b"".join(
-                abi_encode(["address"], [addr]) for addr in config.participants
-            )
-        )
+        participants_hash = compute_participants_hash(config.participants)
         struct_hash = Web3.keccak(
             abi_encode(
                 [
@@ -469,6 +458,19 @@ class TestEscrowConfig:
         config = _make_config()
         addrs = list(config.participants)
         assert addrs == sorted(addrs, key=lambda a: int(a, 16))
+
+    def test_empty_participants_rejected(self):
+        with pytest.raises(ValueError, match="at least one participant"):
+            EscrowConfig(
+                token=TOKEN,
+                admin=ADMIN_ADDR,
+                rake_beneficiary=RAKE_BENEFICIARY,
+                deposit_amount=100_000_000,
+                rake_bps=250,
+                funding_deadline=9999999999,
+                settlement_deadline=9999999999 + 7200,
+                participants=(),
+            )
 
 
 # ══════════════════════════════════════════════════════════
