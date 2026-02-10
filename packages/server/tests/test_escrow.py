@@ -126,6 +126,7 @@ class TestSignSettlement:
                 ],
                 "Settle": [
                     {"name": "payouts", "type": "Payout[]"},
+                    {"name": "pcr0", "type": "bytes"},
                 ],
             },
             "primaryType": "Settle",
@@ -140,6 +141,7 @@ class TestSignSettlement:
                     {"recipient": Web3.to_checksum_address(ALICE), "amount": 150_000_000},
                     {"recipient": Web3.to_checksum_address(BOB), "amount": 50_000_000},
                 ],
+                "pcr0": b"",
             },
         }
 
@@ -162,7 +164,8 @@ class TestBuildCalldata:
     def test_create_and_deposit_starts_with_selector(self):
         config = _make_config()
         salt = generate_salt()
-        calldata = build_create_and_deposit_calldata(config, salt)
+        admin_sig = "0x" + "ab" * 65  # dummy signature
+        calldata = build_create_and_deposit_calldata(config, salt, admin_sig)
         # Should start with 0x and be a hex string
         assert calldata.startswith("0x")
         # Function selector is 4 bytes = 8 hex chars
@@ -189,7 +192,7 @@ class TestEscrowConfig:
     def test_as_tuple(self):
         config = _make_config()
         t = config.as_tuple()
-        assert len(t) == 8
+        assert len(t) == 9
         assert t[0] == config.token
         assert t[3] == 100_000_000
         assert isinstance(t[7], list)  # participants as list for ABI

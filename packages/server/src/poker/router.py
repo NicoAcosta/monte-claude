@@ -612,7 +612,9 @@ def escrow_info(game_id: int) -> EscrowInfoResponse:
             funding_deadline=cfg.funding_deadline,
             settlement_deadline=cfg.settlement_deadline,
             participants=list(cfg.participants),
+            pcr0_hash="0x" + cfg.pcr0_hash.hex() if cfg.pcr0_hash else "",
         ),
+        admin_signature=info.get("admin_signature", ""),
         calldata_create_and_deposit=info["calldata_create_and_deposit"],
         calldata_deposit=info["calldata_deposit"],
         funding_deadline=info["funding_deadline"],
@@ -657,10 +659,12 @@ def settlement(game_id: int) -> SettlementResponse:
     except RuntimeError:
         raise HTTPException(status_code=500, detail="On-chain escrow is not configured on this server")
 
+    pcr0_raw = result.get("pcr0", b"")
     return SettlementResponse(
         payouts=[PayoutEntry(address=addr, amount=amt) for addr, amt in result["payouts"]],
         signature=result["signature"],
         escrow_address=result["escrow_address"],
+        pcr0="0x" + pcr0_raw.hex() if pcr0_raw else "",
     )
 
 
