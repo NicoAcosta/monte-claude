@@ -104,6 +104,20 @@ variable "chain_id" {
   default     = "8453"
 }
 
+# --- Nitro Enclave ---
+
+variable "enclave_enabled" {
+  description = "Enable Nitro Enclave mode for Game API (KMS key, enclave user data)"
+  type        = bool
+  default     = false
+}
+
+variable "enclave_pcr0" {
+  description = "PCR-0 value of the enclave image (required when enclave_enabled=true)"
+  type        = string
+  default     = ""
+}
+
 # --- WAF ---
 
 variable "waf_rate_limit" {
