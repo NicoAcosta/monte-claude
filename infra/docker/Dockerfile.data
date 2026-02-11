@@ -23,9 +23,6 @@ RUN uv pip install --system -e .
 # = / (root). Place it there.
 COPY instructions.md /instructions.md
 
-# Skill file for /api/play endpoint
-COPY .claude/skills/play-monteclaude.md /.claude/skills/play-monteclaude.md
-
 EXPOSE 8000
 
 # 4 workers for read-only scalability
