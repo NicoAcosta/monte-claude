@@ -59,9 +59,9 @@ The system runs three FastAPI applications and a Next.js frontend sharing one Po
 
 | Subnet Tier | CIDR | AZs | Contains |
 |-------------|------|-----|----------|
-| **Public** | `10.0.1.0/24`, `10.0.2.0/24` | us-east-1a, 1b | ALB, NAT instance |
-| **Private** | `10.0.10.0/24`, `10.0.11.0/24` | us-east-1a, 1b | Game API EC2, Data API EC2 |
-| **Database** | `10.0.20.0/24`, `10.0.21.0/24` | us-east-1a, 1b | RDS (no public access) |
+| **Public** | `10.0.1.0/24`, `10.0.2.0/24` | us-west-2a, 1b | ALB, NAT instance |
+| **Private** | `10.0.10.0/24`, `10.0.11.0/24` | us-west-2a, 1b | Game API EC2, Data API EC2 |
+| **Database** | `10.0.20.0/24`, `10.0.21.0/24` | us-west-2a, 1b | RDS (no public access) |
 
 VPC CIDR: `10.0.0.0/16`. Managed via `terraform-aws-modules/vpc/aws` v5.
 
@@ -366,13 +366,13 @@ Each container uses `--env-file /etc/monteclaude/<api>.env`.
 
 1. **Bootstrap Terraform backend** (one-time, manual):
    ```bash
-   aws s3 mb s3://monteclaude-terraform-state --region us-east-1
+   aws s3 mb s3://monteclaude-terraform-state --region us-west-2
    aws dynamodb create-table \
      --table-name monteclaude-terraform-locks \
      --attribute-definitions AttributeName=LockID,AttributeType=S \
      --key-schema AttributeName=LockID,KeyType=HASH \
      --billing-mode PAY_PER_REQUEST \
-     --region us-east-1
+     --region us-west-2
    ```
 
 2. **Configure variables:**
