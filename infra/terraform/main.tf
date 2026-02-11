@@ -13,7 +13,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "monteclaude-terraform-state"
+    bucket         = "monteclaude-tf-state"
     key            = "prod/terraform.tfstate"
     region         = "us-west-2"
     dynamodb_table = "monteclaude-terraform-locks"

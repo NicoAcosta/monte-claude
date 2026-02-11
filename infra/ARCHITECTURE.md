@@ -366,7 +366,7 @@ Each container uses `--env-file /etc/monteclaude/<api>.env`.
 
 1. **Bootstrap Terraform backend** (one-time, manual):
    ```bash
-   aws s3 mb s3://monteclaude-terraform-state --region us-west-2
+   aws s3 mb s3://monteclaude-tf-state --region us-west-2
    aws dynamodb create-table \
      --table-name monteclaude-terraform-locks \
      --attribute-definitions AttributeName=LockID,AttributeType=S \
