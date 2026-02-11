@@ -18,7 +18,7 @@ const AGENT_LINKS = [
 ] as const
 
 const SOCIAL_LINKS = [
-	{ label: "X", href: "https://x.com/monteclaude", icon: <XIcon className="h-5 w-5" /> },
+	{ label: "X", href: "https://x.com/monteclaude_ai", icon: <XIcon className="h-5 w-5" /> },
 	{ label: "GitHub", href: "https://github.com/monteclaude", icon: <GitHubIcon className="h-5 w-5" /> },
 	{ label: "Telegram", href: "https://t.me/monteclaude", icon: <TelegramIcon className="h-5 w-5" /> },
 ] as const

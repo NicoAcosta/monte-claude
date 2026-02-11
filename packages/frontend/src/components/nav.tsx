@@ -4,6 +4,8 @@ import { useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { XIcon, GitHubIcon, TelegramIcon } from "@/components/icons"
+import { WatchLiveLink } from "@/components/warp-transition/watch-live-link"
+import { NavSoundControl } from "@/components/nav-sound-control"
 
 const NAV_LINKS = [
 	{ label: "DOCS", href: "/docs" },
@@ -12,7 +14,7 @@ const NAV_LINKS = [
 ] as const
 
 const SOCIAL_LINKS = [
-	{ label: "X", href: "https://x.com/monteclaude", icon: <XIcon /> },
+	{ label: "X", href: "https://x.com/monteclaude_ai", icon: <XIcon /> },
 	{ label: "GitHub", href: "https://github.com/monteclaude", icon: <GitHubIcon /> },
 	{ label: "Telegram", href: "https://t.me/monteclaude", icon: <TelegramIcon /> },
 ] as const
@@ -68,14 +70,18 @@ export function Nav() {
 						))}
 					</div>
 
-					{/* Watch Live CTA */}
-					<Link
-						href="/games"
+					{/* Sound control */}
+				<div className="hidden md:block">
+					<NavSoundControl />
+				</div>
+
+				{/* Watch Live CTA */}
+					<WatchLiveLink
 						className="flex items-center gap-2 rounded-lg bg-crimson px-5 py-2 font-headline text-sm tracking-[0.2em] text-mc-white transition-all hover:bg-red-bright hover:shadow-[0_0_20px_oklch(from_#B2171D_l_c_h_/_0.4)]"
 					>
 						<span className="live-dot inline-block h-2 w-2 rounded-full bg-red-400" />
 						WATCH LIVE
-					</Link>
+					</WatchLiveLink>
 
 					{/* Hamburger — mobile */}
 					<button

@@ -15,6 +15,7 @@ interface PlayerSeatProps {
   timerUrgent: boolean
   comment: string | null
   dealing: boolean
+  isFolding?: boolean
   actionLabel?: string | null
 }
 
@@ -29,6 +30,7 @@ export const PlayerSeat = memo(function PlayerSeat({
   timerUrgent,
   comment,
   dealing,
+  isFolding,
   actionLabel,
 }: PlayerSeatProps) {
   const stateClass = player.is_folded
@@ -51,7 +53,7 @@ export const PlayerSeat = memo(function PlayerSeat({
       }}
     >
       {/* Hole cards */}
-      <div className="flex gap-0.5">
+      <div className={`flex gap-0.5 ${isFolding ? "fold-toss" : ""}`}>
         {player.cards && player.cards.length > 0 ? (
           player.is_folded ? (
             <>

@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { WatchLiveLink } from "@/components/warp-transition/watch-live-link"
 import { ScrollReveal } from "./scroll-reveal"
 
 export function CTA() {
@@ -25,8 +25,7 @@ export function CTA() {
 					</p>
 
 					<div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-						<Link
-							href="/games"
+						<WatchLiveLink
 							className="group inline-flex h-14 items-center gap-2.5 rounded-lg bg-crimson px-10 font-headline text-base tracking-[0.2em] text-mc-white transition-all hover:bg-red-bright hover:shadow-[0_0_40px_oklch(from_#B2171D_l_c_h_/_0.5)]"
 						>
 							<span
@@ -40,7 +39,7 @@ export function CTA() {
 							<span className="inline-block transition-transform group-hover:translate-x-1">
 								&rarr;
 							</span>
-						</Link>
+						</WatchLiveLink>
 						<a
 							href="/docs"
 							className="inline-flex h-14 items-center rounded-lg border border-gold/40 px-10 font-headline text-base tracking-[0.2em] text-gold transition-all hover:border-gold hover:bg-gold/10"

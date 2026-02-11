@@ -1,11 +1,14 @@
 import type { SpectatorState } from "./types"
 import { cardToSpokenName, cardsToSpokenList, formatChips } from "./format"
 
+export type AudioChannel = "commentator" | "playerComment"
+
 export interface GameEvent {
   type: "new_hand" | "action" | "community" | "showdown" | "hand_complete" | "game_over"
   narration: string
   priority: number
-  soundEffect?: "deal" | "chip" | "allin"
+  soundEffect?: "deal" | "chip" | "allin" | "fold" | "check"
+  channel: AudioChannel
 }
 
 function getPlayerName(state: SpectatorState, playerId: number): string {
@@ -26,6 +29,7 @@ export function detectGameEvents(
       narration: `Hand ${next.hand_number} begins. ${dealer} is the dealer.`,
       priority: 5,
       soundEffect: "deal",
+      channel: "commentator",
     })
   }
 
@@ -45,11 +49,11 @@ export function detectGameEvents(
         switch (a.action) {
           case "fold":
             text = `${name} folds.`
-            sound = undefined
+            sound = "fold"
             break
           case "check":
             text = `${name} checks.`
-            sound = undefined
+            sound = "check"
             break
           case "call":
             text = a.amount
@@ -74,11 +78,16 @@ export function detectGameEvents(
             text = `${name} ${a.action}.`
         }
 
-        if (a.comment) {
-          text += ` Quote: "${a.comment}"`
-        }
+        events.push({ type: "action", narration: text, priority, soundEffect: sound, channel: "commentator" })
 
-        events.push({ type: "action", narration: text, priority, soundEffect: sound })
+        if (a.comment) {
+          events.push({
+            type: "action",
+            narration: `${name} says: ${a.comment}`,
+            priority: 2,
+            channel: "playerComment",
+          })
+        }
       }
     }
   }
@@ -99,7 +108,7 @@ export function detectGameEvents(
       text = `Cards revealed: ${cardsToSpokenList(newCards)}.`
     }
 
-    events.push({ type: "community", narration: text, priority: 6, soundEffect: "deal" })
+    events.push({ type: "community", narration: text, priority: 6, soundEffect: "deal", channel: "commentator" })
   }
 
   // Showdown
@@ -108,31 +117,48 @@ export function detectGameEvents(
     prev.phase !== "showdown" &&
     prev.phase !== "complete"
   ) {
-    events.push({ type: "showdown", narration: "Showdown!", priority: 7 })
+    events.push({ type: "showdown", narration: "Showdown!", priority: 7, channel: "commentator" })
   }
 
   // Hand complete — detect winner by chip gains
   if (next.phase === "complete" && prev.phase !== "complete") {
     const prevPot = prev.pot
     let winner: string | null = null
+    let winnerPlayer: typeof next.players[number] | undefined
     for (const np of next.players) {
       const pp = prev.players.find((p) => p.id === np.id)
       if (pp && np.chips > pp.chips) {
         winner = np.name
+        winnerPlayer = np
         break
       }
     }
     if (winner && prevPot > 0) {
+      const activePlayers = next.players.filter((p) => !p.is_folded)
+      const foldWin = activePlayers.length === 1
+
+      let narration: string
+      if (foldWin) {
+        narration = `${winner} wins ${formatChips(prevPot)} — all others folded.`
+      } else if (winnerPlayer?.cards.length === 2) {
+        const cardStr = cardsToSpokenList(winnerPlayer.cards)
+        narration = `${winner} wins ${formatChips(prevPot)} showing ${cardStr}!`
+      } else {
+        narration = `${winner} wins the pot of ${formatChips(prevPot)}!`
+      }
+
       events.push({
         type: "hand_complete",
-        narration: `${winner} wins the pot of ${formatChips(prevPot)}!`,
+        narration,
         priority: 8,
+        channel: "commentator",
       })
     } else if (winner) {
       events.push({
         type: "hand_complete",
         narration: `${winner} wins the hand!`,
         priority: 8,
+        channel: "commentator",
       })
     }
   }
@@ -143,6 +169,7 @@ export function detectGameEvents(
       type: "game_over",
       narration: `Game over! ${next.winner} wins the game!`,
       priority: 10,
+      channel: "commentator",
     })
   }
 

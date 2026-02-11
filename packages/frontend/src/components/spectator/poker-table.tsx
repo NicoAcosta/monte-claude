@@ -1,3 +1,6 @@
+"use client"
+
+import { useState, useEffect, useRef } from "react"
 import type { SpectatorState, RecentAction } from "@/lib/types"
 import type { AnimationPhase } from "@/hooks/use-replay-queue"
 import { SEAT_LAYOUTS } from "./seat-layouts"
@@ -28,6 +31,27 @@ export function PokerTable({
   const layout =
     SEAT_LAYOUTS[playerCount] || SEAT_LAYOUTS[Math.min(playerCount, 8)]
 
+  // Track fold animation
+  const [foldingPlayerId, setFoldingPlayerId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (lastAction?.action === "fold") {
+      const foldedPlayer = state.players.find((p) => p.name === lastAction.player)
+      if (foldedPlayer) {
+        setFoldingPlayerId(foldedPlayer.id)
+        const timer = setTimeout(() => setFoldingPlayerId(null), 800)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [lastAction, state.players])
+
+  // Track previous community card count for staggered reveal
+  const prevCardCountRef = useRef(state.community_cards.length)
+  const prevCardCount = prevCardCountRef.current
+  useEffect(() => {
+    prevCardCountRef.current = state.community_cards.length
+  }, [state.community_cards.length])
+
   return (
     <div className="poker-table">
       <div className="table-felt" />
@@ -38,8 +62,9 @@ export function PokerTable({
           cards={state.community_cards}
           dealing={dealing}
           animationPhase={animationPhase}
+          prevCardCount={prevCardCount}
         />
-        <PotDisplay pot={state.pot} sidePots={state.side_pots} />
+        <PotDisplay pot={state.pot} sidePots={state.side_pots} players={state.players} />
       </div>
 
       {/* Player seats */}
@@ -59,6 +84,7 @@ export function PokerTable({
             timerUrgent={timerUrgent}
             comment={playerComments[player.name] || null}
             dealing={dealing}
+            isFolding={foldingPlayerId === player.id}
             actionLabel={
               isActionPlayer && animationPhase === "action"
                 ? formatActionLabel(lastAction!)

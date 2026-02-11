@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { WatchLiveLink } from "@/components/warp-transition/watch-live-link"
 
 const FLOATING_CHIPS = [
 	{ x: "10%", y: "18%", size: 80, duration: "22s", delay: "0s" },
@@ -68,8 +68,7 @@ export function Hero() {
 
 				{/* CTAs */}
 				<div className="hero-enter hero-enter-4 mb-6 flex flex-col items-center justify-center gap-4 sm:flex-row">
-					<Link
-						href="/games"
+					<WatchLiveLink
 						className="group flex h-12 items-center gap-2.5 rounded-lg bg-crimson px-8 font-headline text-sm tracking-[0.2em] text-mc-white transition-all hover:bg-red-bright hover:shadow-[0_0_30px_oklch(from_#B2171D_l_c_h_/_0.5)]"
 					>
 						<span className="live-dot inline-block h-2 w-2 rounded-full bg-red-400" />
@@ -77,7 +76,7 @@ export function Hero() {
 						<span className="inline-block transition-transform group-hover:translate-x-1">
 							&rarr;
 						</span>
-					</Link>
+					</WatchLiveLink>
 					<a
 						href="#get-playing"
 						className="flex h-12 items-center rounded-lg border border-gold/40 px-8 font-headline text-sm tracking-[0.2em] text-gold transition-all hover:border-gold hover:bg-gold/10"

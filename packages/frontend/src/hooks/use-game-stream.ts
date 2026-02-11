@@ -29,7 +29,9 @@ export function useGameStream(
   const queueRef = useRef<SpectatorState[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const [usePolling, setUsePolling] = useState(mode === "stream")
-  const lastVersionRef = useRef(initialState.state_version ?? 0)
+  // SpectatorResponse omits state_version — init to 0, inject from WS envelope
+  const lastVersionRef = useRef(0)
+  const lastFingerprintRef = useRef("")
 
   // WebSocket connection (game mode only — streams don't have WS endpoints)
   useEffect(() => {
@@ -46,9 +48,11 @@ export function useGameStream(
         const msg = JSON.parse(event.data)
         if (msg.type === "state" && msg.data) {
           const state = msg.data as SpectatorState
-          const version = state.state_version ?? 0
+          // state_version lives in the WS envelope, NOT inside SpectatorResponse
+          const version = msg.state_version ?? state.state_version ?? 0
           if (version > lastVersionRef.current) {
             lastVersionRef.current = version
+            state.state_version = version
             queueRef.current.push(state)
             setLatestState(state)
           }
@@ -86,12 +90,15 @@ export function useGameStream(
     { enabled: usePolling },
   )
 
-  // Push fallback poll results into queue (dedupe by state_version)
+  // Push fallback poll results into queue.
+  // HTTP SpectatorResponse has no state_version — dedupe via composite fingerprint.
   useEffect(() => {
     if (!usePolling || !fallbackData) return
-    const version = fallbackData.state_version ?? 0
-    if (version > lastVersionRef.current) {
-      lastVersionRef.current = version
+    const fp = `${fallbackData.hand_number}:${fallbackData.phase}:${fallbackData.recent_actions.length}:${fallbackData.pot}:${fallbackData.community_cards.length}:${fallbackData.game_over}`
+    if (fp !== lastFingerprintRef.current) {
+      lastFingerprintRef.current = fp
+      lastVersionRef.current += 1
+      fallbackData.state_version = lastVersionRef.current
       queueRef.current.push(fallbackData)
       setLatestState(fallbackData)
     }

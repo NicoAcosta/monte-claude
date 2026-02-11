@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Source_Serif_4, Bebas_Neue, DM_Sans } from "next/font/google";
+import { SoundProvider } from "@/lib/sound-context";
+import { WarpProvider } from "@/components/warp-transition/use-warp-transition";
+import { WarpTransition } from "@/components/warp-transition/warp-transition";
 import "./globals.css";
 
 const sourceSerif = Source_Serif_4({
@@ -54,7 +57,12 @@ export default function RootLayout({
       <body
         className={`${sourceSerif.variable} ${bebasNeue.variable} ${dmSans.variable} noise-overlay antialiased`}
       >
-        {children}
+        <SoundProvider>
+          <WarpProvider>
+            {children}
+            <WarpTransition />
+          </WarpProvider>
+        </SoundProvider>
       </body>
     </html>
   );

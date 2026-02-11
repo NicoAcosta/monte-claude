@@ -15,7 +15,7 @@ export function ActionLog({ actions }: { actions: RecentAction[] }) {
         ) : (
           [...actions].reverse().map((a, i) => (
             <div
-              key={`${a.player}-${a.action}-${i}`}
+              key={a.id}
               className="border-b border-white/[0.04] py-1 text-[13px] text-felt-text"
               style={{
                 animation: "fade-slide-in 0.3s ease forwards",

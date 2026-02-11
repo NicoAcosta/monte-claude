@@ -2,27 +2,37 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { GameEvent } from "@/lib/narration"
+import type { SoundSettings } from "@/lib/sound-settings"
 
 const SPEECH_RATE = 1.1
 const MAX_QUEUE = 3
 
+/**
+ * Handles narration speech + sound effects for the spectator view.
+ * Ambience is managed by the SoundProvider context, not here.
+ *
+ * @param getAudioCtx  — returns the shared AudioContext from SoundProvider
+ * @param getEffectsGain — returns the shared effects GainNode from SoundProvider
+ */
 export function useGameAudio(
   consumeEvents: () => GameEvent[],
-  audioEnabled: boolean,
+  settings: SoundSettings,
+  getAudioCtx: () => AudioContext | null,
+  getEffectsGain: () => GainNode | null,
 ): { isSpeaking: boolean } {
   const queueRef = useRef<GameEvent[]>([])
   const speakingRef = useRef(false)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const enabledRef = useRef(audioEnabled)
+  const settingsRef = useRef(settings)
   const [isSpeaking, setIsSpeaking] = useState(false)
 
+  // Keep settings ref in sync for callbacks
   useEffect(() => {
-    enabledRef.current = audioEnabled
-  }, [audioEnabled])
+    settingsRef.current = settings
+  }, [settings])
 
-  // Cancel speech when toggled off or unmount
+  // ── Cancel speech when master or speech channels turn off ──
   useEffect(() => {
-    if (!audioEnabled) {
+    if (!settings.master || (!settings.commentator.enabled && !settings.playerComments.enabled)) {
       window.speechSynthesis?.cancel()
       queueRef.current = []
       speakingRef.current = false
@@ -32,47 +42,62 @@ export function useGameAudio(
       window.speechSynthesis?.cancel()
       queueRef.current = []
     }
-  }, [audioEnabled])
+  }, [settings.master, settings.commentator.enabled, settings.playerComments.enabled])
 
-  // Poll for new events every 200ms
+  // ── Poll for new events every 200ms ──
   useEffect(() => {
-    if (!audioEnabled) return
+    if (!settings.master) return
 
     const interval = setInterval(() => {
       const events = consumeEvents()
       if (events.length === 0) return
 
-      queueRef.current.push(...events)
+      const s = settingsRef.current
+      const ctx = getAudioCtx()
+      const effectsGain = getEffectsGain()
 
+      for (const ev of events) {
+        // Sound effects — route through shared effects gain
+        if (ev.soundEffect && s.effects.enabled && ctx && effectsGain) {
+          playSound(ev.soundEffect, ctx, effectsGain)
+        }
+
+        // Speech — filter by channel
+        if (
+          (ev.channel === "commentator" && s.commentator.enabled) ||
+          (ev.channel === "playerComment" && s.playerComments.enabled)
+        ) {
+          queueRef.current.push(ev)
+        }
+      }
+
+      // Trim queue by priority
       if (queueRef.current.length > MAX_QUEUE) {
         queueRef.current.sort((a, b) => b.priority - a.priority)
         queueRef.current = queueRef.current.slice(0, MAX_QUEUE)
       }
 
-      for (const ev of events) {
-        if (ev.soundEffect) {
-          playSound(ev.soundEffect, audioCtxRef)
-        }
-      }
-
       if (!speakingRef.current) {
-        speakNext(queueRef, speakingRef, enabledRef, setIsSpeaking)
+        speakNext(queueRef, speakingRef, settingsRef, setIsSpeaking)
       }
     }, 200)
 
     return () => clearInterval(interval)
-  }, [consumeEvents, audioEnabled])
+  }, [consumeEvents, settings.master, getAudioCtx, getEffectsGain])
 
   return { isSpeaking }
 }
 
+// ── Speech ──
+
 function speakNext(
   queueRef: React.MutableRefObject<GameEvent[]>,
   speakingRef: React.MutableRefObject<boolean>,
-  enabledRef: React.MutableRefObject<boolean>,
+  settingsRef: React.MutableRefObject<SoundSettings>,
   onSpeakingChange: (v: boolean) => void,
 ) {
-  if (!enabledRef.current) {
+  const s = settingsRef.current
+  if (!s.master) {
     speakingRef.current = false
     onSpeakingChange(false)
     return
@@ -91,53 +116,48 @@ function speakNext(
     return
   }
 
+  // Per-channel volume and pitch
+  const isPlayer = next.channel === "playerComment"
+  const volume = isPlayer ? s.playerComments.volume : s.commentator.volume
+
   speakingRef.current = true
   onSpeakingChange(true)
   const utterance = new SpeechSynthesisUtterance(next.narration)
   utterance.rate = SPEECH_RATE
-  utterance.pitch = 1
-  utterance.onend = () => speakNext(queueRef, speakingRef, enabledRef, onSpeakingChange)
-  utterance.onerror = () => speakNext(queueRef, speakingRef, enabledRef, onSpeakingChange)
+  utterance.pitch = isPlayer ? 1.15 : 1
+  utterance.volume = volume
+  utterance.onend = () => speakNext(queueRef, speakingRef, settingsRef, onSpeakingChange)
+  utterance.onerror = () => speakNext(queueRef, speakingRef, settingsRef, onSpeakingChange)
   window.speechSynthesis.speak(utterance)
 }
 
-// ── Web Audio sound effects ──
-
-function getAudioCtx(
-  ref: React.MutableRefObject<AudioContext | null>,
-): AudioContext | null {
-  if (typeof window === "undefined") return null
-  if (!ref.current) {
-    try {
-      ref.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-    } catch {
-      return null
-    }
-  }
-  return ref.current
-}
+// ── Sound effects ──
 
 function playSound(
-  type: "deal" | "chip" | "allin",
-  ctxRef: React.MutableRefObject<AudioContext | null>,
+  type: "deal" | "chip" | "allin" | "fold" | "check",
+  ctx: AudioContext,
+  dest: GainNode,
 ) {
-  const ctx = getAudioCtx(ctxRef)
-  if (!ctx) return
-
   switch (type) {
     case "chip":
-      playChipSound(ctx)
+      playChipSound(ctx, dest)
       break
     case "deal":
-      playDealSound(ctx)
+      playDealSound(ctx, dest)
       break
     case "allin":
-      playAllInSound(ctx)
+      playAllInSound(ctx, dest)
+      break
+    case "fold":
+      playFoldSound(ctx, dest)
+      break
+    case "check":
+      playCheckSound(ctx, dest)
       break
   }
 }
 
-function playChipSound(ctx: AudioContext) {
+function playChipSound(ctx: AudioContext, dest: GainNode) {
   const duration = 0.05
   const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate)
   const data = buffer.getChannelData(0)
@@ -148,11 +168,11 @@ function playChipSound(ctx: AudioContext) {
   source.buffer = buffer
   const gain = ctx.createGain()
   gain.gain.value = 0.15
-  source.connect(gain).connect(ctx.destination)
+  source.connect(gain).connect(dest)
   source.start()
 }
 
-function playDealSound(ctx: AudioContext) {
+function playDealSound(ctx: AudioContext, dest: GainNode) {
   const duration = 0.15
   const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate)
   const data = buffer.getChannelData(0)
@@ -166,11 +186,11 @@ function playDealSound(ctx: AudioContext) {
   filter.frequency.value = 800
   const gain = ctx.createGain()
   gain.gain.value = 0.1
-  source.connect(filter).connect(gain).connect(ctx.destination)
+  source.connect(filter).connect(gain).connect(dest)
   source.start()
 }
 
-function playAllInSound(ctx: AudioContext) {
+function playAllInSound(ctx: AudioContext, dest: GainNode) {
   const osc = ctx.createOscillator()
   osc.type = "sine"
   osc.frequency.setValueAtTime(400, ctx.currentTime)
@@ -178,7 +198,48 @@ function playAllInSound(ctx: AudioContext) {
   const gain = ctx.createGain()
   gain.gain.setValueAtTime(0.12, ctx.currentTime)
   gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2)
-  osc.connect(gain).connect(ctx.destination)
+  osc.connect(gain).connect(dest)
   osc.start()
   osc.stop(ctx.currentTime + 0.2)
+}
+
+function playFoldSound(ctx: AudioContext, dest: GainNode) {
+  const duration = 0.08
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate)
+  const data = buffer.getChannelData(0)
+  for (let i = 0; i < data.length; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.02))
+  }
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+  const filter = ctx.createBiquadFilter()
+  filter.type = "lowpass"
+  filter.frequency.value = 500
+  const gain = ctx.createGain()
+  gain.gain.value = 0.08
+  source.connect(filter).connect(gain).connect(dest)
+  source.start()
+}
+
+function playCheckSound(ctx: AudioContext, dest: GainNode) {
+  const playKnock = (delay: number) => {
+    const duration = 0.03
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.006))
+    }
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    const filter = ctx.createBiquadFilter()
+    filter.type = "bandpass"
+    filter.frequency.value = 1200
+    filter.Q.value = 2
+    const gain = ctx.createGain()
+    gain.gain.value = 0.1
+    source.connect(filter).connect(gain).connect(dest)
+    source.start(ctx.currentTime + delay)
+  }
+  playKnock(0)
+  playKnock(0.07)
 }

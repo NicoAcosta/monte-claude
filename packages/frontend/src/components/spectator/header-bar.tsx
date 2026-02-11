@@ -1,26 +1,33 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { ConnectionStatus } from "@/components/connection-status"
 import type { ConnectionStatus as ConnStatus } from "@/hooks/use-poll"
+import type { SoundSettings, SoundChannel } from "@/lib/sound-settings"
+import { SpeakerOnIcon, SpeakerOffIcon, EqualizerIcon } from "@/components/icons"
+import { SoundMixer } from "./sound-mixer"
 
 interface HeaderBarProps {
   handNumber: number
   phase: string
   gameDuration: string
   connectionStatus: ConnStatus
-  audioEnabled: boolean
-  onAudioToggle: () => void
+  settings: SoundSettings
+  onToggleMaster: () => void
+  onToggleChannel: (channel: SoundChannel) => void
+  onSetVolume: (channel: SoundChannel, volume: number) => void
   infoPanelOpen: boolean
   onInfoToggle: () => void
 }
 
 const PHASE_COLORS: Record<string, string> = {
-  "pre-flop": "bg-table-green text-dealer-gold",
-  flop: "bg-table-green text-dealer-gold",
-  turn: "bg-table-green text-dealer-gold",
-  river: "bg-table-green text-dealer-gold",
-  showdown: "bg-dealer-gold/20 text-dealer-gold",
+  preflop: "bg-table-green/80 text-felt-text",
+  flop: "bg-sb-blue/25 text-sb-blue",
+  turn: "bg-dealer-gold/20 text-dealer-gold",
+  river: "bg-danger/20 text-danger",
+  showdown: "bg-dealer-gold/30 text-dealer-gold",
+  complete: "bg-white/10 text-sage",
   waiting: "bg-white/10 text-white/50",
 }
 
@@ -29,11 +36,15 @@ export function HeaderBar({
   phase,
   gameDuration,
   connectionStatus,
-  audioEnabled,
-  onAudioToggle,
+  settings,
+  onToggleMaster,
+  onToggleChannel,
+  onSetVolume,
   infoPanelOpen,
   onInfoToggle,
 }: HeaderBarProps) {
+  const [mixerOpen, setMixerOpen] = useState(false)
+
   return (
     <header className="flex flex-shrink-0 items-center justify-between border-b border-white/[0.06] bg-black/30 px-6 py-3">
       <div className="flex items-center gap-3">
@@ -75,17 +86,52 @@ export function HeaderBar({
         >
           i
         </button>
-        <button
-          onClick={onAudioToggle}
-          className={`rounded-md border px-2.5 py-1 text-[13px] transition-colors ${
-            audioEnabled
-              ? "border-dealer-gold text-dealer-gold"
-              : "border-white/15 text-sage hover:border-dealer-gold hover:text-dealer-gold"
-          }`}
-          title="Toggle audio commentary"
-        >
-          Sound: {audioEnabled ? "ON" : "OFF"}
-        </button>
+
+        {/* Sound controls */}
+        <div className="relative flex items-center gap-1.5">
+          {/* Master toggle */}
+          <button
+            onClick={onToggleMaster}
+            className={`flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+              settings.master
+                ? "border-dealer-gold text-dealer-gold"
+                : "border-white/15 text-sage hover:border-dealer-gold hover:text-dealer-gold"
+            }`}
+            title={settings.master ? "Mute all sound" : "Enable sound"}
+            aria-label="Toggle all sound"
+          >
+            {settings.master ? (
+              <SpeakerOnIcon className="h-3.5 w-3.5" />
+            ) : (
+              <SpeakerOffIcon className="h-3.5 w-3.5" />
+            )}
+          </button>
+
+          {/* Mixer toggle */}
+          <button
+            onClick={() => setMixerOpen((v) => !v)}
+            className={`flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+              mixerOpen
+                ? "border-dealer-gold text-dealer-gold"
+                : "border-white/15 text-sage hover:border-dealer-gold hover:text-dealer-gold"
+            }`}
+            title="Sound mixer"
+            aria-label="Open sound mixer"
+            aria-expanded={mixerOpen}
+            aria-haspopup="dialog"
+          >
+            <EqualizerIcon className="h-3 w-3" />
+          </button>
+
+          {/* Mixer popover */}
+          <SoundMixer
+            settings={settings}
+            onToggleChannel={onToggleChannel}
+            onSetVolume={onSetVolume}
+            open={mixerOpen}
+            onClose={() => setMixerOpen(false)}
+          />
+        </div>
       </div>
     </header>
   )

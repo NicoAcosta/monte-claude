@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { useGameStream } from "@/hooks/use-game-stream"
 import { useReplayQueue } from "@/hooks/use-replay-queue"
-import { formatDuration } from "@/lib/format"
+import { formatDuration, formatChips } from "@/lib/format"
 import type { SpectatorState } from "@/lib/types"
 import { useGameNarration } from "@/hooks/use-game-narration"
 import { useGameAudio } from "@/hooks/use-game-audio"
+import { useSoundContext } from "@/lib/sound-context"
 import { HeaderBar } from "./header-bar"
 import { InfoPanel } from "./info-panel"
 import { WaitingScreen } from "./waiting-screen"
@@ -28,8 +29,8 @@ export function SpectatorView({
   streamId,
   mode,
 }: SpectatorViewProps) {
-  // Audio toggle (declared early so replay queue can reference it)
-  const [audioEnabled, setAudioEnabled] = useState(false)
+  // Sound settings from shared context (persisted to localStorage)
+  const { settings, toggleMaster, toggleChannel, setChannelVolume, getAudioCtx, getEffectsGain } = useSoundContext()
   // isSpeaking synced from useGameAudio below — one-render lag is fine
   // because useReplayQueue reads it from a ref in async callbacks
   const [isSpeaking, setIsSpeaking] = useState(false)
@@ -46,7 +47,7 @@ export function SpectatorView({
   const { displayState: state, animationPhase } = useReplayQueue(
     consumeSnapshots,
     initialState,
-    { audioEnabled, isSpeaking },
+    { audioEnabled: settings.master, isSpeaking },
   )
 
   // Dealing animation — triggered by animationPhase or hand change
@@ -60,7 +61,7 @@ export function SpectatorView({
     ) {
       lastHandRef.current = state.hand_number
       const startTimer = setTimeout(() => setDealing(true), 0)
-      const endTimer = setTimeout(() => setDealing(false), 600)
+      const endTimer = setTimeout(() => setDealing(false), 1500)
       return () => {
         clearTimeout(startTimer)
         clearTimeout(endTimer)
@@ -133,8 +134,36 @@ export function SpectatorView({
 
   // Game narration & audio
   const { consumeEvents, latestNarration } = useGameNarration(state)
-  const { isSpeaking: audioIsSpeaking } = useGameAudio(consumeEvents, audioEnabled)
+  const { isSpeaking: audioIsSpeaking } = useGameAudio(consumeEvents, settings, getAudioCtx, getEffectsGain)
   useEffect(() => { setIsSpeaking(audioIsSpeaking) }, [audioIsSpeaking])
+
+  // Between-hands summary
+  const prevDisplayRef = useRef<SpectatorState>(state)
+  const [handSummary, setHandSummary] = useState<{
+    winner: string
+    pot: number
+    handNumber: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (state.phase === "complete" && state.hand_number > 0) {
+      const prev = prevDisplayRef.current
+      for (const np of state.players) {
+        const pp = prev.players.find((p) => p.id === np.id)
+        if (pp && np.chips > pp.chips && prev.pot > 0) {
+          setHandSummary({
+            winner: np.name,
+            pot: prev.pot,
+            handNumber: state.hand_number,
+          })
+          break
+        }
+      }
+    } else {
+      setHandSummary(null)
+    }
+    prevDisplayRef.current = state
+  }, [state])
 
   // Info panel toggle
   const [infoPanelOpen, setInfoPanelOpen] = useState(false)
@@ -156,8 +185,10 @@ export function SpectatorView({
         phase={state.phase}
         gameDuration={gameDuration}
         connectionStatus={status}
-        audioEnabled={audioEnabled}
-        onAudioToggle={() => setAudioEnabled((v) => !v)}
+        settings={settings}
+        onToggleMaster={toggleMaster}
+        onToggleChannel={toggleChannel}
+        onSetVolume={setChannelVolume}
         infoPanelOpen={infoPanelOpen}
         onInfoToggle={() => setInfoPanelOpen((v) => !v)}
       />
@@ -170,7 +201,7 @@ export function SpectatorView({
       />
 
       {/* Table area */}
-      <div className="flex flex-1 items-center justify-center p-5">
+      <div className="relative flex flex-1 items-center justify-center p-5">
         {state.started ? (
           <PokerTable
             state={state}
@@ -183,6 +214,21 @@ export function SpectatorView({
           />
         ) : (
           <WaitingScreen state={state} gameId={gameId || ""} />
+        )}
+
+        {/* Between-hands summary overlay */}
+        {handSummary && (
+          <div
+            className="absolute left-1/2 top-[15%] z-10 -translate-x-1/2 rounded-xl border border-dealer-gold/30 bg-black/70 px-8 py-4 text-center backdrop-blur-sm"
+            style={{ animation: "fade-slide-in 0.5s ease" }}
+          >
+            <div className="text-[10px] uppercase tracking-[2px] text-sage">
+              Hand #{handSummary.handNumber} Complete
+            </div>
+            <div className="mt-1 text-lg font-bold text-dealer-gold">
+              {handSummary.winner} wins {formatChips(handSummary.pot)}
+            </div>
+          </div>
         )}
       </div>
 

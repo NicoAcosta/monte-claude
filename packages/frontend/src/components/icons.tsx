@@ -21,3 +21,65 @@ export function TelegramIcon({ className = "h-4 w-4" }: { className?: string }) 
     </svg>
   )
 }
+
+/* ── Sound UI Icons ── */
+
+export function SpeakerOnIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8.5 2a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.82.39L4.63 11H2.5A1.5 1.5 0 0 1 1 9.5v-3A1.5 1.5 0 0 1 2.5 5h2.13l3.55-2.89A.5.5 0 0 1 8.5 2z" />
+      <path d="M11.12 5.28a.5.5 0 0 1 .7-.08 4 4 0 0 1 0 5.6.5.5 0 1 1-.62-.78 3 3 0 0 0 0-4.02.5.5 0 0 1-.08-.7z" opacity=".75" />
+      <path d="M12.95 3.45a.5.5 0 0 1 .7-.05 6.5 6.5 0 0 1 0 9.2.5.5 0 1 1-.65-.76 5.5 5.5 0 0 0 0-7.68.5.5 0 0 1-.05-.7z" opacity=".5" />
+    </svg>
+  )
+}
+
+export function SpeakerOffIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8.5 2a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.82.39L4.63 11H2.5A1.5 1.5 0 0 1 1 9.5v-3A1.5 1.5 0 0 1 2.5 5h2.13l3.55-2.89A.5.5 0 0 1 8.5 2z" opacity=".35" />
+      <path d="M13.35 5.15a.5.5 0 0 1 .7.7L12.21 7.7l1.84 1.85a.5.5 0 0 1-.7.7L11.5 8.41l-1.85 1.84a.5.5 0 0 1-.7-.7L10.79 7.7 8.95 5.85a.5.5 0 0 1 .7-.7L11.5 7l1.85-1.85z" opacity=".6" />
+    </svg>
+  )
+}
+
+export function MicIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+      <rect x="5.5" y="1" width="5" height="8" rx="2.5" />
+      <path d="M3.5 7a.5.5 0 0 1 .5.5A4 4 0 0 0 8 11.5a4 4 0 0 0 4-4 .5.5 0 0 1 1 0 5 5 0 0 1-4.5 4.975V14h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 7.5a.5.5 0 0 1 .5-.5z" />
+    </svg>
+  )
+}
+
+export function ChatBubbleIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+      <path d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v7a1.5 1.5 0 0 1-1.5 1.5H5.37l-2.78 2.08A.5.5 0 0 1 1.8 12.8V11.2A1.5 1.5 0 0 1 2 9.5z" />
+      <circle cx="5.25" cy="6" r=".85" fill="currentColor" className="opacity-40" />
+      <circle cx="8" cy="6" r=".85" fill="currentColor" className="opacity-40" />
+      <circle cx="10.75" cy="6" r=".85" fill="currentColor" className="opacity-40" />
+    </svg>
+  )
+}
+
+export function ChipSoundIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+      <circle cx="6.5" cy="8" r="4.5" />
+      <circle cx="6.5" cy="8" r="2.5" fill="currentColor" className="opacity-30" />
+      <path d="M12.2 5a.5.5 0 0 1 .66-.24 .5.5 0 0 1 .24.66A5.5 5.5 0 0 1 13.1 8a5.5 5.5 0 0 1 0 2.58.5.5 0 0 1-.9-.42A4.5 4.5 0 0 0 12.2 8a4.5 4.5 0 0 0 0-2.16.5.5 0 0 1-.02-.84z" opacity=".6" />
+      <path d="M14 3.6a.5.5 0 0 1 .72-.12 7 7 0 0 1 0 9.04.5.5 0 1 1-.6-.84 6 6 0 0 0 0-7.36.5.5 0 0 1-.12-.72z" opacity=".35" />
+    </svg>
+  )
+}
+
+export function EqualizerIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor">
+      <rect x="2" y="8" width="3" height="6" rx="1" />
+      <rect x="6.5" y="4" width="3" height="10" rx="1" />
+      <rect x="11" y="6" width="3" height="8" rx="1" />
+    </svg>
+  )
+}

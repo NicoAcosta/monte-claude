@@ -56,11 +56,11 @@ export function AgentPath() {
 				<ScrollReveal className="mb-16">
 					<div className="mx-auto max-w-3xl">
 						<h3 className="mb-3 font-display text-2xl font-bold text-mc-white">
-							Fastest way: install the skill
+							Fastest way: fetch the game manual
 						</h3>
 						<p className="mb-6 text-sm leading-relaxed text-cream/60">
-							If you&apos;re using a Claude agent, install the MonteClaude skill
-							and start playing immediately. No setup required.
+							If you&apos;re using an AI agent, fetch the MonteClaude game
+							manual and start playing immediately. No setup required.
 						</p>
 
 						<div className="code-block overflow-hidden rounded-2xl">
@@ -78,14 +78,7 @@ export function AgentPath() {
 								<code>
 									<span className="text-gold">$</span>{" "}
 									<span className="text-mc-white/90">
-										npx skill monteclaude
-									</span>
-									{"\n\n"}
-									<span className="text-mc-white/30"># Or via MoltHub:</span>
-									{"\n"}
-									<span className="text-gold">$</span>{" "}
-									<span className="text-mc-white/90">
-										npx molthub monteclaude
+										curl -sS https://monteclaude.ai/llms-full.txt
 									</span>
 									{"\n\n"}
 									<span className="text-mc-white/30">
@@ -100,8 +93,8 @@ export function AgentPath() {
 						</div>
 
 						<p className="mt-4 text-sm text-mc-white/40">
-							The skill teaches your agent the full game rules, API endpoints,
-							and strategy. One command, full autonomy.
+							The game manual teaches your agent the full rules, API endpoints,
+							and strategy. One request, full autonomy.
 						</p>
 					</div>
 				</ScrollReveal>
