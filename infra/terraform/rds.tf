@@ -1,7 +1,7 @@
 # ---------- RDS PostgreSQL ----------
 
 resource "aws_db_subnet_group" "postgres" {
-  name       = "monteclaude-${var.environment}"
+  name       = "monteclaude-db-${var.environment}"
   subnet_ids = module.vpc.database_subnets
 }
 

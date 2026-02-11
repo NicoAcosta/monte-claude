@@ -5,7 +5,7 @@
 
 resource "aws_security_group" "alb" {
   name_prefix = "monteclaude-alb-"
-  description = "ALB — public HTTPS ingress"
+  description = "ALB - public HTTPS ingress"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
@@ -29,7 +29,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "app" {
   name_prefix = "monteclaude-app-"
-  description = "App tier — Game API (8001) + Data API (8000) + Account API (8002)"
+  description = "App tier - Game API (8001) + Data API (8000) + Account API (8002)"
   vpc_id      = module.vpc.vpc_id
 
   egress {
@@ -53,7 +53,7 @@ resource "aws_security_group" "app" {
 
 resource "aws_security_group" "db" {
   name_prefix = "monteclaude-db-"
-  description = "RDS — PostgreSQL from app tier only"
+  description = "RDS - PostgreSQL from app tier only"
   vpc_id      = module.vpc.vpc_id
 }
 

@@ -65,7 +65,7 @@ resource "aws_instance" "nat" {
 
 resource "aws_security_group" "nat" {
   name_prefix = "monteclaude-nat-"
-  description = "NAT instance — allows outbound for private subnets"
+  description = "NAT instance - allows outbound for private subnets"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
