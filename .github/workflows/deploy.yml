@@ -94,7 +94,11 @@ jobs:
             --instance-ids ${{ secrets.GAME_API_INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters commands='[
+              "set -euo pipefail",
               "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
+              "mkdir -p /etc/monteclaude",
+              "aws secretsmanager get-secret-value --region '"${{ env.AWS_REGION }}"' --secret-id monteclaude/prod/game-api-env --query SecretString --output text > /etc/monteclaude/game-api.env",
+              "chmod 0600 /etc/monteclaude/game-api.env",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/game-api:'"$IMAGE_TAG"'",
               "docker stop game-api || true",
               "docker rm game-api || true",
@@ -134,7 +138,13 @@ jobs:
             --instance-ids ${{ secrets.DATA_API_INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters commands='[
+              "set -euo pipefail",
               "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
+              "mkdir -p /etc/monteclaude",
+              "aws secretsmanager get-secret-value --region '"${{ env.AWS_REGION }}"' --secret-id monteclaude/prod/data-api-env --query SecretString --output text > /etc/monteclaude/data-api.env",
+              "aws secretsmanager get-secret-value --region '"${{ env.AWS_REGION }}"' --secret-id monteclaude/prod/account-api-env --query SecretString --output text > /etc/monteclaude/account-api.env",
+              "aws secretsmanager get-secret-value --region '"${{ env.AWS_REGION }}"' --secret-id monteclaude/prod/frontend-env --query SecretString --output text > /etc/monteclaude/frontend.env",
+              "chmod 0600 /etc/monteclaude/*.env",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/frontend:'"$IMAGE_TAG"'",

@@ -190,6 +190,7 @@ data "aws_iam_policy_document" "game_api_secrets" {
         aws_secretsmanager_secret.server_private_key.arn,
         aws_secretsmanager_secret.rpc_url.arn,
         aws_secretsmanager_secret.factory_address.arn,
+        aws_secretsmanager_secret.game_api_env.arn,
       ],
       var.enclave_enabled ? [aws_secretsmanager_secret.server_private_key_encrypted[0].arn] : [],
     )
@@ -220,11 +221,16 @@ resource "aws_iam_role_policy" "game_api_kms" {
   policy = data.aws_iam_policy_document.game_api_kms[0].json
 }
 
-# Secrets Manager — Data API gets DB credentials only
+# Secrets Manager — Data API gets DB credentials + service env secrets
 data "aws_iam_policy_document" "data_api_secrets" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.db_credentials.arn]
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.db_credentials.arn,
+      aws_secretsmanager_secret.data_api_env.arn,
+      aws_secretsmanager_secret.account_api_env.arn,
+      aws_secretsmanager_secret.frontend_env.arn,
+    ]
   }
 }
 
