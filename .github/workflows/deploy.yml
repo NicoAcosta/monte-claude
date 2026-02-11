@@ -58,7 +58,7 @@ jobs:
         run: uv run pytest -v
         env:
           DATABASE_URL: postgresql://poker:poker_dev@localhost:5432/monteclaude
-          SERVER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          SERVER_PRIVATE_KEY: ${{ secrets.TEST_SERVER_PRIVATE_KEY }}
 
   build-and-deploy:
     name: Build & Deploy
