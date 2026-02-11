@@ -1,0 +1,164 @@
+import { memo } from "react"
+import { CardDisplay, CardBack } from "@/components/card-display"
+import { formatChips } from "@/lib/format"
+import type { SpectatorPlayer } from "@/lib/types"
+import type { SeatPosition } from "./seat-layouts"
+
+interface PlayerSeatProps {
+  player: SpectatorPlayer
+  position: SeatPosition
+  isCurrentTurn: boolean
+  isDealer: boolean
+  isSmallBlind: boolean
+  isBigBlind: boolean
+  timerText: string | null
+  timerUrgent: boolean
+  comment: string | null
+  dealing: boolean
+  actionLabel?: string | null
+}
+
+export const PlayerSeat = memo(function PlayerSeat({
+  player,
+  position,
+  isCurrentTurn,
+  isDealer,
+  isSmallBlind,
+  isBigBlind,
+  timerText,
+  timerUrgent,
+  comment,
+  dealing,
+  actionLabel,
+}: PlayerSeatProps) {
+  const stateClass = player.is_folded
+    ? "folded"
+    : player.is_resigned
+      ? "resigned"
+      : player.is_all_in
+        ? "all-in"
+        : isCurrentTurn
+          ? "current-turn"
+          : ""
+
+  return (
+    <div
+      className={`player-seat ${stateClass} absolute z-[3] flex flex-col items-center gap-1`}
+      style={{
+        top: `${position.top}%`,
+        left: `${position.left}%`,
+        transform: "translate(-50%, -50%)",
+      }}
+    >
+      {/* Hole cards */}
+      <div className="flex gap-0.5">
+        {player.cards && player.cards.length > 0 ? (
+          player.is_folded ? (
+            <>
+              <CardBack small dealing={dealing} />
+              <CardBack small dealing={dealing} />
+            </>
+          ) : (
+            player.cards.map((c, i) => (
+              <CardDisplay key={i} card={c} small dealing={dealing} />
+            ))
+          )
+        ) : (
+          <>
+            <CardBack small dealing={dealing} />
+            <CardBack small dealing={dealing} />
+          </>
+        )}
+      </div>
+
+      {/* Player info box */}
+      <div
+        className="player-info min-w-[100px] rounded-lg border-2 border-transparent bg-black/55 px-3 py-1.5 text-center backdrop-blur-sm"
+        style={{ transition: "border-color .35s cubic-bezier(.4,0,.2,1), box-shadow .35s cubic-bezier(.4,0,.2,1)" }}
+      >
+        <div className="truncate text-[13px] font-bold text-white">
+          {player.name}
+        </div>
+        <div className="text-xs font-semibold text-chip-green">
+          {formatChips(player.chips)}
+        </div>
+        {player.current_bet > 0 && (
+          <div className="mt-0.5 text-[11px] text-gold-muted">
+            Bet: {formatChips(player.current_bet)}
+          </div>
+        )}
+
+        {/* Badges */}
+        <div className="mt-0.5 flex flex-wrap justify-center gap-1">
+          {isDealer && (
+            <span className="rounded-full bg-dealer-gold px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-mc-black">
+              D
+            </span>
+          )}
+          {isSmallBlind && (
+            <span className="rounded-full bg-sb-blue px-1.5 py-px text-[9px] font-bold uppercase text-white">
+              SB
+            </span>
+          )}
+          {isBigBlind && (
+            <span className="rounded-full bg-bb-purple px-1.5 py-px text-[9px] font-bold uppercase text-white">
+              BB
+            </span>
+          )}
+          {player.is_all_in && (
+            <span className="rounded-full bg-danger px-1.5 py-px text-[9px] font-bold uppercase text-white">
+              ALL-IN
+            </span>
+          )}
+          {player.is_folded && (
+            <span className="rounded-full bg-white/15 px-1.5 py-px text-[9px] font-bold uppercase text-sage">
+              FOLD
+            </span>
+          )}
+          {player.is_resigned && (
+            <span className="rounded-full bg-danger/50 px-1.5 py-px text-[9px] font-bold uppercase text-white">
+              QUIT
+            </span>
+          )}
+          {player.extensions_remaining > 0 && (
+            <span className="rounded-full bg-sb-blue/50 px-1.5 py-px text-[9px] font-bold uppercase text-white">
+              +{player.extensions_remaining}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Timer */}
+      {timerText && isCurrentTurn && (
+        <div
+          className={`text-sm font-bold tabular-nums ${
+            timerUrgent
+              ? "text-danger"
+              : "text-dealer-gold"
+          }`}
+          style={
+            timerUrgent
+              ? { animation: "timer-pulse 0.6s ease-in-out infinite" }
+              : undefined
+          }
+        >
+          {timerText}
+        </div>
+      )}
+
+      {/* Action label overlay */}
+      {actionLabel && (
+        <div className="action-label">
+          {actionLabel}
+        </div>
+      )}
+
+      {/* Speech bubble */}
+      {comment && (
+        <div className="speech-bubble">
+          {comment}
+        </div>
+      )}
+    </div>
+  )
+})
