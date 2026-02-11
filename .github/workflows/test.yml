@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: monteclaude
+          POSTGRES_USER: poker
+          POSTGRES_PASSWORD: poker_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: packages/server
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Init database
+        run: PGPASSWORD=poker_dev psql -h localhost -U poker -d monteclaude -f packages/server/db/init.sql
+
+      - name: Run tests
+        working-directory: packages/server
+        run: uv run pytest -v
+        env:
+          DATABASE_URL: postgresql://poker:poker_dev@localhost:5432/monteclaude
+          SERVER_PRIVATE_KEY: ${{ secrets.TEST_SERVER_PRIVATE_KEY }}
