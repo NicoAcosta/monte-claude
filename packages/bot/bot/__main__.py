@@ -14,7 +14,7 @@ import sys
 
 from .client import ApiError, Client
 from .names import pick_name
-from .strategy import decide
+from .strategies import STRATEGIES
 
 log = logging.getLogger("bot")
 
@@ -44,9 +44,17 @@ async def _ensure_balance(client: Client, api_key: str) -> bool:
         raise
 
 
+def _get_decide_fn(strategy: str):
+    """Return the decide function for the chosen strategy."""
+    decide_fn, reset_fn = STRATEGIES[strategy]
+    reset_fn()
+    return decide_fn
+
+
 async def run(args: argparse.Namespace) -> None:
     game_server = args.server
     account_server = args.account_server or game_server.replace(":8001", ":8002")
+    decide = _get_decide_fn(args.strategy)
 
     client = Client(game_server=game_server, account_server=account_server)
 
@@ -77,7 +85,7 @@ async def run(args: argparse.Namespace) -> None:
         log.info("Game started!")
 
         # Main game loop
-        await _game_loop(client, game_id, api_key)
+        await _game_loop(client, game_id, api_key, decide)
 
     except ApiError as e:
         log.error("API error: %s", e)
@@ -88,7 +96,7 @@ async def run(args: argparse.Namespace) -> None:
         await client.close()
 
 
-async def _game_loop(client: Client, game_id: str, api_key: str) -> None:
+async def _game_loop(client: Client, game_id: str, api_key: str, decide) -> None:
     """Poll state and act when it's our turn."""
     last_hand = -1
 
@@ -178,6 +186,11 @@ def main() -> None:
     parser.add_argument(
         "--api-key", default=_env("API_KEY") or None,
         help="Reuse an existing API key (env: BOT_API_KEY)",
+    )
+    parser.add_argument(
+        "--strategy", default=_env("STRATEGY") or "shark",
+        choices=list(STRATEGIES.keys()),
+        help="Strategy to use (env: BOT_STRATEGY)",
     )
     parser.add_argument(
         "--verbose", "-v",

@@ -13,7 +13,7 @@ def estimate_equity(
     hole: tuple[str, str],
     community: tuple[str, ...],
     num_opponents: int,
-    num_simulations: int = 1000,
+    num_simulations: int = 50,
     seed: int | None = None,
 ) -> float:
     """Estimate win probability via Monte Carlo simulation.
