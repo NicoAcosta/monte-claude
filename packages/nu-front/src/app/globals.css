@@ -557,6 +557,39 @@ html {
   box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
 }
 
+/* ── Marquee ticker ── */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-scroll {
+  animation: marquee 45s linear infinite;
+}
+.ticker-scroll:hover {
+  animation-play-state: paused;
+}
+
+/* ── Card grid entrance ── */
+.card-enter {
+  opacity: 0;
+  animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Live game card glow pulse ── */
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 15px oklch(from #D7A640 l c h / 0.06);
+  }
+  50% {
+    box-shadow: 0 0 25px oklch(from #D7A640 l c h / 0.12);
+  }
+}
+
+.live-glow {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
 /* Reduced motion ── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -565,8 +598,15 @@ html {
     transform: none;
     transition: none;
   }
-  .hero-enter {
+  .hero-enter,
+  .card-enter {
     opacity: 1;
+    animation: none;
+  }
+  .ticker-scroll {
+    animation: none;
+  }
+  .live-glow {
     animation: none;
   }
   *,
