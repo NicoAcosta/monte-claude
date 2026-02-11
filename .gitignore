@@ -9,6 +9,11 @@ build/
 uv.lock
 packages/contracts/out/
 packages/contracts/cache/
+packages/bot/backtest/results/*.jsonl
+packages/bot/backtest/workspace/*.py
+!packages/bot/backtest/workspace/template.py
+packages/bot/backtest/whitelisted/*.py
+!packages/bot/backtest/whitelisted/__init__.py
 .game-session.json
 
 # Terraform
