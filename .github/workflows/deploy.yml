@@ -50,10 +50,8 @@ jobs:
 
           docker build -f "$DOCKERFILE" \
             -t $ECR_REGISTRY/monteclaude/game-api:$IMAGE_TAG \
-            -t $ECR_REGISTRY/monteclaude/game-api:latest \
             .
           docker push $ECR_REGISTRY/monteclaude/game-api:$IMAGE_TAG
-          docker push $ECR_REGISTRY/monteclaude/game-api:latest
 
       - name: Build & push Data API image
         env:
@@ -62,10 +60,8 @@ jobs:
         run: |
           docker build -f infra/docker/Dockerfile.data \
             -t $ECR_REGISTRY/monteclaude/data-api:$IMAGE_TAG \
-            -t $ECR_REGISTRY/monteclaude/data-api:latest \
             .
           docker push $ECR_REGISTRY/monteclaude/data-api:$IMAGE_TAG
-          docker push $ECR_REGISTRY/monteclaude/data-api:latest
 
       - name: Build & push Account API image
         env:
@@ -74,10 +70,8 @@ jobs:
         run: |
           docker build -f infra/docker/Dockerfile.account \
             -t $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG \
-            -t $ECR_REGISTRY/monteclaude/account-api:latest \
             .
           docker push $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG
-          docker push $ECR_REGISTRY/monteclaude/account-api:latest
 
       - name: Build & push Frontend image
         env:
@@ -87,10 +81,8 @@ jobs:
           docker build -f infra/docker/Dockerfile.frontend \
             --build-arg NEXT_PUBLIC_GAME_WS_URL=wss://monteclaude.ai \
             -t $ECR_REGISTRY/monteclaude/frontend:$IMAGE_TAG \
-            -t $ECR_REGISTRY/monteclaude/frontend:latest \
             .
           docker push $ECR_REGISTRY/monteclaude/frontend:$IMAGE_TAG
-          docker push $ECR_REGISTRY/monteclaude/frontend:latest
 
       - name: Deploy Game API via SSM (Docker mode)
         if: env.ENCLAVE_ENABLED != 'true'
