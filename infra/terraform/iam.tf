@@ -2,7 +2,7 @@
 
 resource "aws_ecr_repository" "game_api" {
   name                 = "monteclaude/game-api"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = true
 
   image_scanning_configuration {
@@ -12,7 +12,7 @@ resource "aws_ecr_repository" "game_api" {
 
 resource "aws_ecr_repository" "data_api" {
   name                 = "monteclaude/data-api"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = true
 
   image_scanning_configuration {
@@ -22,7 +22,17 @@ resource "aws_ecr_repository" "data_api" {
 
 resource "aws_ecr_repository" "account_api" {
   name                 = "monteclaude/account-api"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_repository" "frontend" {
+  name                 = "monteclaude/frontend"
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = true
 
   image_scanning_configuration {
@@ -49,10 +59,10 @@ locals {
         rulePriority = 2
         description  = "Keep last 10 tagged images"
         selection = {
-          tagStatus   = "tagged"
+          tagStatus      = "tagged"
           tagPatternList = ["*"]
-          countType   = "imageCountMoreThan"
-          countNumber = 10
+          countType      = "imageCountMoreThan"
+          countNumber    = 10
         }
         action = { type = "expire" }
       }
@@ -72,6 +82,11 @@ resource "aws_ecr_lifecycle_policy" "data_api" {
 
 resource "aws_ecr_lifecycle_policy" "account_api" {
   repository = aws_ecr_repository.account_api.name
+  policy     = local.ecr_lifecycle_policy
+}
+
+resource "aws_ecr_lifecycle_policy" "frontend" {
+  repository = aws_ecr_repository.frontend.name
   policy     = local.ecr_lifecycle_policy
 }
 
@@ -154,6 +169,7 @@ data "aws_iam_policy_document" "data_api_ecr_pull" {
     resources = [
       aws_ecr_repository.data_api.arn,
       aws_ecr_repository.account_api.arn,
+      aws_ecr_repository.frontend.arn,
     ]
   }
 }
@@ -167,7 +183,7 @@ resource "aws_iam_role_policy" "data_api_ecr" {
 # Secrets Manager — Game API gets all secrets
 data "aws_iam_policy_document" "game_api_secrets" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
+    actions = ["secretsmanager:GetSecretValue"]
     resources = concat(
       [
         aws_secretsmanager_secret.db_credentials.arn,
@@ -227,4 +243,81 @@ resource "aws_iam_instance_profile" "game_api" {
 resource "aws_iam_instance_profile" "data_api" {
   name = "monteclaude-data-api-${var.environment}"
   role = aws_iam_role.data_api.name
+}
+
+# ---------- GitHub OIDC for CI/CD ----------
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+data "aws_iam_policy_document" "github_deploy_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:bauti-defi/monte-claude:ref:refs/heads/main"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_deploy" {
+  name               = "monteclaude-github-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_deploy_assume.json
+}
+
+data "aws_iam_policy_document" "github_deploy_permissions" {
+  # ECR push to all repos
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    actions = [
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:PutImage",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+    ]
+    resources = [
+      aws_ecr_repository.game_api.arn,
+      aws_ecr_repository.data_api.arn,
+      aws_ecr_repository.account_api.arn,
+      aws_ecr_repository.frontend.arn,
+    ]
+  }
+  # SSM SendCommand — scoped to our EC2 instances only
+  statement {
+    actions = ["ssm:SendCommand"]
+    resources = [
+      aws_instance.game_api.arn,
+      aws_instance.data_api.arn,
+      "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
+    ]
+  }
+  statement {
+    actions   = ["ssm:GetCommandInvocation"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_deploy" {
+  name   = "deploy-permissions"
+  role   = aws_iam_role.github_deploy.id
+  policy = data.aws_iam_policy_document.github_deploy_permissions.json
 }

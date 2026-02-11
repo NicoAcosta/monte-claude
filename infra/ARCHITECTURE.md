@@ -19,13 +19,16 @@ Production deployment of the Monteclaude poker server on AWS, with a path to Nit
           ┌─────────────┘    │   └──────────────┐
           │                  │                  │
    ┌──────┴──────┐    ┌─────┴──────┐    ┌──────┴──────┐
-   │  Game API   │    │ Account API│    │  Data API   │
-   │ c6a.xlarge  │    │ (co-located│    │  t3.small   │
-   │  Port 8001  │    │  on Data   │    │  Port 8000  │
-   │  1 worker   │    │  API EC2)  │    │  4 workers  │
+   │  Game API   │    │ Account API│    │  Frontend   │
+   │ c6a.xlarge  │    │ (co-located│    │  (Next.js)  │
+   │  Port 8001  │    │  on Data   │    │  Port 3000  │
+   │  1 worker   │    │  API EC2)  │    │  t3.medium  │
    │  (private)  │    │ Port 8002  │    │  (private)  │
-   └──────┬──────┘    │  2 workers │    └──────┬──────┘
-          │           └─────┬──────┘           │
+   └──────┬──────┘    │  2 workers │    ├─────────────┤
+          │           └─────┬──────┘    │  Data API   │
+          │                 │           │  Port 8000  │
+          │                 │           │  4 workers  │
+          │                 │           └──────┬──────┘
           │                 │                  │
           └─────────────┐   │   ┌──────────────┘
                         │   │   │
@@ -38,13 +41,14 @@ Production deployment of the Monteclaude poker server on AWS, with a path to Nit
                    └────────────────┘
 ```
 
-The system runs three FastAPI applications sharing one PostgreSQL database. Game API runs on its own EC2 instance. Data API and Account API are co-located on a shared EC2 instance. All sit behind a single ALB with path-based routing.
+The system runs three FastAPI applications and a Next.js frontend sharing one PostgreSQL database. Game API runs on its own EC2 instance. Frontend, Data API, and Account API are co-located on a shared EC2 instance. All sit behind a single ALB with path-based routing.
 
 | Component | Purpose | Instance | Why |
 |-----------|---------|----------|-----|
 | **Game API** | Writes + live state reads | c6a.xlarge | Nitro Enclave-capable; game state is in-memory (single worker) |
-| **Data API** | Read-only queries + static HTML | t3.small (shared) | Scales horizontally (4 uvicorn workers); no access to signing keys |
-| **Account API** | Registration, faucet, balance | t3.small (shared) | Lightweight stateless service (2 workers); co-located with Data API |
+| **Frontend** | Next.js spectator UI, proxies API calls | t3.medium (shared) | Standalone app; rewrites proxy `/api/*` to backends |
+| **Data API** | Read-only API queries | t3.medium (shared) | Scales horizontally (4 uvicorn workers); no access to signing keys |
+| **Account API** | Registration, faucet, balance | t3.medium (shared) | Lightweight stateless service (2 workers); co-located with Data API |
 | **RDS** | PostgreSQL 16 | db.t3.medium | Shared database for accounts, balances, history, game metadata |
 
 ---
@@ -73,13 +77,13 @@ Traffic flows through a strict SG chain. Each tier only accepts traffic from the
 
 ```
 Internet ──► [ALB SG] ──► [App SG] ──► [DB SG]
-              443,80     8000-8002     5432
+              443,80    3000,8000-8002  5432
 ```
 
 | SG | Inbound | Outbound |
 |----|---------|----------|
-| **ALB** | 443/tcp, 80/tcp from `0.0.0.0/0` | 8000-8002/tcp to App SG |
-| **App** | 8000/tcp, 8001/tcp, 8002/tcp from ALB SG | 5432/tcp to DB SG; 443/tcp, 80/tcp to `0.0.0.0/0` (RPC, ECR, SSM) |
+| **ALB** | 443/tcp, 80/tcp from `0.0.0.0/0` | 3000/tcp, 8000-8002/tcp to App SG |
+| **App** | 3000/tcp, 8000/tcp, 8001/tcp, 8002/tcp from ALB SG | 5432/tcp to DB SG; 443/tcp, 80/tcp to `0.0.0.0/0` (RPC, ECR, SSM) |
 | **DB** | 5432/tcp from App SG only | None |
 
 Cross-SG rules use separate `aws_vpc_security_group_*_rule` resources to avoid Terraform circular dependencies.
@@ -88,14 +92,14 @@ Cross-SG rules use separate `aws_vpc_security_group_*_rule` resources to avoid T
 
 ## Load Balancer & Routing
 
-The ALB performs path-based routing to split traffic between Game API and Data API. **The default action sends everything to the Data API.** Specific rules forward write endpoints and live-state reads to the Game API.
+The ALB performs path-based routing to split traffic between the Frontend, Game API, and Data API. **The default action sends everything to the Frontend** (port 3000). Specific rules forward write endpoints, WebSocket connections, and live-state reads to the Game API. The Next.js frontend proxies `/api/*` calls to the correct backend via `next.config.ts` rewrites.
 
 ### Listener Modes
 
 | Mode | Condition | Listeners |
 |------|-----------|-----------|
-| **HTTP-only** | `domain_name = ""` | Port 80 → forward to Data API |
-| **HTTPS** | `domain_name` set | Port 443 (TLS) → forward to Data API; Port 80 → 301 redirect to HTTPS |
+| **HTTP-only** | `domain_name = ""` | Port 80 → forward to Frontend |
+| **HTTPS** | `domain_name` set | Port 443 (TLS) → forward to Frontend; Port 80 → 301 redirect to HTTPS |
 
 Set `domain_name` in `terraform.tfvars` to switch from HTTP to HTTPS. An ACM certificate is created automatically; DNS validation records must be added manually (or via Route 53 once the hosted zone exists).
 
@@ -106,20 +110,25 @@ Rules are evaluated in priority order. Lower number = higher priority. Gaps betw
 | Priority | Method | Path Pattern | Target |
 |----------|--------|-------------|--------|
 | 100 | POST | `/api/register` | Account API |
+| 150 | Any | `/admin/*` | Game API |
 | 200 | Any | `/game/*` | Game API |
+| 250 | Any | `/ws/*` | Game API (WebSocket) |
 | 300 | POST | `/api/faucet` | Account API |
 | 350 | GET | `/api/balance` | Account API |
 | 400 | POST | `/stream/*` | Game API |
 | 410 | GET | `/stream/*/data` | Game API |
-| Default | Any | Everything else | Data API |
+| 450 | GET | `/attestation*` | Game API |
+| Default | Any | Everything else | Frontend |
 
 All game traffic is routed by a single `/game/*` wildcard. Game-type routes live at `/game/poker/*`, `/game/dice/*`, etc. Adding a new game type requires **no terraform changes** — just mount the router in Python. Toggling a game on/off is an app-level concern; the ALB routes regardless and the Game API returns an error for paused games.
 
 **Key routing invariants:**
 - `POST /api/register`, `POST /api/faucet`, `GET /api/balance` → Account API. Served by the Account API co-located on the Data API EC2.
-- `GET /api/games` (list games) → Data API (default). `POST /game/poker/games` / `POST /game/dice/games` (create) → Game API (caught by `/game/*`).
-- `GET /api/games/{id}/streams` (list streams) → Data API (default). `POST /game/{id}/streams` (create stream) → Game API (caught by `/game/*`).
-- `GET /watch/{id}` (spectator HTML) → Data API (default). `GET /game/{id}/spectator` (JSON) → Game API (caught by `/game/*`).
+- `/api/*` calls from the browser → Frontend (default) → Next.js rewrites proxy to Data API or Game API as appropriate.
+- `GET /api/games` (list games) → Data API (proxied by Next.js). `POST /game/poker/games` / `POST /game/dice/games` (create) → Game API (caught by `/game/*`).
+- `GET /api/games/{id}/streams` (list streams) → Data API (proxied by Next.js). `POST /game/{id}/streams` (create stream) → Game API (caught by `/game/*`).
+- `/ws/*` → Game API (WebSocket connections for real-time game state).
+- `/attestation*` → Game API (Nitro Enclave attestation endpoint).
 - All game-type traffic (`/game/poker/*`, `/game/dice/*`) and game-agnostic traffic (`/game/{id}/spectator`, `/game/{id}/streams`) is caught by the single priority 200 rule.
 
 ### Health Checks
@@ -190,19 +199,21 @@ The Game API is the **single source of truth** for live game state. It must run 
 
 **Why c6a.xlarge?** It's the cheapest instance type that supports Nitro Enclaves. Enclave support is enabled now (costs nothing) so we don't need to replace the instance for Phase 2.
 
-### Data API + Account API (t3.small, co-located)
+### Data API + Account API + Frontend (t3.medium, co-located)
 
 | Property | Value |
 |----------|-------|
-| Instance type | `t3.small` (2 vCPU, 2 GB RAM) |
+| Instance type | `t3.medium` (2 vCPU, 4 GB RAM) |
 | Subnet | Private (no public IP) |
 | Root volume | 20 GB gp3, encrypted |
-| Containers | 2 (Data API + Account API) |
-| Docker ports | 8000 (Data API), 8002 (Account API) |
+| Containers | 3 (Frontend + Data API + Account API) |
+| Docker ports | 3000 (Frontend), 8000 (Data API), 8002 (Account API) |
 
-This EC2 instance runs two Docker containers:
+This EC2 instance runs three Docker containers:
 
-**Data API** (port 8000, 4 workers): Strictly read-only. Queries PostgreSQL for historical data and serves static HTML files. Each uvicorn worker has its own in-process TTL cache (lobby 3s, leaderboard 15s, stats 30s).
+**Frontend** (port 3000, `--network host`): Next.js standalone app serving the spectator UI and all HTML pages. Proxies `/api/*` calls to the appropriate backend via `next.config.ts` rewrites. Built with `NEXT_PUBLIC_GAME_WS_URL=wss://monteclaude.ai` for WebSocket connections.
+
+**Data API** (port 8000, 4 workers): Strictly read-only API service. Queries PostgreSQL for historical data. Each uvicorn worker has its own in-process TTL cache (lobby 3s, leaderboard 15s, stats 30s). No longer serves static HTML files — the Frontend handles all HTML rendering.
 
 **Account API** (port 8002, 2 workers): Handles user registration, faucet claims, and balance queries. Stateless — all state lives in PostgreSQL. Co-located here because it's lightweight and doesn't need its own instance.
 
@@ -221,6 +232,7 @@ The env files are created by the EC2 user data script on first boot and reused b
 | `/etc/monteclaude/game-api.env` | `DATABASE_URL`, `SERVER_PRIVATE_KEY`, `BASE_RPC_URL`, `FACTORY_ADDRESS`, `RAKE_BPS`, `RAKE_BENEFICIARY`, `CHAIN_ID`, `LOG_LEVEL` | Game API EC2 |
 | `/etc/monteclaude/data-api.env` | `DATABASE_URL`, `LOG_LEVEL` | Data API EC2 |
 | `/etc/monteclaude/account-api.env` | `DATABASE_URL`, `LOG_LEVEL` | Data API EC2 |
+| `/etc/monteclaude/frontend.env` | `DATA_API_URL`, `GAME_API_URL`, `NODE_ENV` | Data API EC2 |
 
 Neither the Data API nor the Account API have access to `SERVER_PRIVATE_KEY`, `BASE_RPC_URL`, or `FACTORY_ADDRESS` — neither via IAM (Secrets Manager policy) nor via env file.
 
@@ -228,7 +240,7 @@ Neither the Data API nor the Account API have access to `SERVER_PRIVATE_KEY`, `B
 
 ## Docker Images
 
-All three images are built from the repo root with context `.` and stored in Amazon ECR.
+All four images are built from the repo root with context `.` and stored in Amazon ECR.
 
 ### Game API (`infra/docker/Dockerfile.game`)
 
@@ -239,14 +251,18 @@ python:3.11-slim → libpq5 → uv → install deps → copy src → uvicorn (po
 ### Data API (`infra/docker/Dockerfile.data`)
 
 ```
-python:3.11-slim → libpq5 → uv → install deps → copy src → copy frontend to /frontend/ → copy instructions.md to / → uvicorn (port 8000, 4 workers)
+python:3.11-slim → libpq5 → uv → install deps → copy src → copy play-monteclaude.md skill → uvicorn (port 8000, 4 workers)
 ```
 
-**Path resolution note:** The Data API resolves static file paths relative to its source file location:
-- `STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"` → `/frontend/`
-- `INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"` → `/instructions.md`
+The Data API is purely an API service — it no longer serves static HTML files. The `play-monteclaude.md` skill file is copied for the `/api/play` endpoint.
 
-This is why frontend files are copied to `/frontend/` (root) and not `/app/frontend/`.
+### Frontend (`infra/docker/Dockerfile.frontend`)
+
+```
+node:20-alpine → install deps → next build (standalone) → copy .next/standalone + static + public → node server.js (port 3000)
+```
+
+Built with `--build-arg NEXT_PUBLIC_GAME_WS_URL=wss://monteclaude.ai` to configure the WebSocket endpoint at build time. Runs with `--network host` on the Data API EC2.
 
 ### Account API (`infra/docker/Dockerfile.account`)
 
@@ -282,9 +298,12 @@ The RDS password is generated by Terraform (`random_password`, 32 chars, no spec
 | Role | Secrets Access | ECR Pull | Other Permissions |
 |------|---------------|----------|-------------------|
 | Game API | All 4 secrets | `monteclaude/game-api` only | SSM, CloudWatch |
-| Data API | `db-credentials` only | `monteclaude/data-api` + `monteclaude/account-api` | SSM, CloudWatch |
+| Data API | `db-credentials` only | `monteclaude/data-api` + `monteclaude/account-api` + `monteclaude/frontend` | SSM, CloudWatch |
+| GitHub Deploy | None (SM) | All `monteclaude/*` repos (push) | SSM `SendCommand` for deploy |
 
-The Data API role pulls both its own image and the Account API image (co-located on the same EC2). ECR permissions are scoped to specific repos (not `*`).
+The Data API role pulls its own image, the Account API image, and the Frontend image (all co-located on the same EC2). ECR permissions are scoped to specific repos (not `*`).
+
+The GitHub Deploy role (`monteclaude-github-deploy`) is assumed via OIDC (`aws_iam_openid_connect_provider` for GitHub Actions) and has permissions to push images to ECR and send SSM commands for deployment.
 
 ---
 
@@ -319,11 +338,11 @@ Triggered on push to `main` when server, frontend, Docker, or instruction files 
 
 **Test job:** Runs the full pytest suite against a PostgreSQL 16 service container. Schema is applied via `psql` before tests run.
 
-**Build job:** Builds all three Docker images (Game API, Data API, Account API), tags them with the git SHA and `latest`, pushes to ECR.
+**Build job:** Builds all four Docker images (Game API, Data API, Account API, Frontend), tags them with the git SHA and `latest`, pushes to ECR. The Frontend image is built with `--build-arg NEXT_PUBLIC_GAME_WS_URL=wss://monteclaude.ai`.
 
 **Deploy job:** Uses SSM Run Command (not SSH) to deploy. Two SSM commands:
 - **Game API EC2:** Pull game-api image, restart container
-- **Data API EC2:** Pull data-api and account-api images, restart both containers
+- **Data API EC2:** Pull data-api, account-api, and frontend images, restart all three containers
 
 Each container uses `--env-file /etc/monteclaude/<api>.env`.
 
@@ -518,7 +537,7 @@ When `enclave_enabled=false`, no KMS key, encrypted secret, or enclave user data
 | Resource | Spec | Monthly Cost |
 |----------|------|-------------|
 | EC2 (Game API) | c6a.xlarge, on-demand | ~$110 |
-| EC2 (Data API) | t3.small, on-demand | ~$15 |
+| EC2 (Data API) | t3.medium, on-demand | ~$30 |
 | RDS PostgreSQL | db.t3.medium, single-AZ | ~$50 |
 | ALB | Standard | ~$20 |
 | NAT Instance | t3.nano | ~$4 |
@@ -526,7 +545,7 @@ When `enclave_enabled=false`, no KMS key, encrypted secret, or enclave user data
 | KMS | Enclave key (if enabled) | ~$1 |
 | Secrets Manager | 4-5 secrets | ~$2 |
 | WAF | Standard rules | ~$10 |
-| **Total** | | **~$214/mo** |
+| **Total** | | **~$229/mo** |
 
 Switching the Game API to a 1-year Reserved Instance would save ~$43/mo.
 
@@ -539,7 +558,7 @@ infra/
 ├── terraform/
 │   ├── main.tf                 # Provider, S3 backend
 │   ├── variables.tf            # All input variables (incl. enclave_enabled, enclave_pcr0)
-│   ├── outputs.tf              # ALB DNS, RDS endpoint, instance IDs, KMS ARN
+│   ├── outputs.tf              # ALB DNS, RDS endpoint, instance IDs, KMS ARN, ECR frontend URL, GitHub deploy role ARN, ACM validation records
 │   ├── vpc.tf                  # VPC, subnets, NAT instance
 │   ├── alb.tf                  # ALB, listeners, routing rules, ACM
 │   ├── rds.tf                  # PostgreSQL 16 instance
@@ -559,6 +578,7 @@ infra/
 │   ├── Dockerfile.game         # Game API container (Docker mode)
 │   ├── Dockerfile.game.enclave # Game API container (Enclave mode, amazonlinux + kmstool)
 │   ├── Dockerfile.data         # Data API container
+│   ├── Dockerfile.frontend     # Frontend container (Next.js, co-located on Data API EC2)
 │   ├── Dockerfile.account      # Account API container (co-located on Data API EC2)
 │   └── enclave/
 │       ├── init.sh             # Enclave entrypoint (loopback, KMS, socat, uvicorn)

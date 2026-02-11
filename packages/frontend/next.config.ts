@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   cacheComponents: true,
   async rewrites() {
     const dataApi = process.env.DATA_API_URL || "http://localhost:8000";

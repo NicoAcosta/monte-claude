@@ -33,7 +33,7 @@ variable "game_api_instance_type" {
 variable "data_api_instance_type" {
   description = "EC2 instance type for Data API"
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
 }
 
 variable "nat_instance_type" {

@@ -138,14 +138,6 @@ class TestLobby:
         games = client.get("/api/games").json()["games"]
         assert games[0]["started"] is True
 
-    def test_game_page_404(self, client):
-        resp = client.get("/watch/999")
-        assert resp.status_code == 404
-
-    def test_game_page_exists(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={"mode": "offchain"}).json()["game_id"]
-        resp = client.get(f"/watch/{gid}")
-        assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
 
 # ── History ──────────────────────────────────────────────
@@ -255,18 +247,6 @@ class TestStreamsRead:
         assert resp.status_code == 200
         assert len(resp.json()["streams"]) == 1
 
-    def test_stream_page_404(self, client):
-        resp = client.get("/stream/999")
-        assert resp.status_code == 404
-
-    def test_stream_page_exists(self, game_client, client):
-        gid = game_client.post("/game/poker/games", json={"mode": "offchain"}).json()["game_id"]
-        key = game_module.account_store.create_account("Alice")
-        sid = game_client.post(
-            f"/game/{gid}/streams", json={"title": "Test"}, headers=auth_header(key)
-        ).json()["stream_id"]
-        resp = client.get(f"/stream/{sid}")
-        assert resp.status_code in (200, 404)  # 404 if spectator.html missing
 
 
 # ── Instructions ─────────────────────────────────────────

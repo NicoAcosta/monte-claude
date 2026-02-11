@@ -75,6 +75,8 @@ The system uses three FastAPI apps sharing one Python package (`poker.*`) and on
 
 DB stores are initialised lazily at startup (via `lifespan`) so each uvicorn worker creates its own PostgreSQL connections after fork.
 
+**DB independence**: Application logic should never depend on the database for correctness of in-process operations (e.g. ID generation, sequencing). Use UUIDs for identifiers, generate state in-process, and treat the DB as a persistence layer only. This ensures the server can operate correctly even during DB latency spikes or brief outages.
+
 ### Admin Endpoints (Game API)
 
 Runtime game type control — **in-memory only** (no DB persistence, state resets on restart). Admin endpoints require `X-Admin-Key` header matching one of the keys in `ADMIN_API_KEYS` env var. If `ADMIN_API_KEYS` is not set, all admin endpoints return 403. Use `./scripts/monte-admin.sh` CLI for convenience.

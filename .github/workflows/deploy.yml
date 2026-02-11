@@ -8,6 +8,7 @@ on:
       - "packages/frontend/**"
       - "infra/docker/**"
       - "instructions.md"
+      - ".claude/skills/**"
   workflow_dispatch:
 
 env:
@@ -119,6 +120,19 @@ jobs:
           docker push $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG
           docker push $ECR_REGISTRY/monteclaude/account-api:latest
 
+      - name: Build & push Frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f infra/docker/Dockerfile.frontend \
+            --build-arg NEXT_PUBLIC_GAME_WS_URL=wss://monteclaude.ai \
+            -t $ECR_REGISTRY/monteclaude/frontend:$IMAGE_TAG \
+            -t $ECR_REGISTRY/monteclaude/frontend:latest \
+            .
+          docker push $ECR_REGISTRY/monteclaude/frontend:$IMAGE_TAG
+          docker push $ECR_REGISTRY/monteclaude/frontend:latest
+
       - name: Deploy Game API via SSM (Docker mode)
         if: env.ENCLAVE_ENABLED != 'true'
         env:
@@ -161,7 +175,7 @@ jobs:
             --timeout-seconds 300 \
             --output text
 
-      - name: Deploy Data API + Account API via SSM
+      - name: Deploy Data API + Account API + Frontend via SSM
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
@@ -172,12 +186,16 @@ jobs:
               "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
               "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'",
+              "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/frontend:'"$IMAGE_TAG"'",
               "docker stop data-api || true",
               "docker rm data-api || true",
               "docker stop account-api || true",
               "docker rm account-api || true",
+              "docker stop frontend || true",
+              "docker rm frontend || true",
               "docker run -d --name data-api --restart unless-stopped -p 8000:8000 --env-file /etc/monteclaude/data-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/data-api:'"$IMAGE_TAG"'",
-              "docker run -d --name account-api --restart unless-stopped -p 8002:8002 --env-file /etc/monteclaude/account-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'"
+              "docker run -d --name account-api --restart unless-stopped -p 8002:8002 --env-file /etc/monteclaude/account-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/account-api:'"$IMAGE_TAG"'",
+              "docker run -d --name frontend --restart unless-stopped --network host --env-file /etc/monteclaude/frontend.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/frontend:'"$IMAGE_TAG"'"
             ]' \
             --timeout-seconds 120 \
             --output text
@@ -190,8 +208,21 @@ jobs:
           ALB_DNS="${{ secrets.ALB_DNS_NAME }}"
           SCHEME="${{ secrets.ALB_SCHEME != '' && secrets.ALB_SCHEME || 'http' }}"
 
-          echo "Checking Data API (default route)..."
-          curl -sf "$SCHEME://$ALB_DNS/ping" | jq .
+          echo "Checking Frontend (default route)..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SCHEME://$ALB_DNS/")
+          if [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ]; then
+            echo "FAIL: Frontend returned $HTTP_CODE (service unreachable)"
+            exit 1
+          fi
+          echo "Frontend reachable (HTTP $HTTP_CODE)"
+
+          echo "Checking Data API (via /api/games proxy)..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SCHEME://$ALB_DNS/api/games")
+          if [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ]; then
+            echo "FAIL: Data API returned $HTTP_CODE (service unreachable)"
+            exit 1
+          fi
+          echo "Data API reachable (HTTP $HTTP_CODE)"
 
           # Game API health: GET /game/* routes to Game API via ALB rule.
           # A 404 from Game API confirms it's reachable (vs 502/503 from ALB if down).

@@ -29,9 +29,9 @@ resource "aws_db_instance" "postgres" {
   db_subnet_group_name   = aws_db_subnet_group.postgres.name
   vpc_security_group_ids = [aws_security_group.db.id]
 
-  publicly_accessible = false
-  multi_az            = false
-  skip_final_snapshot = false
+  publicly_accessible       = false
+  multi_az                  = false
+  skip_final_snapshot       = false
   final_snapshot_identifier = "monteclaude-${var.environment}-final"
 
   backup_retention_period = 7

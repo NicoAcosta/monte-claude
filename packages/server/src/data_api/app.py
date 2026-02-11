@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -125,7 +125,6 @@ def health():
     }
 
 
-STATIC_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
 INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent.parent.parent / "instructions.md"
 SKILL_PATH = Path(__file__).parent.parent.parent.parent.parent / ".claude" / "skills" / "play-monteclaude.md"
 
@@ -177,38 +176,6 @@ def get_config():
         "monte_token_address": MONTE_TOKEN_ADDRESS,
         "base_rpc_urls": BASE_PUBLIC_RPCS,
     })
-
-
-# ── Static file routes ───────────────────────────────────
-
-@app.get("/")
-def lobby_page():
-    return FileResponse(STATIC_DIR / "lobby.html")
-
-
-@app.get("/watch/{game_id}")
-def game_page(game_id: str):
-    if not metadata_store.exists(game_id):
-        raise HTTPException(status_code=404, detail="Game not found")
-    return FileResponse(STATIC_DIR / "spectator.html")
-
-
-@app.get("/stream/{stream_id}")
-def stream_page(stream_id: int):
-    stream = stream_store.get(stream_id)
-    if stream is None:
-        raise HTTPException(status_code=404, detail="Stream not found")
-    return FileResponse(STATIC_DIR / "spectator.html")
-
-
-@app.get("/leaderboard")
-def leaderboard_page():
-    return FileResponse(STATIC_DIR / "leaderboard.html")
-
-
-@app.get("/player/{username}")
-def player_page(username: str):
-    return FileResponse(STATIC_DIR / "player.html")
 
 
 @app.get("/api/instructions", response_class=PlainTextResponse)

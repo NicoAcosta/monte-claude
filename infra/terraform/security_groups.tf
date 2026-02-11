@@ -59,12 +59,22 @@ resource "aws_security_group" "db" {
 
 # ---------- Cross-SG rules (avoids circular dependencies) ----------
 
-# ALB → App (egress)
+# ALB → App (egress: backend services 8000-8002)
 resource "aws_vpc_security_group_egress_rule" "alb_to_app" {
   security_group_id            = aws_security_group.alb.id
   description                  = "To app instances (Game 8001, Data 8000, Account 8002)"
   from_port                    = 8000
   to_port                      = 8002
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.app.id
+}
+
+# ALB → App (egress: frontend 3000)
+resource "aws_vpc_security_group_egress_rule" "alb_to_frontend" {
+  security_group_id            = aws_security_group.alb.id
+  description                  = "Frontend from ALB"
+  from_port                    = 3000
+  to_port                      = 3000
   ip_protocol                  = "tcp"
   referenced_security_group_id = aws_security_group.app.id
 }
@@ -95,6 +105,16 @@ resource "aws_vpc_security_group_ingress_rule" "app_from_alb_account" {
   description                  = "Account API from ALB"
   from_port                    = 8002
   to_port                      = 8002
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.alb.id
+}
+
+# App ← ALB (ingress: Frontend)
+resource "aws_vpc_security_group_ingress_rule" "app_from_alb_frontend" {
+  security_group_id            = aws_security_group.app.id
+  description                  = "Frontend from ALB"
+  from_port                    = 3000
+  to_port                      = 3000
   ip_protocol                  = "tcp"
   referenced_security_group_id = aws_security_group.alb.id
 }

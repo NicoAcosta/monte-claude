@@ -51,3 +51,20 @@ docker run -d \
   -p 8002:8002 \
   --env-file /etc/monteclaude/account-api.env \
   ${account_api_ecr_repo}:latest
+
+# --- Run Frontend container (co-located, --network host for localhost:8000 access) ---
+cat > /etc/monteclaude/frontend.env <<EOF
+DATA_API_URL=http://localhost:8000
+GAME_API_URL=http://${game_api_private_ip}:8001
+NODE_ENV=production
+EOF
+chmod 0600 /etc/monteclaude/frontend.env
+
+docker pull ${frontend_ecr_repo}:latest
+
+docker run -d \
+  --name frontend \
+  --restart unless-stopped \
+  --network host \
+  --env-file /etc/monteclaude/frontend.env \
+  ${frontend_ecr_repo}:latest

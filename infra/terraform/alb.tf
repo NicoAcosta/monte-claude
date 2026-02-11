@@ -13,6 +13,8 @@ resource "aws_lb" "main" {
   subnets            = module.vpc.public_subnets
 
   enable_deletion_protection = true
+
+  idle_timeout = 300 # 5 min — required for WebSocket connections
 }
 
 # ---------- Target Groups ----------
@@ -68,6 +70,23 @@ resource "aws_lb_target_group" "account_api" {
   }
 }
 
+resource "aws_lb_target_group" "frontend" {
+  name     = "mc-frontend-${var.environment}"
+  port     = 3000
+  protocol = "HTTP"
+  vpc_id   = module.vpc.vpc_id
+
+  health_check {
+    path                = "/healthz"
+    port                = "traffic-port"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 15
+    timeout             = 5
+    matcher             = "200"
+  }
+}
+
 resource "aws_lb_target_group_attachment" "game_api" {
   target_group_arn = aws_lb_target_group.game_api.arn
   target_id        = aws_instance.game_api.id
@@ -85,6 +104,13 @@ resource "aws_lb_target_group_attachment" "account_api" {
   target_group_arn = aws_lb_target_group.account_api.arn
   target_id        = aws_instance.data_api.id
   port             = 8002
+}
+
+# Frontend runs co-located on the Data API EC2 instance
+resource "aws_lb_target_group_attachment" "frontend" {
+  target_group_arn = aws_lb_target_group.frontend.arn
+  target_id        = aws_instance.data_api.id
+  port             = 3000
 }
 
 # ---------- ACM certificate (only when domain is provided) ----------
@@ -119,7 +145,7 @@ resource "aws_lb_listener" "https" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.data_api.arn
+    target_group_arn = aws_lb_target_group.frontend.arn
   }
 }
 
@@ -148,7 +174,7 @@ resource "aws_lb_listener" "http" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.data_api.arn
+    target_group_arn = aws_lb_target_group.frontend.arn
   }
 }
 
@@ -212,6 +238,21 @@ resource "aws_lb_listener_rule" "game_routes" {
 
   condition {
     path_pattern { values = ["/game/*"] }
+  }
+}
+
+# Rule 2b: /ws/* → Game API (WebSocket connections)
+resource "aws_lb_listener_rule" "websocket_routes" {
+  listener_arn = local.main_listener_arn
+  priority     = 250
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.game_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/ws/*"] }
   }
 }
 
@@ -291,5 +332,20 @@ resource "aws_lb_listener_rule" "stream_data_reads" {
   }
 }
 
-# Everything else (/, /watch/{id}, /leaderboard, /player/*, /api/* (GET),
-# /api/streams, /stream/{id} (HTML), static files) → Data API (default)
+# Rule 6: /attestation* → Game API (enclave attestation endpoint)
+resource "aws_lb_listener_rule" "attestation_routes" {
+  listener_arn = local.main_listener_arn
+  priority     = 450
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.game_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/attestation*"] }
+  }
+}
+
+# Everything else → Frontend (default action).
+# Next.js rewrites proxy /api/* to Data API and Game API as needed.

@@ -9,7 +9,7 @@ domain_name = ""
 
 # EC2
 game_api_instance_type = "c6a.xlarge"
-data_api_instance_type = "t3.small"
+data_api_instance_type = "t3.medium"
 ssh_key_name           = ""
 
 # RDS

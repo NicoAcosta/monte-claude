@@ -13,7 +13,9 @@ resource "aws_wafv2_web_acl" "main" {
     name     = "aws-managed-common"
     priority = 1
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -34,7 +36,9 @@ resource "aws_wafv2_web_acl" "main" {
     name     = "rate-limit"
     priority = 2
 
-    action { block {} }
+    action {
+      block {}
+    }
 
     statement {
       rate_based_statement {

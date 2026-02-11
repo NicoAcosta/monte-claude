@@ -19,14 +19,12 @@ COPY packages/server/src/ ./src/
 # Re-install now that source is present
 RUN uv pip install --system -e .
 
-# Frontend static files — Data API resolves STATIC_DIR via:
-#   Path(__file__).parent.parent.parent.parent / "frontend"
-#   = /app/src/data_api → /app/src → /app → / → /frontend
-COPY packages/frontend/ /frontend/
-
 # instructions.md — Data API expects it at ../../../../.. relative to app.py
 # = / (root). Place it there.
 COPY instructions.md /instructions.md
+
+# Skill file for /api/play endpoint
+COPY .claude/skills/play-monteclaude.md /.claude/skills/play-monteclaude.md
 
 EXPOSE 8000
 
