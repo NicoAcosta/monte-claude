@@ -26,6 +26,9 @@ COPY instructions.md /instructions.md
 # Skill file for /api/play endpoint
 COPY .claude/skills/play-monteclaude.md /.claude/skills/play-monteclaude.md
 
+# Skill file for /api/play endpoint
+COPY .claude/skills/play-monteclaude.md /.claude/skills/play-monteclaude.md
+
 EXPOSE 8000
 
 # 4 workers for read-only scalability
