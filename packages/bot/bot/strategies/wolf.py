@@ -127,12 +127,6 @@ def _maybe_shift_gears() -> None:
         _gear = 2  # Full wolf mode
 
 
-def _record_bluff_caught() -> None:
-    """Call this when we bet/raised with weak equity and got called."""
-    global _bluffs_caught
-    _bluffs_caught += 1
-
-
 def _aggression_multiplier() -> float:
     """How aggressive should we be? Returns 0.6-1.0 based on gear."""
     if _gear == 0:
@@ -458,6 +452,7 @@ def _postflop(
         return _wolf_play_medium(
             pot, min_raise, our_chips, amount_to_call,
             board, opp_profiles, position, equity, phase, tag,
+            have_flush=have_flush,
         )
 
     # =============================================================
@@ -643,6 +638,7 @@ def _wolf_play_medium(
     pot: int, min_raise: int, our_chips: int, amount_to_call: int,
     board: BoardTexture, opp_profiles: list[OpponentProfile],
     position: Position, equity: float, phase: str, tag: str,
+    *, have_flush: bool = False,
 ) -> Decision:
     """Medium hand: Wolf bets in position, controls pot OOP.
 
@@ -655,7 +651,7 @@ def _wolf_play_medium(
         # IN POSITION: bet for thin value and to deny equity
         if position in (Position.LATE, Position.MIDDLE):
             # Wolf bets medium hands on almost all textures in position
-            if board.is_monotone and not has_flush:
+            if board.is_monotone and not have_flush:
                 # Exception: monotone board and we don't have the flush
                 return Decision("check", comment=f"[post] {tag} medium mono check")
             bet_frac = 0.50 * mult + 0.05
@@ -776,7 +772,7 @@ def _wolf_consider_bluff(
             barrel_frac = 0.55
 
         # We have some equity (any draw or overcards)
-        if equity >= 0.20 and have_flush_draw or have_oesd:
+        if equity >= 0.20 and (have_flush_draw or have_oesd):
             should_barrel = True
             barrel_frac = 0.65
 

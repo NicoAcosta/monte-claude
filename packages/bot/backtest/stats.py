@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 from .engine import GameResult
 
 
@@ -28,7 +26,7 @@ def print_report(
     for r in results:
         # Count wins
         for b in bot_names:
-            if b.lower() in r.winner.lower():
+            if r.winner.lower() == b.lower():
                 wins[b] += 1
 
         # Hands survived = how many chip snapshots before going to 0
@@ -76,7 +74,7 @@ def print_report(
         for r in results:
             winner = None
             for b in bot_names:
-                if b.lower() in r.winner.lower():
+                if r.winner.lower() == b.lower():
                     winner = b
                     break
             if winner:

@@ -12,7 +12,12 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
 class BacktestLogger:
-    """Writes game/hand results to a JSONL file in results/."""
+    """Writes game/hand results to a JSONL file in results/.
+
+    Supports use as a context manager:
+        with BacktestLogger(bot_names) as logger:
+            logger.log_game(result)
+    """
 
     def __init__(self, bot_names: list[str]) -> None:
         RESULTS_DIR.mkdir(exist_ok=True)
@@ -20,6 +25,12 @@ class BacktestLogger:
         tag = "_".join(sorted(n.lower() for n in bot_names))
         self.path = RESULTS_DIR / f"{ts}_{tag}.jsonl"
         self._file = open(self.path, "a")  # noqa: SIM115
+
+    def __enter__(self) -> BacktestLogger:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def log_game(self, result: GameResult) -> None:
         """Write all hand logs from a completed game."""

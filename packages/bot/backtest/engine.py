@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Add server source to path so we can import the poker game engine directly
 _server_src = str(Path(__file__).resolve().parent.parent.parent / "server" / "src")
@@ -205,6 +208,7 @@ def run_game(
         try:
             decision = decide_fn(state)
         except Exception:
+            log.warning("Strategy %s crashed, forcing fold", strategy_key, exc_info=True)
             decision = type("D", (), {"action": "fold", "amount": None, "comment": None})()
 
         result = game.do_action(
@@ -215,8 +219,12 @@ def run_game(
         )
 
         if result != "ok":
+            log.debug("Action '%s' rejected for %s (result=%s), falling back", decision.action, strategy_key, result)
             fallback = "check" if state["amount_to_call"] == 0 else "fold"
-            game.do_action(cp.id, fallback)
+            fb_result = game.do_action(cp.id, fallback)
+            if fb_result != "ok":
+                log.warning("Fallback '%s' also failed for %s, forcing fold", fallback, strategy_key)
+                game.do_action(cp.id, "fold")
 
         actions += 1
 

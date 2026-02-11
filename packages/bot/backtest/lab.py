@@ -33,10 +33,15 @@ def load_strategy(filepath: str | Path) -> tuple[str, tuple[Callable, Callable]]
     name = path.stem  # e.g. "my_bot" from "my_bot.py"
     mod_name = f"strategy_{name}"
     spec = importlib.util.spec_from_file_location(mod_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot create module spec for {path}")
     module = importlib.util.module_from_spec(spec)
     # Register in sys.modules so @dataclass can resolve the module (Python 3.13+)
     sys.modules[mod_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(mod_name, None)
 
     if not hasattr(module, "decide"):
         raise AttributeError(f"Strategy {name} missing decide(state) function")
@@ -121,9 +126,11 @@ def run_arena(
         print("  [error] Need at least 2 strategies for the arena")
         return []
 
-    # Apply sims override
+    # Apply sims override (save/restore original defaults)
+    _saved_defaults = None
     if sims is not None:
         from bot.equity import estimate_equity
+        _saved_defaults = estimate_equity.__defaults__
         estimate_equity.__defaults__ = (sims, None)
 
     # Capitalize names for display (game engine uses these as player names)
@@ -153,13 +160,19 @@ def run_arena(
             elapsed = time.time() - t0
             wins = {}
             for b in bot_names:
-                wins[b] = sum(1 for r in results if b.lower() in r.winner.lower())
+                wins[b] = sum(1 for r in results if r.winner.lower() == b.lower())
             score = " | ".join(f"{b} {wins[b]}" for b in bot_names)
             pct = 100 * i / num_games
             print(f"  [{pct:5.1f}%] Game {i:>4}/{num_games} ({elapsed:5.1f}s) | {score}")
 
     elapsed = time.time() - t0
     print_report(results, bot_names, elapsed)
+
+    # Restore original equity defaults
+    if _saved_defaults is not None:
+        from bot.equity import estimate_equity
+        estimate_equity.__defaults__ = _saved_defaults
+
     return results
 
 
@@ -181,7 +194,7 @@ def summarize_results(
 
     summary: dict[str, dict] = {}
     for b in bot_names:
-        wins = sum(1 for r in results if b.lower() in r.winner.lower())
+        wins = sum(1 for r in results if r.winner.lower() == b.lower())
         hands = []
         deltas = []
         for r in results:

@@ -120,6 +120,9 @@ class Decision:
 | `hand_number` | int | Current hand |
 | `recent_actions` | list[dict] | `{player, action, amount}` (last 10) |
 | `is_your_turn` | bool | True when it's your turn |
+| `current_turn` | int \| None | Player ID whose turn it is |
+| `game_over` | bool | True when the game has ended |
+| `winner` | str \| None | Winner's name (only set when game_over) |
 
 ## Available Imports
 
@@ -128,8 +131,12 @@ Strategies can import from the `bot` package:
 ```python
 from bot.equity import estimate_equity           # Monte Carlo win probability
 from bot.cards import rank_index, is_suited, is_pair, gap, SimDeck
-from bot.preflop_ranges import classify_hand, determine_position, preflop_action, HandTier, Position
-from bot.strategies.board import analyze_board, has_flush, has_flush_draw, has_overpair, has_top_pair
+from bot.preflop_ranges import classify_hand, determine_position, preflop_action, HandTier, Position, PreflopAction
+from bot.strategies.board import (
+    analyze_board, has_flush, has_flush_draw,
+    has_open_ended_straight_draw, has_overpair, has_top_pair,
+    top_pair_kicker_strength, BoardTexture,
+)
 from bot.strategies.opponent import OpponentTracker, OpponentProfile
 ```
 

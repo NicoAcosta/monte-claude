@@ -75,7 +75,7 @@ ALGORITHMIC ADVANTAGES TO LEVERAGE:
 1. OpponentTracker — tracks VPIP, PFR, aggression factor, fold-to-raise per opponent
    - Access via: _tracker.profile("OpponentName") -> OpponentProfile
    - .vpip, .pfr, .aggression_factor, .fold_to_raise_pct, .is_passive, .is_aggressive, .is_tight, .is_loose
-2. Board texture — analyze_board() returns wet/dry, flush/straight draws, paired boards
+2. Board texture — analyze_board() returns BoardTexture with is_monotone, is_two_tone, is_rainbow, is_paired, is_connected, has_straight_draw, high_card_rank, num_broadway, num_community
 3. Equity estimation — estimate_equity(hole, community, num_opponents) for win probability
 4. Preflop ranges — classify_hand() for tier (Premium/Strong/Playable/Marginal/Trash)
 5. Position awareness — determine_position() for Early/Middle/Late/Blind
@@ -196,12 +196,17 @@ Update the strategy file with your improvements.
 After each refinement round, re-run the arena and compare results:
 
 ```python
-# Track win rates across rounds
-round_1_results = {bot: win_pct for bot, stats in summary.items()}
-round_2_results = {bot: win_pct for bot, stats in summary.items()}
+from backtest.lab import summarize_results
+
+# After each round, extract win percentages
+summary_r1 = summarize_results(results_round_1, bot_names)
+summary_r2 = summarize_results(results_round_2, bot_names)
+
+round_1_rates = {b: summary_r1[b]["win_pct"] for b in bot_names}
+round_2_rates = {b: summary_r2[b]["win_pct"] for b in bot_names}
 
 # Check if any strategy changed by more than threshold
-max_delta = max(abs(round_2_results[b] - round_1_results[b]) for b in bots)
+max_delta = max(abs(round_2_rates[b] - round_1_rates[b]) for b in bot_names)
 converged = max_delta < convergence_threshold  # e.g., 3%
 ```
 
@@ -273,31 +278,17 @@ for name, (decide_fn, reset_fn) in WHITELISTED.items():
 
 ### Making whitelisted strategies available for HTTP play
 
-The whitelisted strategies are self-contained .py files in `backtest/whitelisted/`. To use one in a live HTTP game:
+The whitelisted strategies are self-contained .py files in `backtest/whitelisted/`. To use one in a live HTTP game, register it in the STRATEGIES dict and use `--strategy`:
 
 ```bash
-# Option A: Run directly with the bot client
-uv run python -c "
-import asyncio
-from bot.client import Client
-from backtest.whitelisted import WHITELISTED
-
-async def play():
-    decide_fn, reset_fn = WHITELISTED['{name}']
-    reset_fn()
-    client = Client('http://localhost:8001')
-    # ... join game and play using decide_fn(state)
-
-asyncio.run(play())
-"
-
-# Option B: Register in STRATEGIES dict temporarily
 uv run python -c "
 from bot.strategies import STRATEGIES
 from backtest.whitelisted import WHITELISTED
 STRATEGIES.update(WHITELISTED)
-# Now 'python -m bot --strategy {name}' works
+print('Available strategies:', list(STRATEGIES.keys()))
 "
+
+# Then run with: uv run python -m bot --strategy {name}
 ```
 
 ## Output Summary

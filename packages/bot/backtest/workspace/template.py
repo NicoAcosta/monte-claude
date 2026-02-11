@@ -90,6 +90,9 @@ def decide(state: dict[str, Any]) -> Decision:
         hand_number: int
         recent_actions: [{player, action, amount}]
         is_your_turn: bool
+        current_turn: int|None - Player ID whose turn it is
+        game_over: bool      - True when the game has ended
+        winner: str|None     - Winner's name (only set when game_over)
     """
     _tracker.update(state)
 

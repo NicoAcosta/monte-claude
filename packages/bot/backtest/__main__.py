@@ -84,7 +84,7 @@ def main() -> None:
             wins = {}
             for b in bot_names:
                 wins[b] = sum(
-                    1 for r in results if b.lower() in r.winner.lower()
+                    1 for r in results if r.winner.lower() == b.lower()
                 )
             score = " | ".join(f"{b} {wins[b]}" for b in bot_names)
             pct = 100 * i / num_games
