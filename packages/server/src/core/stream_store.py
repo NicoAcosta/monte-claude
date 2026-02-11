@@ -15,7 +15,7 @@ from core.stream import Stream
 @dataclass(frozen=True)
 class StreamSummary:
     id: int
-    game_id: int
+    game_id: str
     host_username: str
     title: str
 
@@ -24,7 +24,7 @@ class StreamStore:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
 
-    def create(self, game_id: int, host_username: str, title: str) -> Stream:
+    def create(self, game_id: str, host_username: str, title: str) -> Stream:
         created_at = time.time()
         with self._pool.connection() as conn:
             try:
@@ -68,7 +68,7 @@ class StreamStore:
             )
             conn.commit()
 
-    def list_for_game(self, game_id: int) -> list[StreamSummary]:
+    def list_for_game(self, game_id: str) -> list[StreamSummary]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 "SELECT id, game_id, host_username, title FROM streams WHERE game_id = %s ORDER BY id",

@@ -79,8 +79,16 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
+          ENCLAVE_ENABLED: ${{ secrets.ENCLAVE_ENABLED }}
         run: |
-          docker build -f infra/docker/Dockerfile.game \
+          # Use enclave Dockerfile when ENCLAVE_ENABLED is set
+          if [ "$ENCLAVE_ENABLED" = "true" ]; then
+            DOCKERFILE="infra/docker/Dockerfile.game.enclave"
+          else
+            DOCKERFILE="infra/docker/Dockerfile.game"
+          fi
+
+          docker build -f "$DOCKERFILE" \
             -t $ECR_REGISTRY/monteclaude/game-api:$IMAGE_TAG \
             -t $ECR_REGISTRY/monteclaude/game-api:latest \
             .
@@ -111,9 +119,11 @@ jobs:
           docker push $ECR_REGISTRY/monteclaude/account-api:$IMAGE_TAG
           docker push $ECR_REGISTRY/monteclaude/account-api:latest
 
-      - name: Deploy Game API via SSM
+      - name: Deploy Game API via SSM (Docker mode)
+        if: env.ENCLAVE_ENABLED != 'true'
         env:
           IMAGE_TAG: ${{ github.sha }}
+          ENCLAVE_ENABLED: ${{ secrets.ENCLAVE_ENABLED }}
         run: |
           aws ssm send-command \
             --instance-ids ${{ secrets.GAME_API_INSTANCE_ID }} \
@@ -126,6 +136,29 @@ jobs:
               "docker run -d --name game-api --restart unless-stopped -p 8001:8001 --env-file /etc/monteclaude/game-api.env '"${{ steps.ecr.outputs.registry }}"'/monteclaude/game-api:'"$IMAGE_TAG"'"
             ]' \
             --timeout-seconds 120 \
+            --output text
+
+      - name: Deploy Game API via SSM (Enclave mode)
+        if: env.ENCLAVE_ENABLED == 'true'
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          ENCLAVE_ENABLED: ${{ secrets.ENCLAVE_ENABLED }}
+        run: |
+          # Enclave deploy: pull new image, rebuild EIF, relaunch enclave
+          aws ssm send-command \
+            --instance-ids ${{ secrets.GAME_API_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands='[
+              "set -euo pipefail",
+              "exec > /var/log/enclave-deploy.log 2>&1",
+              "echo Deploy started at $(date)",
+              "aws ecr get-login-password --region '"${{ env.AWS_REGION }}"' | docker login --username AWS --password-stdin '"${{ steps.ecr.outputs.registry }}"'",
+              "docker pull '"${{ steps.ecr.outputs.registry }}"'/monteclaude/game-api:'"$IMAGE_TAG"'",
+              "nitro-cli build-enclave --docker-uri '"${{ steps.ecr.outputs.registry }}"'/monteclaude/game-api:'"$IMAGE_TAG"' --output-file /opt/monteclaude/game-api.eif",
+              "/opt/monteclaude/launch-enclave.sh /opt/monteclaude/game-api.eif /opt/monteclaude/enclave-config.json",
+              "echo Deploy complete at $(date)"
+            ]' \
+            --timeout-seconds 300 \
             --output text
 
       - name: Deploy Data API + Account API via SSM

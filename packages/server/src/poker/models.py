@@ -21,9 +21,14 @@ from core.models import (  # noqa: F401
     DepositStatus,
     ErrorResponse,
     EscrowConfigResponse,
+    EscrowDepositGuide,
+    EscrowGuide,
     EscrowInfoResponse,
+    EscrowTxStep,
     ExtendResponse,
     FaucetResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     FundingStatusResponse,
     GameEventResponse,
     GameHistoryResponse,
@@ -92,6 +97,7 @@ class PlayerStateResponse(BaseModel):
     player_comments: list[PlayerComment] = []
     chat_log: list[ChatMessage] = []
     timer: TimerInfo | None = None
+    seed_commitment: str = ""
 
 
 class SpectatorPlayerState(BaseModel):
@@ -141,10 +147,11 @@ class SpectatorResponse(BaseModel):
     small_blind: int = 10
     big_blind: int = 20
     game_started_at: float | None = None
+    seed_commitment: str = ""
 
 
 class HandSummaryResponse(BaseModel):
-    game_id: int
+    game_id: str
     hand_number: int
     dealer_id: int
     player_ids: list[int]
@@ -156,15 +163,17 @@ class HandSummaryResponse(BaseModel):
     winning_cards: dict[str, list[str]] = {}
     result_type: str = "fold"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class HandSummariesResponse(BaseModel):
-    game_id: int
+    game_id: str
     hands: list[HandSummaryResponse]
 
 
 class RecentHandItem(BaseModel):
-    game_id: int
+    game_id: str
     hand_number: int
     winner_ids: list[int]
     winner_names: list[str] = []
@@ -173,6 +182,8 @@ class RecentHandItem(BaseModel):
     winning_cards: dict[str, list[str]] = {}
     result_type: str = "fold"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class RecentHandsResponse(BaseModel):

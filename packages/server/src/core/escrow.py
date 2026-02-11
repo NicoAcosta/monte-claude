@@ -53,6 +53,7 @@ _CONFIG_COMPONENTS = [
     {"name": "fundingDeadline", "type": "uint256"},
     {"name": "settlementDeadline", "type": "uint256"},
     {"name": "participants", "type": "address[]"},
+    {"name": "pcr0Hash", "type": "bytes32"},
 ]
 
 _PERMIT_TRANSFER_FROM_COMPONENTS = [
@@ -73,6 +74,7 @@ FACTORY_MINIMAL_ABI = [
         "inputs": [
             {"name": "config", "type": "tuple", "components": _CONFIG_COMPONENTS},
             {"name": "salt", "type": "bytes32"},
+            {"name": "adminSignature", "type": "bytes"},
         ],
         "name": "createAndDeposit",
         "outputs": [{"name": "escrow", "type": "address"}],
@@ -83,6 +85,7 @@ FACTORY_MINIMAL_ABI = [
         "inputs": [
             {"name": "config", "type": "tuple", "components": _CONFIG_COMPONENTS},
             {"name": "salt", "type": "bytes32"},
+            {"name": "adminSignature", "type": "bytes"},
             {"name": "permit", "type": "tuple", "components": _PERMIT_TRANSFER_FROM_COMPONENTS},
             {"name": "signature", "type": "bytes"},
         ],
@@ -112,7 +115,7 @@ class EscrowConfig:
     __slots__ = (
         "token", "admin", "rake_beneficiary", "deposit_amount",
         "rake_bps", "funding_deadline", "settlement_deadline", "participants",
-        "_frozen",
+        "pcr0_hash", "_frozen",
     )
 
     def __init__(
@@ -125,6 +128,7 @@ class EscrowConfig:
         funding_deadline: int,
         settlement_deadline: int,
         participants: tuple[str, ...],
+        pcr0_hash: bytes = b"\x00" * 32,
     ) -> None:
         object.__setattr__(self, "token", Web3.to_checksum_address(token))
         object.__setattr__(self, "admin", Web3.to_checksum_address(admin))
@@ -136,6 +140,7 @@ class EscrowConfig:
         # Contract requires participants sorted ascending by address
         checksummed = [Web3.to_checksum_address(p) for p in participants]
         object.__setattr__(self, "participants", tuple(sorted(checksummed, key=lambda a: int(a, 16))))
+        object.__setattr__(self, "pcr0_hash", pcr0_hash)
         object.__setattr__(self, "_frozen", True)
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -152,6 +157,7 @@ class EscrowConfig:
             self.funding_deadline,
             self.settlement_deadline,
             list(self.participants),
+            self.pcr0_hash,
         )
 
 
@@ -189,11 +195,12 @@ def compute_escrow_address(
 
 # ── Calldata builders ─────────────────────────────────────
 
-def build_create_and_deposit_calldata(config: EscrowConfig, salt: bytes) -> str:
-    """ABI-encoded calldata for factory.createAndDeposit(config, salt)."""
+def build_create_and_deposit_calldata(config: EscrowConfig, salt: bytes, admin_signature: str) -> str:
+    """ABI-encoded calldata for factory.createAndDeposit(config, salt, adminSignature)."""
     w3 = Web3()
     factory = w3.eth.contract(abi=FACTORY_MINIMAL_ABI)
-    return factory.encode_abi("createAndDeposit", [config.as_tuple(), salt])
+    sig_bytes = bytes.fromhex(admin_signature.removeprefix("0x"))
+    return factory.encode_abi("createAndDeposit", [config.as_tuple(), salt, sig_bytes])
 
 
 def build_deposit_calldata(participant: str) -> str:
@@ -201,6 +208,13 @@ def build_deposit_calldata(participant: str) -> str:
     selector = Web3.keccak(text=ESCROW_ABI_DEPOSIT)[:4]
     encoded_addr = abi_encode(["address"], [Web3.to_checksum_address(participant)])
     return "0x" + selector.hex() + encoded_addr.hex()
+
+
+def build_approve_calldata(spender: str, amount: int) -> str:
+    """ABI-encoded calldata for ERC20.approve(spender, amount)."""
+    selector = Web3.keccak(text="approve(address,uint256)")[:4]
+    encoded = abi_encode(["address", "uint256"], [Web3.to_checksum_address(spender), amount])
+    return "0x" + selector.hex() + encoded.hex()
 
 
 # ── Chain queries ─────────────────────────────────────────
@@ -232,6 +246,73 @@ def check_deposit_status(
     ]
 
 
+# ── Admin signature for factory creation ──────────────────
+
+def sign_create_escrow(
+    private_key: str,
+    chain_id: int,
+    factory_address: str,
+    config: EscrowConfig,
+    salt: bytes,
+) -> str:
+    """Sign an EIP-712 CreateEscrow message for factory admin verification.
+
+    Returns the hex-encoded signature (r + s + v, 65 bytes).
+    """
+    factory_addr = Web3.to_checksum_address(factory_address)
+
+    # participantsHash = keccak256(abi.encodePacked(participants))
+    participants_hash = Web3.keccak(
+        b"".join(bytes.fromhex(addr[2:]) for addr in config.participants)
+    )
+
+    structured_data = {
+        "types": {
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"},
+            ],
+            "CreateEscrow": [
+                {"name": "token", "type": "address"},
+                {"name": "admin", "type": "address"},
+                {"name": "rakeBeneficiary", "type": "address"},
+                {"name": "depositAmount", "type": "uint256"},
+                {"name": "rakeBps", "type": "uint16"},
+                {"name": "fundingDeadline", "type": "uint256"},
+                {"name": "settlementDeadline", "type": "uint256"},
+                {"name": "participantsHash", "type": "bytes32"},
+                {"name": "pcr0Hash", "type": "bytes32"},
+                {"name": "salt", "type": "bytes32"},
+            ],
+        },
+        "primaryType": "CreateEscrow",
+        "domain": {
+            "name": "EscrowFactory",
+            "version": "1",
+            "chainId": chain_id,
+            "verifyingContract": factory_addr,
+        },
+        "message": {
+            "token": config.token,
+            "admin": config.admin,
+            "rakeBeneficiary": config.rake_beneficiary,
+            "depositAmount": config.deposit_amount,
+            "rakeBps": config.rake_bps,
+            "fundingDeadline": config.funding_deadline,
+            "settlementDeadline": config.settlement_deadline,
+            "participantsHash": participants_hash,
+            "pcr0Hash": config.pcr0_hash,
+            "salt": salt,
+        },
+    }
+
+    signable = encode_typed_data(full_message=structured_data)
+    signed = Account.sign_message(signable, private_key=private_key)
+    return signed.signature.hex()
+
+
 # ── Settlement ────────────────────────────────────────────
 
 from core.payout import compute_payouts as compute_payouts  # re-export
@@ -242,8 +323,13 @@ def sign_settlement(
     chain_id: int,
     escrow_address: str,
     payouts: list[tuple[str, int]],
+    *,
+    pcr0: bytes = b"",
 ) -> str:
     """Sign an EIP-712 settlement message.
+
+    Args:
+        pcr0: Raw PCR-0 value (48 bytes when inside enclave, empty otherwise).
 
     Returns the hex-encoded signature (r + s + v, 65 bytes).
     """
@@ -263,6 +349,7 @@ def sign_settlement(
             ],
             "Settle": [
                 {"name": "payouts", "type": "Payout[]"},
+                {"name": "pcr0", "type": "bytes"},
             ],
         },
         "primaryType": "Settle",
@@ -277,6 +364,7 @@ def sign_settlement(
                 {"recipient": Web3.to_checksum_address(addr), "amount": amount}
                 for addr, amount in payouts
             ],
+            "pcr0": pcr0,
         },
     }
 

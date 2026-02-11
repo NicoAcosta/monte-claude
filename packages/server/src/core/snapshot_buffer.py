@@ -27,10 +27,10 @@ class SnapshotBuffer:
     def __init__(self, max_per_game: int = 200) -> None:
         self._max = max_per_game
         self._delay = SPECTATOR_DELAY
-        self._buffers: dict[int, deque[Snapshot]] = {}
+        self._buffers: dict[str, deque[Snapshot]] = {}
         self._lock = threading.Lock()
 
-    def append(self, game_id: int, sequence: int, state: dict) -> None:
+    def append(self, game_id: str, sequence: int, state: dict) -> None:
         with self._lock:
             buf = self._buffers.get(game_id)
             if buf is None:
@@ -41,7 +41,7 @@ class SnapshotBuffer:
                 return
             buf.append(Snapshot(sequence=sequence, state=state))
 
-    def get_since(self, game_id: int, after_sequence: int) -> list[dict]:
+    def get_since(self, game_id: str, after_sequence: int) -> list[dict]:
         """Return snapshot state dicts with sequence > after_sequence, respecting delay."""
         with self._lock:
             buf = self._buffers.get(game_id)
@@ -53,7 +53,7 @@ class SnapshotBuffer:
                 if s.sequence > after_sequence and s.timestamp <= cutoff
             ]
 
-    def get_delayed_latest(self, game_id: int) -> dict | None:
+    def get_delayed_latest(self, game_id: str) -> dict | None:
         """Return the most recent snapshot old enough per the delay, or None."""
         if self._delay <= 0:
             return None
@@ -67,6 +67,6 @@ class SnapshotBuffer:
                     return s.state
             return None
 
-    def cleanup(self, game_id: int) -> None:
+    def cleanup(self, game_id: str) -> None:
         with self._lock:
             self._buffers.pop(game_id, None)

@@ -25,31 +25,31 @@ export function useGameStream(
 ): UseGameStreamResult {
   const snapshotUrl =
     mode === "stream"
-      ? `/stream/${streamId}/snapshots`
-      : `/game/${gameId}/spectator/snapshots`
+      ? `/api/streams/${streamId}/snapshots`
+      : `/api/games/${gameId}/spectator/snapshots`
 
   const [status, setStatus] = useState<ConnectionStatus>("connecting")
   const [latestState, setLatestState] = useState<SpectatorState | null>(initialState)
   const lastSeqRef = useRef(initialState.state_version ?? 0)
   const queueRef = useRef<SpectatorState[]>([])
-  const fallbackRef = useRef(false)
+  const [useFallback, setUseFallback] = useState(false)
 
   // Regular polling fallback URL
   const fallbackUrl =
     mode === "stream"
-      ? `/stream/${streamId}/data`
-      : `/game/${gameId}/spectator`
+      ? `/api/streams/${streamId}/data`
+      : `/api/games/${gameId}/spectator`
 
   // Snapshot polling
   const pollSnapshots = useCallback(async () => {
-    if (fallbackRef.current) return
+    if (useFallback) return
 
     try {
       const res = await fetch(`${snapshotUrl}?after=${lastSeqRef.current}`)
       if (!res.ok) {
         if (res.status === 404) {
           // Snapshots not available — fall back to regular polling
-          fallbackRef.current = true
+          setUseFallback(true)
           return
         }
         throw new Error(`${res.status}`)
@@ -65,34 +65,34 @@ export function useGameStream(
     } catch {
       setStatus("disconnected")
     }
-  }, [snapshotUrl])
+  }, [snapshotUrl, useFallback])
 
   useEffect(() => {
-    if (fallbackRef.current) return
+    if (useFallback) return
 
     pollSnapshots()
     const interval = setInterval(pollSnapshots, 500)
     return () => clearInterval(interval)
-  }, [pollSnapshots])
+  }, [pollSnapshots, useFallback])
 
   // Fallback: regular polling at 2s
   const { data: fallbackData, status: fallbackStatus } = usePoll<SpectatorState>(
     fallbackUrl,
     2000,
-    { enabled: fallbackRef.current },
+    { enabled: useFallback },
   )
 
   // When in fallback mode, push each new poll result as a "snapshot"
   const lastFallbackVersionRef = useRef(0)
   useEffect(() => {
-    if (!fallbackRef.current || !fallbackData) return
+    if (!useFallback || !fallbackData) return
     const version = fallbackData.state_version ?? 0
     if (version > lastFallbackVersionRef.current) {
       lastFallbackVersionRef.current = version
       queueRef.current.push(fallbackData)
       setLatestState(fallbackData)
     }
-  }, [fallbackData])
+  }, [fallbackData, useFallback])
 
   const consumeSnapshots = useCallback(() => {
     const items = queueRef.current
@@ -102,7 +102,7 @@ export function useGameStream(
 
   return {
     consumeSnapshots,
-    status: fallbackRef.current ? fallbackStatus : status,
+    status: useFallback ? fallbackStatus : status,
     latestState,
   }
 }

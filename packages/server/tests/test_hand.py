@@ -9,7 +9,7 @@ def make_players(n: int, chips: int = 1000) -> list[PlayerInHand]:
 class TestBlinds:
     def test_blinds_posted(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # SB is player index 1 (left of dealer), BB is player index 2
         assert players[1].current_bet == 10  # SB
         assert players[2].current_bet == 20  # BB
@@ -17,7 +17,7 @@ class TestBlinds:
 
     def test_heads_up_blinds(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # Heads-up: dealer is SB, other is BB
         assert players[0].current_bet == 10  # Dealer = SB
         assert players[1].current_bet == 20  # BB
@@ -27,7 +27,7 @@ class TestBlinds:
 class TestBasicActions:
     def test_fold(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # Preflop: action starts left of BB = player index 0 (dealer in 3-player)
         current = hand.current_player
         assert current is not None
@@ -37,7 +37,7 @@ class TestBasicActions:
 
     def test_check_not_allowed_when_bet_exists(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         result = hand.do_action(current.id, "check")
@@ -45,7 +45,7 @@ class TestBasicActions:
 
     def test_call(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         result = hand.do_action(current.id, "call")
@@ -54,7 +54,7 @@ class TestBasicActions:
 
     def test_wrong_player_rejected(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         # Try acting as a different player
@@ -64,7 +64,7 @@ class TestBasicActions:
 
     def test_unknown_action(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         result = hand.do_action(current.id, "dance")
@@ -74,7 +74,7 @@ class TestBasicActions:
 class TestBetting:
     def test_raise(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         # Call first would not raise; let's raise
@@ -84,7 +84,7 @@ class TestBetting:
 
     def test_min_raise_enforced(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         # Min raise preflop with BB=20 should be to 40 (raise by 20)
@@ -93,7 +93,7 @@ class TestBetting:
 
     def test_bet_on_new_round(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # Heads-up preflop: dealer(SB) acts first
         hand.do_action(hand.current_player.id, "call")
         # BB checks
@@ -110,7 +110,7 @@ class TestBetting:
 class TestFoldToWin:
     def test_all_fold_wins(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # Everyone folds to BB
         p = hand.current_player
         hand.do_action(p.id, "fold")
@@ -124,7 +124,7 @@ class TestFoldToWin:
     def test_fold_awards_pot_to_winner(self):
         """Winner must receive the pot chips when everyone else folds."""
         players = make_players(2, chips=1000)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # Heads-up: dealer=SB=P1, BB=P2. SB acts first preflop.
         total_before = sum(p.chips for p in players) + hand.pot
         hand.do_action(hand.current_player.id, "fold")
@@ -135,7 +135,7 @@ class TestFoldToWin:
     def test_fold_chips_conserved_after_raise(self):
         """Chips must be conserved when fold ends a hand after a raise."""
         players = make_players(3, chips=500)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         total_before = sum(p.chips for p in players) + hand.pot
         # P1 raises, P2 folds, P3 folds → P1 wins
         hand.do_action(hand.current_player.id, "raise", 60)
@@ -149,14 +149,14 @@ class TestFoldToWin:
 class TestAllIn:
     def test_all_in(self):
         players = make_players(2, chips=100)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         hand.do_action(hand.current_player.id, "all_in")
         assert hand.players[0].is_all_in
         assert hand.players[0].chips == 0
 
     def test_all_in_call_goes_to_showdown(self):
         players = make_players(2, chips=100)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         hand.do_action(hand.current_player.id, "all_in")
         hand.do_action(hand.current_player.id, "call")
         assert hand.is_complete
@@ -168,7 +168,7 @@ class TestSidePots:
         p1 = PlayerInHand(id=1, name="Short", chips=50)
         p2 = PlayerInHand(id=2, name="Medium", chips=200)
         p3 = PlayerInHand(id=3, name="Big", chips=500)
-        hand = Hand([p1, p2, p3], dealer_index=0, deck_seed=42)
+        hand = Hand([p1, p2, p3], dealer_index=0, deck_seed_hex="ab" * 32)
         # Dealer=P1(idx0), SB=P2(idx1), BB=P3(idx2)
         # Preflop starts at idx 0 (left of BB in 3-player)
         hand.do_action(1, "all_in")  # P1: 50 total
@@ -184,7 +184,7 @@ class TestSidePots:
 class TestFullHand:
     def test_full_hand_to_showdown(self):
         players = make_players(2, chips=1000)
-        hand = Hand(players, dealer_index=0, deck_seed=42)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="ab" * 32)
         # preflop: SB calls, BB checks
         hand.do_action(hand.current_player.id, "call")
         hand.do_action(hand.current_player.id, "check")
@@ -217,7 +217,7 @@ class TestActionRecordComment:
 
     def test_comment_stored_in_hand_actions(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         hand.do_action(current.id, "call", comment="Let's see the flop")
@@ -227,7 +227,7 @@ class TestActionRecordComment:
 
     def test_comment_none_by_default(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         hand.do_action(current.id, "fold")
@@ -246,7 +246,7 @@ class TestActionRecordReason:
 
     def test_reason_stored_in_hand_actions(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         hand.do_action(current.id, "call", reason="Implied odds justify this call")
@@ -256,7 +256,7 @@ class TestActionRecordReason:
 
     def test_reason_and_comment_coexist(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         hand.do_action(current.id, "call", comment="Let's go!", reason="Strong hand")
@@ -266,7 +266,7 @@ class TestActionRecordReason:
 
     def test_reason_none_when_not_provided(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         current = hand.current_player
         assert current is not None
         hand.do_action(current.id, "fold")
@@ -277,7 +277,7 @@ class TestActionRecordReason:
 class TestActionIdAndTimestamp:
     def test_actions_have_incrementing_ids(self):
         players = make_players(3)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # Blinds produce 2 actions (id=1, id=2), then player acts
         current = hand.current_player
         hand.do_action(current.id, "fold")
@@ -286,19 +286,19 @@ class TestActionIdAndTimestamp:
 
     def test_actions_have_timestamps(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         for a in hand.actions:
             assert a.timestamp > 0
 
     def test_starting_action_id_offset(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1, starting_action_id=100)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32, starting_action_id=100)
         ids = [a.id for a in hand.actions]
         assert ids == [100, 101]  # two blind actions
 
     def test_timestamps_are_chronological(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         hand.do_action(hand.current_player.id, "call")
         hand.do_action(hand.current_player.id, "check")
         timestamps = [a.timestamp for a in hand.actions]
@@ -308,13 +308,13 @@ class TestActionIdAndTimestamp:
 class TestTurnStartedAt:
     def test_turn_started_at_set_on_init(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         assert hand.turn_started_at is not None
         assert hand.turn_started_at > 0
 
     def test_turn_started_at_updates_on_advance(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         t1 = hand.turn_started_at
         hand.do_action(hand.current_player.id, "call")
         t2 = hand.turn_started_at
@@ -323,7 +323,7 @@ class TestTurnStartedAt:
 
     def test_turn_started_at_none_when_complete(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         hand.do_action(hand.current_player.id, "fold")
         assert hand.is_complete
         # current_turn_index is None, but turn_started_at keeps its last value
@@ -333,7 +333,7 @@ class TestTurnStartedAt:
         """When both players are all-in from blinds, hand completes immediately."""
         # BB=20, chips=20 → both players all-in from blinds
         players = make_players(2, chips=20)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         # SB(10) acts first in heads-up; go all-in
         hand.do_action(hand.current_player.id, "all_in")
         # BB already posted 20 = all chips, so they just call the remaining 0
@@ -344,7 +344,7 @@ class TestTurnStartedAt:
 class TestHandComplete:
     def test_cannot_act_after_complete(self):
         players = make_players(2)
-        hand = Hand(players, dealer_index=0, deck_seed=1)
+        hand = Hand(players, dealer_index=0, deck_seed_hex="01" * 32)
         hand.do_action(hand.current_player.id, "fold")
         assert hand.is_complete
         result = hand.do_action(1, "check")

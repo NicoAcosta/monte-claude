@@ -10,11 +10,13 @@ import pytest
 
 from core.escrow import (
     EscrowConfig,
+    build_approve_calldata,
     build_create_and_deposit_calldata,
     build_deposit_calldata,
     compute_escrow_address,
     compute_payouts,
     generate_salt,
+    sign_create_escrow,
     sign_settlement,
 )
 
@@ -30,6 +32,7 @@ RAKE_BENEFICIARY = "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
 
 CHAIN_ID = 8453
 ESCROW_ADDR = "0x1234567890abcdef1234567890abcdef12345678"
+FACTORY_ADDR = "0x1111111111111111111111111111111111111111"
 
 
 def _make_config() -> EscrowConfig:
@@ -126,6 +129,7 @@ class TestSignSettlement:
                 ],
                 "Settle": [
                     {"name": "payouts", "type": "Payout[]"},
+                    {"name": "pcr0", "type": "bytes"},
                 ],
             },
             "primaryType": "Settle",
@@ -140,6 +144,7 @@ class TestSignSettlement:
                     {"recipient": Web3.to_checksum_address(ALICE), "amount": 150_000_000},
                     {"recipient": Web3.to_checksum_address(BOB), "amount": 50_000_000},
                 ],
+                "pcr0": b"",
             },
         }
 
@@ -155,6 +160,84 @@ class TestSignSettlement:
 
 
 # ══════════════════════════════════════════════════════════
+# sign_create_escrow
+# ══════════════════════════════════════════════════════════
+
+class TestSignCreateEscrow:
+    def test_produces_valid_signature(self):
+        config = _make_config()
+        salt = generate_salt()
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        assert len(sig_bytes) == 65
+
+    def test_recovers_to_admin(self):
+        config = _make_config()
+        salt = generate_salt()
+        sig_hex = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt)
+
+        factory_addr = Web3.to_checksum_address(FACTORY_ADDR)
+        participants_hash = Web3.keccak(
+            b"".join(bytes.fromhex(addr[2:]) for addr in config.participants)
+        )
+
+        structured_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "CreateEscrow": [
+                    {"name": "token", "type": "address"},
+                    {"name": "admin", "type": "address"},
+                    {"name": "rakeBeneficiary", "type": "address"},
+                    {"name": "depositAmount", "type": "uint256"},
+                    {"name": "rakeBps", "type": "uint16"},
+                    {"name": "fundingDeadline", "type": "uint256"},
+                    {"name": "settlementDeadline", "type": "uint256"},
+                    {"name": "participantsHash", "type": "bytes32"},
+                    {"name": "pcr0Hash", "type": "bytes32"},
+                    {"name": "salt", "type": "bytes32"},
+                ],
+            },
+            "primaryType": "CreateEscrow",
+            "domain": {
+                "name": "EscrowFactory",
+                "version": "1",
+                "chainId": CHAIN_ID,
+                "verifyingContract": factory_addr,
+            },
+            "message": {
+                "token": config.token,
+                "admin": config.admin,
+                "rakeBeneficiary": config.rake_beneficiary,
+                "depositAmount": config.deposit_amount,
+                "rakeBps": config.rake_bps,
+                "fundingDeadline": config.funding_deadline,
+                "settlementDeadline": config.settlement_deadline,
+                "participantsHash": participants_hash,
+                "pcr0Hash": config.pcr0_hash,
+                "salt": salt,
+            },
+        }
+
+        signable = encode_typed_data(full_message=structured_data)
+        sig_bytes = bytes.fromhex(sig_hex.removeprefix("0x"))
+        recovered = Account.recover_message(signable, signature=sig_bytes)
+        assert recovered == ADMIN_ADDR
+
+    def test_different_salt_different_sig(self):
+        config = _make_config()
+        salt1 = b"\x01" * 32
+        salt2 = b"\x02" * 32
+        sig1 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt1)
+        sig2 = sign_create_escrow(ADMIN_PK, CHAIN_ID, FACTORY_ADDR, config, salt2)
+        assert sig1 != sig2
+
+
+# ══════════════════════════════════════════════════════════
 # build_create_and_deposit_calldata
 # ══════════════════════════════════════════════════════════
 
@@ -162,11 +245,28 @@ class TestBuildCalldata:
     def test_create_and_deposit_starts_with_selector(self):
         config = _make_config()
         salt = generate_salt()
-        calldata = build_create_and_deposit_calldata(config, salt)
+        admin_sig = "0x" + "ab" * 65  # dummy signature
+        calldata = build_create_and_deposit_calldata(config, salt, admin_sig)
         # Should start with 0x and be a hex string
         assert calldata.startswith("0x")
         # Function selector is 4 bytes = 8 hex chars
         assert len(calldata) > 10
+
+    def test_approve_calldata_has_correct_selector(self):
+        calldata = build_approve_calldata(FACTORY_ADDR, 100_000_000)
+        assert calldata.startswith("0x")
+        # approve(address,uint256) selector = 0x095ea7b3
+        expected_selector = Web3.keccak(text="approve(address,uint256)")[:4].hex()
+        assert calldata[2:10] == expected_selector
+
+    def test_approve_calldata_encodes_spender_and_amount(self):
+        calldata = build_approve_calldata(FACTORY_ADDR, 100_000_000)
+        # After 4-byte selector: 32 bytes address + 32 bytes amount = 64 bytes = 128 hex chars
+        data_hex = calldata[10:]  # skip 0x + 8 char selector
+        assert len(data_hex) == 128
+        # Last 32 bytes should encode the amount
+        amount_hex = data_hex[64:]
+        assert int(amount_hex, 16) == 100_000_000
 
     def test_deposit_calldata_has_correct_selector(self):
         calldata = build_deposit_calldata(ALICE)
@@ -189,7 +289,7 @@ class TestEscrowConfig:
     def test_as_tuple(self):
         config = _make_config()
         t = config.as_tuple()
-        assert len(t) == 8
+        assert len(t) == 9
         assert t[0] == config.token
         assert t[3] == 100_000_000
         assert isinstance(t[7], list)  # participants as list for ABI

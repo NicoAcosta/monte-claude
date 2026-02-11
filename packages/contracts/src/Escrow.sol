@@ -32,6 +32,7 @@ contract Escrow is ReentrancyGuard {
         uint256 fundingDeadline;
         uint256 settlementDeadline;
         address[] participants;
+        bytes32 pcr0Hash;
     }
 
     struct Payout {
@@ -48,7 +49,7 @@ contract Escrow is ReentrancyGuard {
 
     bytes32 private constant PAYOUT_TYPEHASH = keccak256("Payout(address recipient,uint256 amount)");
     bytes32 private constant SETTLE_TYPEHASH =
-        keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)");
+        keccak256("Settle(Payout[] payouts,bytes pcr0)Payout(address recipient,uint256 amount)");
 
     uint16 private constant MAX_BPS = 10_000;
 
@@ -69,6 +70,8 @@ contract Escrow is ReentrancyGuard {
     uint16 public rakeBps;
     uint256 public fundingDeadline;
     uint256 public settlementDeadline;
+
+    bytes32 public pcr0Hash;
 
     /// @dev O(1) contains/add/remove via Solady EnumerableSetLib
     EnumerableSetLib.AddressSet private _participants;
@@ -106,6 +109,7 @@ contract Escrow is ReentrancyGuard {
     error DepositTransferMismatch(uint256 expected, uint256 actual);
     error InvalidConfig();
     error ParticipantsNotSorted();
+    error Pcr0Mismatch();
 
     // ── Modifiers ────────────────────────────────────────────────────────
 
@@ -151,6 +155,8 @@ contract Escrow is ReentrancyGuard {
         rakeBps = cfg.rakeBps;
         fundingDeadline = cfg.fundingDeadline;
         settlementDeadline = cfg.settlementDeadline;
+
+        pcr0Hash = cfg.pcr0Hash;
 
         uint256 len = cfg.participants.length;
         // Invariant: participants must be sorted ascending by address (deterministic ordering)
@@ -241,14 +247,20 @@ contract Escrow is ReentrancyGuard {
     /// @notice Submit admin-signed settlement. Distributes payouts minus rake.
     ///         `sum(payouts.amount)` must equal token balance of this contract.
     ///         Callable from FUNDING or ACTIVE state.
-    function settle(Payout[] calldata payouts, bytes calldata signature) external nonReentrant {
+    /// @param pcr0 Raw PCR-0 value (48 bytes). Verified against stored pcr0Hash if non-zero.
+    function settle(Payout[] calldata payouts, bytes calldata pcr0, bytes calldata signature) external nonReentrant {
         if (status != Status.FUNDING && status != Status.ACTIVE) {
             revert InvalidStatus(status, Status.ACTIVE);
         }
         if (payouts.length == 0) revert InvalidConfig();
 
+        // PCR-0 verification (skip when pcr0Hash is zero — dev mode)
+        if (pcr0Hash != bytes32(0)) {
+            if (pcr0.length != 48 || keccak256(pcr0) != pcr0Hash) revert Pcr0Mismatch();
+        }
+
         // Verify EIP-712 signature
-        bytes32 structHash = _hashSettlement(payouts);
+        bytes32 structHash = _hashSettlement(payouts, pcr0);
         bytes32 digest = _hashTypedData(structHash);
         address signer = ECDSA.recoverCalldata(digest, signature);
         if (signer != admin) revert InvalidSignature();
@@ -336,7 +348,8 @@ contract Escrow is ReentrancyGuard {
             uint16 rakeBps_,
             uint256 fundingDeadline_,
             uint256 settlementDeadline_,
-            address[] memory participants_
+            address[] memory participants_,
+            bytes32 pcr0Hash_
         )
     {
         return (
@@ -347,7 +360,8 @@ contract Escrow is ReentrancyGuard {
             rakeBps,
             fundingDeadline,
             settlementDeadline,
-            _participants.values()
+            _participants.values(),
+            pcr0Hash
         );
     }
 
@@ -398,11 +412,11 @@ contract Escrow is ReentrancyGuard {
         return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
     }
 
-    function _hashSettlement(Payout[] calldata payouts) private pure returns (bytes32) {
+    function _hashSettlement(Payout[] calldata payouts, bytes calldata pcr0) private pure returns (bytes32) {
         bytes32[] memory payoutHashes = new bytes32[](payouts.length);
         for (uint256 i; i < payouts.length; ++i) {
             payoutHashes[i] = keccak256(abi.encode(PAYOUT_TYPEHASH, payouts[i].recipient, payouts[i].amount));
         }
-        return keccak256(abi.encode(SETTLE_TYPEHASH, keccak256(abi.encodePacked(payoutHashes))));
+        return keccak256(abi.encode(SETTLE_TYPEHASH, keccak256(abi.encodePacked(payoutHashes)), keccak256(pcr0)));
     }
 }

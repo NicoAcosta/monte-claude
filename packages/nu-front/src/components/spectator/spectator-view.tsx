@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useGameStream } from "@/hooks/use-game-stream"
-import { useReplayQueue, type AnimationPhase } from "@/hooks/use-replay-queue"
+import { useReplayQueue } from "@/hooks/use-replay-queue"
 import { formatDuration } from "@/lib/format"
 import type { SpectatorState } from "@/lib/types"
 import { useGameNarration } from "@/hooks/use-game-narration"
@@ -52,9 +52,12 @@ export function SpectatorView({
       animationPhase === "dealing"
     ) {
       lastHandRef.current = state.hand_number
-      setDealing(true)
-      const timer = setTimeout(() => setDealing(false), 600)
-      return () => clearTimeout(timer)
+      const startTimer = setTimeout(() => setDealing(true), 0)
+      const endTimer = setTimeout(() => setDealing(false), 600)
+      return () => {
+        clearTimeout(startTimer)
+        clearTimeout(endTimer)
+      }
     }
   }, [state.hand_number, animationPhase])
 
@@ -66,14 +69,14 @@ export function SpectatorView({
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
 
-    if (!state.timer?.deadline || state.current_turn == null) {
-      setTimerText(null)
-      setTimerUrgent(false)
+    const deadline = state.timer?.deadline
+    if (!deadline || state.current_turn == null) {
+      timerRef.current = null
       return
     }
 
     const updateTimer = () => {
-      const remaining = state.timer!.deadline - Date.now() / 1000
+      const remaining = deadline - Date.now() / 1000
       if (remaining <= 0) {
         setTimerText("0:00")
         setTimerUrgent(true)
@@ -86,12 +89,14 @@ export function SpectatorView({
     }
 
     updateTimer()
-    timerRef.current = setInterval(updateTimer, 100)
+    timerRef.current = setInterval(updateTimer, 500)
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
+      setTimerText(null)
+      setTimerUrgent(false)
     }
-  }, [state.timer?.deadline, state.current_turn])
+  }, [state.timer, state.current_turn])
 
   // Game duration
   const [gameDuration, setGameDuration] = useState("")
@@ -123,8 +128,8 @@ export function SpectatorView({
   const [audioEnabled, setAudioEnabled] = useState(false)
 
   // Game narration & audio
-  const { events, latestNarration } = useGameNarration(state)
-  useGameAudio(events, audioEnabled)
+  const { consumeEvents, latestNarration } = useGameNarration(state)
+  useGameAudio(consumeEvents, audioEnabled)
 
   // Info panel toggle
   const [infoPanelOpen, setInfoPanelOpen] = useState(false)
@@ -139,8 +144,7 @@ export function SpectatorView({
 
   return (
     <div
-      className="flex min-h-screen flex-col"
-      style={{ background: "#0f2d1a", color: "#e8e0d0" }}
+      className="flex min-h-screen flex-col bg-felt-green text-cream"
     >
       <HeaderBar
         handNumber={state.hand_number}
@@ -192,23 +196,13 @@ export function SpectatorView({
 }
 
 function usePlayerComments(state: SpectatorState): Record<string, string> {
-  const commentsRef = useRef<Record<string, string>>({})
-
-  // Extract latest comment per player from recent_actions
-  const comments: Record<string, string> = {}
-  for (const action of state.recent_actions) {
-    if (action.comment) {
-      comments[action.player] = action.comment
+  return useMemo(() => {
+    const comments: Record<string, string> = {}
+    for (const action of state.recent_actions) {
+      if (action.comment) {
+        comments[action.player] = action.comment
+      }
     }
-  }
-
-  // Only update ref if comments changed to avoid unnecessary rerenders
-  const key = JSON.stringify(comments)
-  const prevKey = useRef("")
-  if (key !== prevKey.current) {
-    prevKey.current = key
-    commentsRef.current = comments
-  }
-
-  return commentsRef.current
+    return comments
+  }, [state.recent_actions])
 }

@@ -254,9 +254,13 @@ class TestDiceChat:
 class TestDiceGameOver:
     def test_game_ends_when_only_one_can_ante(self):
         """Game ends when fewer than 2 players can afford the next ante."""
-        from unittest.mock import patch
-        # Fix dice to (5, 4) = 9 → high. Alice bets high (wins), Bob bets low (loses).
-        with patch("dice.round.roll_dice", return_value=(5, 4)):
+        from unittest.mock import MagicMock, patch
+        # Mock FairRng so randbelow(6) returns 4 → dice = (5, 5) = 10 → high
+        with patch("dice.game.FairRng") as MockFairRng:
+            mock_rng = MagicMock()
+            mock_rng.randbelow.return_value = 4
+            MockFairRng.return_value = mock_rng
+
             g = DiceGame(ante=100, action_timeout=0)
             p1 = g.register("Alice")
             p2 = g.register("Bob")
@@ -266,7 +270,7 @@ class TestDiceGameOver:
             # Both anted: Alice=900, Bob=0
             g.do_action(1, "high")  # Alice picks high
             g.do_action(2, "low")   # Bob picks low
-            # Dice=(5,4)=9 → high wins → Alice gets pot (200)
+            # Dice=(5,5)=10 → high wins → Alice gets pot (200)
             # Alice=1100, Bob=0 → only 1 can ante → game over
             assert g.game_over is True
             assert g.winner == "Alice"

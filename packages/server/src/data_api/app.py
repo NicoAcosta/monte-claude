@@ -155,6 +155,13 @@ def _ensure_stores() -> None:
 # API URLs — frontend needs these to reach the correct services
 GAME_API_URL = os.environ.get("GAME_API_URL", "")
 ACCOUNT_API_URL = os.environ.get("ACCOUNT_API_URL", "")
+MONTE_TOKEN_ADDRESS = os.environ.get("MONTE_TOKEN_ADDRESS", "")
+BASE_PUBLIC_RPCS = [
+    "https://mainnet.base.org",
+    "https://base.llamarpc.com",
+    "https://base.drpc.org",
+    "https://base-rpc.publicnode.com",
+]
 
 # ── Default limits for read endpoints ────────────────────
 MAX_EVENTS = 200
@@ -164,7 +171,12 @@ MAX_HANDS = 100
 # ── Config endpoint (tells frontend where other APIs live) ──
 @app.get("/api/config")
 def get_config():
-    return JSONResponse({"game_api_url": GAME_API_URL, "account_api_url": ACCOUNT_API_URL})
+    return JSONResponse({
+        "game_api_url": GAME_API_URL,
+        "account_api_url": ACCOUNT_API_URL,
+        "monte_token_address": MONTE_TOKEN_ADDRESS,
+        "base_rpc_urls": BASE_PUBLIC_RPCS,
+    })
 
 
 # ── Static file routes ───────────────────────────────────
@@ -175,7 +187,7 @@ def lobby_page():
 
 
 @app.get("/game/{game_id}")
-def game_page(game_id: int):
+def game_page(game_id: str):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     return FileResponse(STATIC_DIR / "spectator.html")
@@ -249,8 +261,22 @@ def list_games():
 
 # ── History routes ──────────────────────────────────────
 
+# Keys stripped from raw event JSON — seeds are available via summary endpoints.
+_EVENT_REDACTED_KEYS = frozenset({"seed_hex"})
+
+
+def _sanitize_event_data(raw: str) -> str:
+    """Remove sensitive fields from event JSON before returning to clients."""
+    parsed = json.loads(raw)
+    if any(k in parsed for k in _EVENT_REDACTED_KEYS):
+        for k in _EVENT_REDACTED_KEYS:
+            parsed.pop(k, None)
+        return json.dumps(parsed, separators=(",", ":"))
+    return raw
+
+
 @app.get("/api/games/{game_id}/history", response_model=GameHistoryResponse)
-def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS)):
+def game_history(game_id: str, limit: int = Query(default=MAX_EVENTS, ge=1, le=MAX_EVENTS)):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     events = event_store.get_by_game(game_id)
@@ -264,7 +290,7 @@ def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=M
                 event_type=e.event_type,
                 timestamp=e.timestamp,
                 hand_number=e.hand_number,
-                data=e.data,
+                data=_sanitize_event_data(e.data),
                 sequence=e.sequence,
             )
             for e in events
@@ -273,7 +299,7 @@ def game_history(game_id: int, limit: int = Query(default=MAX_EVENTS, ge=1, le=M
 
 
 @app.get("/api/games/{game_id}/hands", response_model=HandSummariesResponse)
-def hand_summaries(game_id: int, limit: int = Query(default=MAX_HANDS, ge=1, le=MAX_HANDS)):
+def hand_summaries(game_id: str, limit: int = Query(default=MAX_HANDS, ge=1, le=MAX_HANDS)):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     summaries = summary_store.get_by_game(game_id)
@@ -295,6 +321,8 @@ def hand_summaries(game_id: int, limit: int = Query(default=MAX_HANDS, ge=1, le=
                 winning_cards=json.loads(s.winning_cards) if isinstance(s.winning_cards, str) else s.winning_cards,
                 result_type=s.result_type,
                 token_symbol=s.token_symbol,
+                seed_hex=s.seed_hex,
+                seed_commitment=s.seed_commitment,
             )
             for s in summaries
         ],
@@ -384,6 +412,8 @@ def recent_hands(
                 winning_cards=json.loads(h.winning_cards) if isinstance(h.winning_cards, str) else h.winning_cards,
                 result_type=h.result_type,
                 token_symbol=h.token_symbol,
+                seed_hex=h.seed_hex,
+                seed_commitment=h.seed_commitment,
             )
             for h in hands
         ],
@@ -405,8 +435,8 @@ def list_all_streams():
     )
 
 
-@app.get("/game/{game_id}/streams", response_model=StreamListResponse)
-def list_streams_for_game(game_id: int):
+@app.get("/api/games/{game_id}/streams", response_model=StreamListResponse)
+def list_streams_for_game(game_id: str):
     if not metadata_store.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     summaries = stream_store.list_for_game(game_id)

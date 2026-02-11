@@ -18,7 +18,7 @@ _RETRY_DELAY = 1.0
 
 @dataclass(frozen=True)
 class GameConfig:
-    game_id: int
+    game_id: str
     api_key: str
     player_id: int
     username: str
@@ -34,9 +34,9 @@ class ApiError(Exception):
 class Client:
     """Thin wrapper around the Monteclaude HTTP API."""
 
-    def __init__(self, game_server: str, account_server: str) -> None:
-        self._game = httpx.AsyncClient(base_url=game_server, timeout=30.0)
-        self._account = httpx.AsyncClient(base_url=account_server, timeout=30.0)
+    def __init__(self, server: str, *, game_server: str | None = None, account_server: str | None = None) -> None:
+        self._game = httpx.AsyncClient(base_url=game_server or server, timeout=30.0)
+        self._account = httpx.AsyncClient(base_url=account_server or server, timeout=30.0)
 
     async def close(self) -> None:
         await self._game.aclose()
@@ -47,14 +47,14 @@ class Client:
     async def register(self, username: str) -> str:
         """Register and return the API key."""
         resp = await self._account.post(
-            "/api/register", json={"username": username},
+            "/api/accounts/register", json={"username": username},
         )
         _check(resp)
         return resp.json()["api_key"]
 
     async def get_balance(self, api_key: str) -> int:
         """Get current token balance."""
-        resp = await self._account.get("/api/balance", headers=_auth(api_key))
+        resp = await self._account.get("/api/accounts/balance", headers=_auth(api_key))
         _check(resp)
         return resp.json()["balance"]
 
@@ -63,48 +63,48 @@ class Client:
 
         Raises ApiError(429) if faucet is on cooldown.
         """
-        resp = await self._account.post("/api/faucet", headers=_auth(api_key))
+        resp = await self._account.post("/api/accounts/faucet", headers=_auth(api_key))
         _check(resp)
         return resp.json()
 
     # ── Game API ─────────────────────────────────────
 
-    async def create_game(self, api_key: str, max_players: int = 2) -> int:
+    async def create_game(self, api_key: str, max_players: int = 2, game_type: str = "poker") -> str:
         """Create a new free game and return game_id."""
         resp = await self._game.post(
             "/api/games",
-            json={"max_players": max_players},
+            json={"game_type": game_type, "max_players": max_players},
             headers=_auth(api_key),
         )
         _check(resp)
         return resp.json()["game_id"]
 
-    async def join_game(self, game_id: int, api_key: str) -> dict[str, Any]:
+    async def join_game(self, game_id: str, api_key: str) -> dict[str, Any]:
         """Join a game. Returns {player_id, name}."""
         resp = await self._game.post(
-            f"/game/{game_id}/join",
+            f"/api/games/{game_id}/join",
             json={},
             headers=_auth(api_key),
         )
         _check(resp)
         return resp.json()
 
-    async def start_game(self, game_id: int, api_key: str) -> None:
+    async def start_game(self, game_id: str, api_key: str) -> None:
         """Start a game."""
         resp = await self._game.post(
-            f"/game/{game_id}/start",
+            f"/api/games/{game_id}/start",
             json={},
             headers=_auth(api_key),
         )
         _check(resp)
 
-    async def get_waiting(self, game_id: int) -> dict[str, Any]:
+    async def get_waiting(self, game_id: str) -> dict[str, Any]:
         """Get waiting room status."""
-        resp = await self._game.get(f"/game/{game_id}/waiting")
+        resp = await self._game.get(f"/api/games/{game_id}/waiting")
         _check(resp)
         return resp.json()
 
-    async def wait_for_start(self, game_id: int, poll_interval: float = 1.0) -> None:
+    async def wait_for_start(self, game_id: str, poll_interval: float = 1.0) -> None:
         """Poll /waiting until game starts."""
         while True:
             data = await self.get_waiting(game_id)
@@ -113,17 +113,17 @@ class Client:
             log.info("Waiting for game to start... (%d players)", data["player_count"])
             await asyncio.sleep(poll_interval)
 
-    async def get_state(self, game_id: int, api_key: str) -> dict[str, Any]:
+    async def get_state(self, game_id: str, api_key: str) -> dict[str, Any]:
         """Get player state."""
         resp = await self._game.get(
-            f"/game/{game_id}/state", headers=_auth(api_key),
+            f"/api/games/{game_id}/state", headers=_auth(api_key),
         )
         _check(resp)
         return resp.json()
 
     async def do_action(
         self,
-        game_id: int,
+        game_id: str,
         api_key: str,
         action: str,
         amount: int | None = None,
@@ -141,7 +141,7 @@ class Client:
 
         for attempt in range(_MAX_RETRIES):
             resp = await self._game.post(
-                f"/game/{game_id}/action",
+                f"/api/games/{game_id}/action",
                 json=body,
                 headers=_auth(api_key),
             )

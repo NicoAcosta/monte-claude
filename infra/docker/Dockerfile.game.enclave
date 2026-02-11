@@ -1,0 +1,74 @@
+# Nitro Enclave image for Game API
+# Multi-stage build: (1) compile kmstool_enclave_cli, (2) runtime with Python + socat
+#
+# This image runs INSIDE the enclave. It has zero networking —
+# all I/O flows through vsock via socat bridges configured in init.sh.
+
+# ============================================================
+# Stage 1: Build kmstool_enclave_cli from aws-nitro-enclaves-sdk-c
+# ============================================================
+FROM amazonlinux:2023 AS kmstool-builder
+
+RUN dnf install -y \
+    cmake3 gcc gcc-c++ make git \
+    openssl-devel json-c-devel curl-devel \
+    && dnf clean all
+
+# Build aws-lc (crypto library required by the SDK)
+RUN git clone --depth 1 https://github.com/aws/aws-lc.git /tmp/aws-lc && \
+    cmake3 -S /tmp/aws-lc -B /tmp/aws-lc/build \
+      -DBUILD_SHARED_LIBS=ON \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_TESTING=OFF && \
+    cmake3 --build /tmp/aws-lc/build --target install -j$(nproc) && \
+    rm -rf /tmp/aws-lc
+
+# Build aws-nitro-enclaves-sdk-c (contains kmstool)
+RUN git clone --depth 1 https://github.com/aws/aws-nitro-enclaves-sdk-c.git /tmp/sdk && \
+    cmake3 -S /tmp/sdk -B /tmp/sdk/build \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_BUILD_TYPE=Release && \
+    cmake3 --build /tmp/sdk/build --target kmstool_enclave_cli -j$(nproc) && \
+    cp /tmp/sdk/build/bin/kmstool_enclave_cli /usr/local/bin/ && \
+    rm -rf /tmp/sdk
+
+# ============================================================
+# Stage 2: Runtime — Python 3.11 + socat + app + kmstool
+# ============================================================
+FROM amazonlinux:2023
+
+# System packages
+RUN dnf install -y \
+    python3.11 python3.11-pip python3.11-devel \
+    socat \
+    libpq postgresql15 \
+    json-c openssl curl-minimal \
+    iproute \
+    && dnf clean all \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3.11 /usr/bin/pip3
+
+# Copy kmstool binary and libraries from builder
+COPY --from=kmstool-builder /usr/local/bin/kmstool_enclave_cli /usr/local/bin/
+COPY --from=kmstool-builder /usr/local/lib64/libaws* /usr/local/lib64/
+COPY --from=kmstool-builder /usr/local/lib64/libs2n* /usr/local/lib64/
+ENV LD_LIBRARY_PATH=/usr/local/lib64:$LD_LIBRARY_PATH
+
+# Install uv for fast dependency resolution
+RUN pip3 install --no-cache-dir uv
+
+# Application setup
+WORKDIR /app
+
+COPY packages/server/pyproject.toml packages/server/uv.lock ./
+RUN uv pip install --system --python python3.11 -e . || true
+
+COPY packages/server/src/ ./src/
+RUN uv pip install --system --python python3.11 -e .
+
+# Enclave scripts
+COPY infra/docker/enclave/init.sh /init.sh
+RUN chmod +x /init.sh
+
+ENTRYPOINT ["/init.sh"]

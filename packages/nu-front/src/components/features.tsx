@@ -1,4 +1,4 @@
-import { ScrollReveal } from "./scroll-reveal";
+import { ScrollReveal } from "./scroll-reveal"
 
 const FEATURES = [
   {

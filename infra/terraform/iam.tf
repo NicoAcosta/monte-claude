@@ -168,12 +168,15 @@ resource "aws_iam_role_policy" "data_api_ecr" {
 data "aws_iam_policy_document" "game_api_secrets" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [
-      aws_secretsmanager_secret.db_credentials.arn,
-      aws_secretsmanager_secret.server_private_key.arn,
-      aws_secretsmanager_secret.rpc_url.arn,
-      aws_secretsmanager_secret.factory_address.arn,
-    ]
+    resources = concat(
+      [
+        aws_secretsmanager_secret.db_credentials.arn,
+        aws_secretsmanager_secret.server_private_key.arn,
+        aws_secretsmanager_secret.rpc_url.arn,
+        aws_secretsmanager_secret.factory_address.arn,
+      ],
+      var.enclave_enabled ? [aws_secretsmanager_secret.server_private_key_encrypted[0].arn] : [],
+    )
   }
 }
 
@@ -181,6 +184,24 @@ resource "aws_iam_role_policy" "game_api_secrets" {
   name   = "secrets-read"
   role   = aws_iam_role.game_api.id
   policy = data.aws_iam_policy_document.game_api_secrets.json
+}
+
+# KMS — Game API can encrypt (for initial key setup) and decrypt (via enclave attestation)
+data "aws_iam_policy_document" "game_api_kms" {
+  count = var.enclave_enabled ? 1 : 0
+
+  statement {
+    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
+    resources = [aws_kms_key.enclave[0].arn]
+  }
+}
+
+resource "aws_iam_role_policy" "game_api_kms" {
+  count = var.enclave_enabled ? 1 : 0
+
+  name   = "kms-enclave"
+  role   = aws_iam_role.game_api.id
+  policy = data.aws_iam_policy_document.game_api_kms[0].json
 }
 
 # Secrets Manager — Data API gets DB credentials only

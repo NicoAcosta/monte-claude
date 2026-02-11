@@ -121,8 +121,17 @@ abstract contract BaseEscrowTest is Test {
         return arr;
     }
 
-    /// @dev Sign an EIP-712 settlement with the given private key
+    /// @dev Sign an EIP-712 settlement with the given private key (dev mode: no pcr0)
     function _signSettlement(Escrow escrow, Escrow.Payout[] memory payouts, uint256 pk)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return _signSettlement(escrow, payouts, bytes(""), pk);
+    }
+
+    /// @dev Sign an EIP-712 settlement with pcr0 included in the signed message
+    function _signSettlement(Escrow escrow, Escrow.Payout[] memory payouts, bytes memory pcr0, uint256 pk)
         internal
         view
         returns (bytes memory)
@@ -147,8 +156,53 @@ abstract contract BaseEscrowTest is Test {
         }
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Settle(Payout[] payouts)Payout(address recipient,uint256 amount)"),
-                keccak256(abi.encodePacked(payoutHashes))
+                keccak256("Settle(Payout[] payouts,bytes pcr0)Payout(address recipient,uint256 amount)"),
+                keccak256(abi.encodePacked(payoutHashes)),
+                keccak256(pcr0)
+            )
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    // ── Factory admin signature helpers ─────────────────────────
+
+    bytes32 private constant _FACTORY_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant _FACTORY_NAME_HASH = keccak256("EscrowFactory");
+    bytes32 private constant _FACTORY_VERSION_HASH = keccak256("1");
+    bytes32 private constant _CREATE_ESCROW_TYPEHASH = keccak256(
+        "CreateEscrow(address token,address admin,address rakeBeneficiary,uint256 depositAmount,uint16 rakeBps,uint256 fundingDeadline,uint256 settlementDeadline,bytes32 participantsHash,bytes32 pcr0Hash,bytes32 salt)"
+    );
+
+    /// @dev Sign an EIP-712 CreateEscrow message for factory admin verification.
+    function _signCreateEscrow(
+        address factoryAddr,
+        Escrow.Config memory config,
+        bytes32 salt,
+        uint256 pk
+    ) internal view returns (bytes memory) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(_FACTORY_DOMAIN_TYPEHASH, _FACTORY_NAME_HASH, _FACTORY_VERSION_HASH, block.chainid, factoryAddr)
+        );
+
+        bytes32 participantsHash = keccak256(abi.encodePacked(config.participants));
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                _CREATE_ESCROW_TYPEHASH,
+                config.token,
+                config.admin,
+                config.rakeBeneficiary,
+                config.depositAmount,
+                config.rakeBps,
+                config.fundingDeadline,
+                config.settlementDeadline,
+                participantsHash,
+                config.pcr0Hash,
+                salt
             )
         );
 

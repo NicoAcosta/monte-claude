@@ -105,22 +105,25 @@ Rules are evaluated in priority order. Lower number = higher priority. Gaps betw
 
 | Priority | Method | Path Pattern | Target |
 |----------|--------|-------------|--------|
-| 100 | POST | `/api/register` | Account API |
-| 200 | POST | `/api/games` | Game API |
-| 300 | POST | `/api/faucet` | Account API |
-| 350 | GET | `/api/balance` | Account API |
-| 400 | GET | `/game/*/state`, `/game/*/spectator`, `/game/*/waiting`, `/game/*/escrow`, `/game/*/funding` | Game API |
-| 410 | GET | `/game/*/settlement`, `/game/*/offchain-settlement` | Game API |
-| 500 | POST | `/game/*` | Game API |
-| 600 | POST | `/stream/*` | Game API |
-| 610 | GET | `/stream/*/data` | Game API |
+| 100 | POST | `/api/accounts/register` | Account API |
+| 150 | POST | `/api/accounts/faucet` | Account API |
+| 200 | GET | `/api/accounts/balance` | Account API |
+| 300 | POST | `/api/games` | Game API |
+| 350 | POST | `/api/games/*` | Game API |
+| 400 | POST | `/api/streams/*` | Game API |
+| 500 | GET | `/api/games/*/state`, `spectator`, `snapshots`, `waiting`, `escrow` | Game API |
+| 510 | GET | `/api/games/*/funding`, `settlement`, `offchain-settlement` | Game API |
+| 600 | GET | `/api/streams/*/data`, `snapshots` | Game API |
 | Default | Any | Everything else | Data API |
 
+All game traffic uses the unified `/api/games/*` path convention. Game-type is specified in the request body (`game_type: "poker"` or `"dice"`). Adding a new game type requires **no terraform or ALB changes** — just register the game type in the server.
+
 **Key routing invariants:**
-- `POST /api/register`, `POST /api/faucet`, `GET /api/balance` → Account API. These endpoints handle user accounts and are served by the Account API co-located on the Data API EC2.
-- `GET /api/games` (list games) → Data API. `POST /api/games` (create game) → Game API. Method condition differentiates them.
-- `GET /game/{id}/streams` (list streams for game) → Data API (falls through to default). `POST /game/{id}/streams` (create stream) → Game API (caught by priority 500).
-- All `/game/*` POST traffic is caught by the priority 500 wildcard rule. This covers join, start, action, resign, chat, extend, and stream creation.
+- `POST /api/accounts/register`, `POST /api/accounts/faucet`, `GET /api/accounts/balance` → Account API. Served by the Account API co-located on the Data API EC2.
+- `GET /api/games` (list games) → Data API (default). `POST /api/games` (create) → Game API.
+- `GET /api/games/{id}/streams` (list streams) → Data API (default). `POST /api/streams/{id}` (create stream) → Game API.
+- `GET /watch/{id}` (spectator HTML) → Data API (default). `GET /api/games/{id}/spectator` (JSON) → Game API.
+- All POST writes to `/api/games/*` are caught by priority 350. Specific GET reads (state, spectator, funding, etc.) are routed by explicit path patterns.
 
 ### Health Checks
 
@@ -327,7 +330,7 @@ Triggered on push to `main` when server, frontend, Docker, or instruction files 
 
 Each container uses `--env-file /etc/monteclaude/<api>.env`.
 
-**Health check:** Verifies all three APIs are reachable through the ALB. Data API is checked via `GET /ping`. Game API is checked by hitting a routed GET endpoint and verifying the response is not 502/503. Account API is checked via `GET /api/balance`.
+**Health check:** Verifies all three APIs are reachable through the ALB. Data API is checked via `GET /ping`. Game API is checked by hitting a routed GET endpoint and verifying the response is not 502/503. Account API is checked via `GET /api/accounts/balance`.
 
 ### Required GitHub Secrets
 
@@ -403,52 +406,113 @@ If you need to rotate a secret (e.g., the Ethereum private key):
 
 ## Phase 2: Nitro Enclave (TEE)
 
-The Game API is designed to move inside a Nitro Enclave, providing hardware-level isolation. The operator cannot inspect game state, card order, or the signing key at runtime.
+**Status: Implemented** (feature-flagged via `enclave_enabled`).
 
-### Architecture Change
+The Game API runs inside a Nitro Enclave, providing hardware-level isolation. The operator cannot inspect game state, card order, or the signing key at runtime. The Python application code is unchanged — this is purely an infrastructure change.
+
+### Architecture (Enclave Mode)
 
 ```
-┌─────────────────────────────────────────┐
-│  EC2 Instance (c6a.xlarge)              │
-│                                         │
-│  ┌────────────────────────────────────┐ │
-│  │  Nitro Enclave                     │ │
-│  │  ┌──────────────────────────────┐  │ │
-│  │  │  Game API (uvicorn :8001)    │  │ │
-│  │  │  SERVER_PRIVATE_KEY in mem   │  │ │
-│  │  └──────────────────────────────┘  │ │
-│  │          ↕ vsock (CID 16)          │ │
-│  └────────────────────────────────────┘ │
-│                                         │
-│  ┌─────────────────┐                   │
-│  │  Vsock proxy     │                   │
-│  │  ALB ↔ vsock     │                   │
-│  │  vsock ↔ RDS     │                   │
-│  │  vsock ↔ RPC     │                   │
-│  └─────────────────┘                   │
-└─────────────────────────────────────────┘
+PARENT EC2 (c6a.xlarge, 2 vCPU / ~4 GB to parent):
+  [socat]        TCP:8001 ←→ VSOCK:CID16:8001     (ALB → enclave)
+  [vsock-proxy]  VSOCK:5432 → TCP:RDS:5432          (enclave → DB)
+  [vsock-proxy]  VSOCK:443  → TCP:HTTPS:443          (enclave → RPC, allowlisted)
+  [vsock-proxy]  VSOCK:8000 → TCP:KMS:443            (enclave → KMS attestation)
+
+ENCLAVE (CID 16, 2 vCPU / 4 GB):
+  [socat]        VSOCK-LISTEN:8001 → TCP:127.0.0.1:8001   (inbound HTTP)
+  [socat]        TCP-LISTEN:5432   → VSOCK-CONNECT:3:5432  (outbound DB)
+  [socat]        TCP-LISTEN:443    → VSOCK-CONNECT:3:443   (outbound HTTPS)
+  [kmstool]      Decrypt SERVER_PRIVATE_KEY via KMS attestation
+  [uvicorn]      Game API on 127.0.0.1:8001
 ```
 
 Enclaves have **zero networking**. All traffic flows through vsock:
-- **Inbound:** ALB → parent EC2 → vsock proxy → enclave (HTTP requests)
-- **Outbound:** Enclave → vsock → parent EC2 → TCP (DB connections, RPC calls)
+- **Inbound:** ALB → parent TCP:8001 → socat → VSOCK:CID16:8001 → enclave socat → uvicorn
+- **Outbound DB:** uvicorn → TCP:5432 → enclave socat → VSOCK:3:5432 → parent vsock-proxy → RDS
+- **Outbound HTTPS:** uvicorn → TCP:443 → enclave socat → VSOCK:3:443 → parent vsock-proxy → RPC/KMS
 
-### Key Management
+**DNS inside enclave:** No DNS resolution is available. The init script writes hostnames to `/etc/hosts` pointing to `127.0.0.1`. The app connects to the "real" hostname (TLS SNI works), traffic routes to localhost socat, through vsock, and out via the parent's vsock-proxy.
 
-The `SERVER_PRIVATE_KEY` is encrypted with a KMS key whose policy only allows decryption from within an attested enclave (matching PCR-0). The decrypted key only ever exists in enclave memory.
+### Feature Toggle
 
-### Phase 2 Files
+Set in `terraform.tfvars`:
 
-- `infra/docker/Dockerfile.game.enclave` — amazonlinux-based image for enclave compatibility
-- `.github/workflows/build-eif.yml` — Builds the Enclave Image File (EIF), outputs PCR values
+```hcl
+enclave_enabled = false  # Docker mode (default, Phase 1 behavior)
+enclave_enabled = true   # Enclave mode (Phase 2)
+enclave_pcr0    = "abc123..."  # Required when enclave_enabled=true
+```
 
-### Phase 3: Attestation
+When `enclave_enabled=false`, no KMS key, encrypted secret, or enclave user data is created. The EC2 boots with the standard Docker user data script. Switching back is instant rollback.
 
-A `GET /attestation` endpoint will return a COSE-signed attestation document from the Nitro Secure Module. Players can verify:
+### Private Key Flow (KMS Attestation)
 
-1. Clone the repo and build the EIF locally (reproducible build)
-2. Compare local PCR values against the attestation document
-3. If they match, the server is running the exact published code
+1. `terraform apply` creates a KMS key with policy: `kms:Decrypt` only when `kms:RecipientAttestation:ImageSha384` matches PCR-0
+2. Operator encrypts `SERVER_PRIVATE_KEY` with this KMS key, stores ciphertext in Secrets Manager (`server-private-key-encrypted`)
+3. At EC2 boot: parent fetches encrypted ciphertext, assembles config JSON
+4. Parent launches enclave, sends config (including ciphertext + IAM credentials) via vsock port 9000
+5. Enclave calls `kmstool_enclave_cli decrypt` — KMS validates the attestation document's PCR-0
+6. Decrypted key only ever exists in enclave memory
+
+### Enclave Deployment
+
+**Initial setup (activation sequence):**
+
+1. Run `build-eif.yml` workflow → note PCR-0 from job summary
+2. `terraform apply` with `enclave_enabled=false` first (creates KMS key)
+3. Encrypt private key: `aws kms encrypt --key-id <arn> --plaintext fileb://key.txt --output text --query CiphertextBlob`
+4. Store ciphertext in Secrets Manager (`monteclaude/<env>/server-private-key-encrypted`)
+5. Set `enclave_pcr0=<pcr0>` and `enclave_enabled=true` in `terraform.tfvars`
+6. `terraform apply` → EC2 user data switches to enclave mode
+7. Reboot Game API EC2 → boots into enclave
+8. Verify: `nitro-cli describe-enclaves` via SSM
+
+**Ongoing deploys (CI/CD):** The deploy workflow detects `ENCLAVE_ENABLED` secret. When set, it builds the enclave Dockerfile, pushes to ECR, then SSM commands the EC2 to pull, rebuild EIF, and relaunch the enclave.
+
+**Rollback:** Set `enclave_enabled=false`, `terraform apply`, reboot EC2.
+
+### Enclave Files
+
+| File | Purpose |
+|------|---------|
+| `infra/docker/Dockerfile.game.enclave` | Multi-stage build: kmstool_enclave_cli + Python runtime |
+| `infra/docker/enclave/init.sh` | Enclave entrypoint (loopback, KMS decrypt, socat bridges, uvicorn) |
+| `infra/docker/enclave/launch-enclave.sh` | Parent-side launcher (vsock-proxy, nitro-cli, config send, inbound bridge) |
+| `infra/terraform/kms.tf` | KMS key with PCR-0 attestation policy |
+| `infra/terraform/templates/game_api_userdata_enclave.sh.tpl` | EC2 bootstrap for enclave mode |
+| `.github/workflows/build-eif.yml` | Builds EIF, extracts PCR values |
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| 502 from ALB | Enclave not running or socat bridge down | `nitro-cli describe-enclaves` via SSM; check `/var/log/enclave-setup.log` |
+| KMS decrypt fails | PCR-0 mismatch (image changed) | Rebuild EIF, update `enclave_pcr0`, `terraform apply` |
+| DB connection timeout | vsock-proxy not running | Check `ps aux | grep vsock-proxy` on parent |
+| "No config received" in enclave logs | Config send failed | Check socat process on parent, verify CID=16 |
+| Enclave OOM | 4 GB not enough | Increase `ENCLAVE_MEM` in launch script (requires larger EC2) |
+
+### Attestation Endpoint
+
+`GET /attestation` on the Game API returns a COSE-signed attestation document from the Nitro Secure Module (NSM). This is the "provably fair" proof — players can verify exactly what code is running.
+
+**How it works:**
+1. Game API calls `/dev/nsm` (NSM device) to request an attestation document
+2. NSM returns a COSE_Sign1 structure signed by AWS's attestation PKI, containing:
+   - PCR-0 (enclave image hash), PCR-1 (kernel), PCR-2 (application)
+   - Optional user-supplied nonce (to prevent replay)
+3. Response is base64-encoded CBOR
+
+**Player verification flow:**
+1. Clone the repo, build the EIF locally → get expected PCR values
+2. `GET /attestation?nonce=<random>` → get server's signed attestation
+3. Verify COSE signature against AWS Nitro root certificate
+4. Compare PCR values — if they match, the server is running the exact published code
+
+**When not running in an enclave** (Docker mode), the endpoint returns HTTP 503 with `{"error": "not running in enclave"}`.
+
+**Implementation:** `packages/server/src/poker/attestation.py` — NSM interaction via `/dev/nsm` ioctl, CBOR encoding via `cbor2` library.
 
 ---
 
@@ -462,9 +526,10 @@ A `GET /attestation` endpoint will return a COSE-signed attestation document fro
 | ALB | Standard | ~$20 |
 | NAT Instance | t3.nano | ~$4 |
 | ECR | Image storage | ~$2 |
-| Secrets Manager | 4 secrets | ~$2 |
+| KMS | Enclave key (if enabled) | ~$1 |
+| Secrets Manager | 4-5 secrets | ~$2 |
 | WAF | Standard rules | ~$10 |
-| **Total** | | **~$213/mo** |
+| **Total** | | **~$214/mo** |
 
 Switching the Game API to a 1-year Reserved Instance would save ~$43/mo.
 
@@ -476,29 +541,35 @@ Switching the Game API to a 1-year Reserved Instance would save ~$43/mo.
 infra/
 ├── terraform/
 │   ├── main.tf                 # Provider, S3 backend
-│   ├── variables.tf            # All input variables
-│   ├── outputs.tf              # ALB DNS, RDS endpoint, instance IDs
+│   ├── variables.tf            # All input variables (incl. enclave_enabled, enclave_pcr0)
+│   ├── outputs.tf              # ALB DNS, RDS endpoint, instance IDs, KMS ARN
 │   ├── vpc.tf                  # VPC, subnets, NAT instance
 │   ├── alb.tf                  # ALB, listeners, routing rules, ACM
 │   ├── rds.tf                  # PostgreSQL 16 instance
-│   ├── ec2_game.tf             # Game API EC2
+│   ├── ec2_game.tf             # Game API EC2 (conditional Docker/enclave user data)
 │   ├── ec2_data.tf             # Data API EC2
 │   ├── security_groups.tf      # 3-tier SG chain
-│   ├── secrets.tf              # Secrets Manager entries
-│   ├── iam.tf                  # Roles, policies, ECR repos
+│   ├── secrets.tf              # Secrets Manager entries (incl. encrypted key for enclave)
+│   ├── iam.tf                  # Roles, policies, ECR repos, KMS permissions
+│   ├── kms.tf                  # KMS key with PCR-0 attestation policy (enclave only)
 │   ├── waf.tf                  # WAF rules
 │   ├── terraform.tfvars.example# Template for actual values
 │   └── templates/
-│       ├── game_api_userdata.sh.tpl  # EC2 bootstrap for Game API
-│       └── data_api_userdata.sh.tpl  # EC2 bootstrap for Data API
+│       ├── game_api_userdata.sh.tpl          # EC2 bootstrap — Docker mode
+│       ├── game_api_userdata_enclave.sh.tpl  # EC2 bootstrap — Enclave mode
+│       └── data_api_userdata.sh.tpl          # EC2 bootstrap for Data API
 ├── docker/
-│   ├── Dockerfile.game         # Game API container
+│   ├── Dockerfile.game         # Game API container (Docker mode)
+│   ├── Dockerfile.game.enclave # Game API container (Enclave mode, amazonlinux + kmstool)
 │   ├── Dockerfile.data         # Data API container
-│   └── Dockerfile.account      # Account API container (co-located on Data API EC2)
+│   ├── Dockerfile.account      # Account API container (co-located on Data API EC2)
+│   └── enclave/
+│       ├── init.sh             # Enclave entrypoint (loopback, KMS, socat, uvicorn)
+│       └── launch-enclave.sh   # Parent-side enclave launcher
 └── scripts/
     └── init-db.sh              # One-time schema initialization
 
 .github/workflows/
-├── deploy.yml                  # CI/CD: test → build → push → deploy
-└── build-eif.yml               # Phase 2: Enclave image build (placeholder)
+├── deploy.yml                  # CI/CD: test → build → push → deploy (Docker or enclave)
+└── build-eif.yml               # Build EIF + extract PCR values for attestation
 ```

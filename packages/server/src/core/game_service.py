@@ -16,27 +16,25 @@ from core.game_recorder import GameRecorder
 if TYPE_CHECKING:
     pass
 
-# Allowed modes per game type.  Validated in infer_mode().
+# Allowed modes per game type.  Validated in validate_mode().
 GAME_ALLOWED_MODES: dict[str, frozenset[str]] = {
     "poker": frozenset({GameMode.OFFCHAIN, GameMode.ONCHAIN}),
     "dice": frozenset({GameMode.OFFCHAIN}),
 }
 
 
-def infer_mode(mode: str | None, token: str | None, game_type: str = "poker") -> str:
-    """Infer game mode from request params.
+def validate_mode(mode: str, token: str | None, game_type: str = "poker") -> str:
+    """Validate game mode from request params.
 
     Raises ValueError if onchain mode requested without token or if mode
     is not allowed for the game type.
     """
-    if mode is not None:
-        if mode == GameMode.ONCHAIN and not token:
-            raise ValueError("On-chain mode requires a token address")
-        allowed = GAME_ALLOWED_MODES.get(game_type, frozenset({GameMode.OFFCHAIN}))
-        if mode not in allowed:
-            raise ValueError(f"Mode '{mode}' is not supported for {game_type} games")
-        return mode
-    return GameMode.ONCHAIN if token else GameMode.OFFCHAIN
+    if mode == GameMode.ONCHAIN and not token:
+        raise ValueError("On-chain mode requires a token address")
+    allowed = GAME_ALLOWED_MODES.get(game_type, frozenset({GameMode.OFFCHAIN}))
+    if mode not in allowed:
+        raise ValueError(f"Mode '{mode}' is not supported for {game_type} games")
+    return mode
 
 
 def create_game(
@@ -51,7 +49,7 @@ def create_game(
     on_game_over: Callable[[GameProtocol, GameConfig], None] | None = None,
     action_timeout: float | None = None,
     extensions_per_player: int | None = None,
-) -> tuple[int, GameProtocol, GameConfig]:
+) -> tuple[str, GameProtocol, GameConfig]:
     """Create a game via the manager."""
     return manager.create_game(
         game_type=game_type,
@@ -75,7 +73,7 @@ def join_game(
     balance_store: BalanceStore,
     recorder: GameRecorder | None,
     metadata_store: GameMetadataStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> RegisteredPlayer:
     """Join a game: check capacity/mode, debit balance, register player, record event.
 
@@ -119,7 +117,7 @@ def start_game(
     config: GameConfig,
     recorder: GameRecorder | None,
     metadata_store: GameMetadataStore | None = None,
-    game_id: int = 0,
+    game_id: str = "",
 ) -> int:
     """Check funding, mark funded (for offchain), and start the game.
 

@@ -16,11 +16,11 @@ interface HeaderBarProps {
 }
 
 const PHASE_COLORS: Record<string, string> = {
-  "pre-flop": "bg-[#236b3e] text-[#d4a843]",
-  flop: "bg-[#236b3e] text-[#d4a843]",
-  turn: "bg-[#236b3e] text-[#d4a843]",
-  river: "bg-[#236b3e] text-[#d4a843]",
-  showdown: "bg-[#d4a843]/20 text-[#d4a843]",
+  "pre-flop": "bg-table-green text-dealer-gold",
+  flop: "bg-table-green text-dealer-gold",
+  turn: "bg-table-green text-dealer-gold",
+  river: "bg-table-green text-dealer-gold",
+  showdown: "bg-dealer-gold/20 text-dealer-gold",
   waiting: "bg-white/10 text-white/50",
 }
 
@@ -39,16 +39,16 @@ export function HeaderBar({
       <div className="flex items-center gap-3">
         <Link
           href="/games"
-          className="text-[13px] text-[#8a9a7c] no-underline hover:text-white"
+          className="text-[13px] text-sage no-underline hover:text-white"
         >
           &larr; Games
         </Link>
-        <h1 className="text-sm font-semibold uppercase tracking-[1.5px] text-[#d4a843]">
+        <h1 className="text-sm font-semibold uppercase tracking-[1.5px] text-dealer-gold">
           Spectator
         </h1>
       </div>
 
-      <div className="flex items-center gap-5 text-[13px] text-[#8a9a7c]">
+      <div className="flex items-center gap-5 text-[13px] text-sage">
         {handNumber > 0 && <span>Hand #{handNumber}</span>}
         {phase && (
           <span
@@ -67,8 +67,8 @@ export function HeaderBar({
           onClick={onInfoToggle}
           className={`flex h-7 w-7 items-center justify-center rounded-full border text-sm font-bold italic transition-colors ${
             infoPanelOpen
-              ? "border-[#d4a843] text-[#d4a843]"
-              : "border-white/15 text-[#8a9a7c] hover:border-[#d4a843] hover:text-[#d4a843]"
+              ? "border-dealer-gold text-dealer-gold"
+              : "border-white/15 text-sage hover:border-dealer-gold hover:text-dealer-gold"
           }`}
           style={{ fontFamily: "Georgia, serif" }}
           title="Game info"
@@ -79,8 +79,8 @@ export function HeaderBar({
           onClick={onAudioToggle}
           className={`rounded-md border px-2.5 py-1 text-[13px] transition-colors ${
             audioEnabled
-              ? "border-[#d4a843] text-[#d4a843]"
-              : "border-white/15 text-[#8a9a7c] hover:border-[#d4a843] hover:text-[#d4a843]"
+              ? "border-dealer-gold text-dealer-gold"
+              : "border-white/15 text-sage hover:border-dealer-gold hover:text-dealer-gold"
           }`}
           title="Toggle audio commentary"
         >

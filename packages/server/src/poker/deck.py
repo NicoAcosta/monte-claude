@@ -3,6 +3,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+from core.fairness import FairRng
+
 SUITS = ("s", "h", "d", "c")
 RANKS = ("2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A")
 RANK_VALUES: dict[str, int] = {r: i for i, r in enumerate(RANKS)}
@@ -43,10 +45,13 @@ def full_deck() -> list[Card]:
 
 
 class Deck:
-    def __init__(self, seed: int | None = None) -> None:
+    def __init__(self, seed_hex: str | None = None) -> None:
         self._cards = full_deck()
-        self._rng = random.Random(seed)
-        self._rng.shuffle(self._cards)
+        if seed_hex is not None:
+            rng = FairRng(bytes.fromhex(seed_hex))
+            rng.shuffle(self._cards)
+        else:
+            random.shuffle(self._cards)
         self._index = 0
 
     def deal(self, count: int = 1) -> list[Card]:

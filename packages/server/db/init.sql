@@ -18,7 +18,7 @@ CREATE TABLE balances (
 
 CREATE TABLE game_events (
     id              BIGSERIAL PRIMARY KEY,
-    game_id         INTEGER NOT NULL,
+    game_id         TEXT NOT NULL,
     game_type       TEXT NOT NULL DEFAULT 'poker',
     event_type      TEXT NOT NULL,
     timestamp       DOUBLE PRECISION NOT NULL,
@@ -31,7 +31,7 @@ CREATE INDEX idx_game_events_timestamp ON game_events (timestamp);
 
 CREATE TABLE hand_summaries (
     id              BIGSERIAL PRIMARY KEY,
-    game_id         INTEGER NOT NULL,
+    game_id         TEXT NOT NULL,
     game_type       TEXT NOT NULL DEFAULT 'poker',
     hand_number     INTEGER NOT NULL,
     dealer_id       INTEGER NOT NULL,
@@ -43,7 +43,11 @@ CREATE TABLE hand_summaries (
     winner_names    TEXT NOT NULL DEFAULT '[]',
     winning_cards   TEXT NOT NULL DEFAULT '{}',
     result_type     TEXT NOT NULL DEFAULT 'fold',
-    token_symbol    TEXT
+    token_symbol    TEXT,
+    seed_hex        TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_hex = '' OR seed_hex ~ '^[0-9a-f]{64}$'),
+    seed_commitment TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_commitment = '' OR seed_commitment ~ '^[0-9a-f]{64}$')
 );
 CREATE INDEX idx_hand_summaries_game_id ON hand_summaries (game_id);
 CREATE INDEX idx_hand_summaries_timestamp ON hand_summaries (timestamp DESC);
@@ -60,7 +64,7 @@ CREATE TABLE player_stats (
 );
 
 CREATE TABLE game_metadata (
-    game_id         SERIAL PRIMARY KEY,
+    game_id         TEXT PRIMARY KEY,
     game_type       TEXT NOT NULL DEFAULT 'poker',
     mode            TEXT NOT NULL DEFAULT 'offchain',
     buy_in          NUMERIC NOT NULL DEFAULT 0,
@@ -99,7 +103,7 @@ CREATE TABLE player_token_stats (
 
 CREATE TABLE streams (
     id              SERIAL PRIMARY KEY,
-    game_id         INTEGER NOT NULL,
+    game_id         TEXT NOT NULL,
     host_username   TEXT NOT NULL,
     title           TEXT NOT NULL,
     commentary_text TEXT,
@@ -131,7 +135,7 @@ CREATE INDEX idx_auth_events_created_at ON auth_events (created_at);
 
 CREATE TABLE escrow_operations (
     id              BIGSERIAL PRIMARY KEY,
-    game_id         INTEGER NOT NULL,
+    game_id         TEXT NOT NULL,
     operation       TEXT NOT NULL,
     escrow_address  TEXT,
     details         TEXT,
@@ -139,10 +143,30 @@ CREATE TABLE escrow_operations (
 );
 CREATE INDEX idx_escrow_operations_game_id ON escrow_operations (game_id);
 
+-- ── Feedback tables (append-only) ────────────────────────
+
+CREATE TABLE bug_reports (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT NOT NULL REFERENCES accounts(username),
+    body            TEXT NOT NULL CHECK (char_length(body) BETWEEN 10 AND 2000),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_bug_reports_username ON bug_reports (username);
+CREATE INDEX idx_bug_reports_created_at ON bug_reports (created_at);
+
+CREATE TABLE questions (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT NOT NULL REFERENCES accounts(username),
+    body            TEXT NOT NULL CHECK (char_length(body) BETWEEN 10 AND 2000),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_questions_username ON questions (username);
+CREATE INDEX idx_questions_created_at ON questions (created_at);
+
 -- ── Generic round summaries (dice + future games) ────
 CREATE TABLE round_summaries (
     id              BIGSERIAL PRIMARY KEY,
-    game_id         INTEGER NOT NULL,
+    game_id         TEXT NOT NULL,
     game_type       TEXT NOT NULL,
     round_number    INTEGER NOT NULL,
     player_ids      INTEGER[] NOT NULL,
@@ -150,6 +174,10 @@ CREATE TABLE round_summaries (
     pot             BIGINT NOT NULL DEFAULT 0,
     details         JSONB NOT NULL DEFAULT '{}',
     timestamp       DOUBLE PRECISION NOT NULL,
+    seed_hex        TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_hex = '' OR seed_hex ~ '^[0-9a-f]{64}$'),
+    seed_commitment TEXT NOT NULL DEFAULT ''
+                    CHECK (seed_commitment = '' OR seed_commitment ~ '^[0-9a-f]{64}$'),
     UNIQUE(game_id, game_type, round_number)
 );
 CREATE INDEX idx_round_summaries_game_id ON round_summaries (game_id);

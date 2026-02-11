@@ -10,7 +10,7 @@ from psycopg_pool import ConnectionPool
 
 @dataclass(frozen=True)
 class RoundSummary:
-    game_id: int
+    game_id: str
     game_type: str
     round_number: int
     player_ids: tuple[int, ...]
@@ -18,6 +18,8 @@ class RoundSummary:
     pot: int
     details: dict
     timestamp: float
+    seed_hex: str = ""
+    seed_commitment: str = ""
 
 
 class RoundSummaryStore:
@@ -28,8 +30,9 @@ class RoundSummaryStore:
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO round_summaries
-                   (game_id, game_type, round_number, player_ids, winner_ids, pot, details, timestamp)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   (game_id, game_type, round_number, player_ids, winner_ids, pot, details,
+                    timestamp, seed_hex, seed_commitment)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (game_id, game_type, round_number) DO NOTHING""",
                 (
                     summary.game_id,
@@ -40,15 +43,17 @@ class RoundSummaryStore:
                     summary.pot,
                     json.dumps(summary.details),
                     summary.timestamp,
+                    summary.seed_hex,
+                    summary.seed_commitment,
                 ),
             )
             conn.commit()
 
-    def get_by_game(self, game_id: int) -> list[RoundSummary]:
+    def get_by_game(self, game_id: str) -> list[RoundSummary]:
         with self._pool.connection() as conn:
             rows = conn.execute(
                 """SELECT game_id, game_type, round_number, player_ids, winner_ids,
-                          pot, details, timestamp
+                          pot, details, timestamp, seed_hex, seed_commitment
                    FROM round_summaries
                    WHERE game_id = %s
                    ORDER BY round_number""",
@@ -64,6 +69,8 @@ class RoundSummaryStore:
                 pot=r[5],
                 details=r[6] if isinstance(r[6], dict) else json.loads(r[6]),
                 timestamp=r[7],
+                seed_hex=r[8] or "",
+                seed_commitment=r[9] or "",
             )
             for r in rows
         ]

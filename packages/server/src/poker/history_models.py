@@ -8,7 +8,7 @@ from core.history_models import GameEvent, PlayerStats  # noqa: F401
 
 @dataclass(frozen=True)
 class HandSummary:
-    game_id: int
+    game_id: str
     hand_number: int
     dealer_id: int
     player_ids: tuple[int, ...]
@@ -20,3 +20,5 @@ class HandSummary:
     winning_cards: str = "{}"  # JSON: {name: [cards]}
     result_type: str = "fold"  # "fold" or "showdown"
     token_symbol: str | None = None
+    seed_hex: str = ""
+    seed_commitment: str = ""

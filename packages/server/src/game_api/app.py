@@ -1,4 +1,4 @@
-"""Game API — thin shell: middleware, health, streams, router inclusion (port 8001)."""
+"""Game API — thin shell: middleware, health, streams, unified router (port 8001)."""
 
 from __future__ import annotations
 
@@ -33,20 +33,19 @@ from core.models import (
     CommentateResponse,
     CreateStreamRequest,
     CreateStreamResponse,
-    StreamListItem,
-    StreamListResponse,
 )
 from core.stream_store import StreamStore
 from core.round_summary_store import RoundSummaryStore
+from core.unified_router import (
+    router as unified_router,
+    configure as configure_unified_router,
+    _build_spectator_for_game,
+)
 from dice.game import DiceGame
 from dice.recorder import make_dice_materializer
-from dice.router import router as dice_router, configure as configure_dice_router
 from poker.game import Game
 from poker.history_store import HandSummaryStore
 from poker.recorder import make_poker_materializer
-from poker.router import router as poker_router, configure as configure_poker_router
-from poker.router import _build_spectator_response as _build_poker_spectator_response
-from dice.router import _build_spectator_response as _build_dice_spectator_response
 
 app = FastAPI(title="Monteclaude — Game API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
@@ -70,6 +69,74 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
+
+
+@app.get("/api/attestation")
+def attestation(nonce: str | None = None):
+    """Return NSM attestation document with server Ethereum address bound as user_data."""
+    from core.attestation import NsmError, get_attestation
+    from core.escrow import get_server_address
+    from core.models import AttestationResponse
+
+    server_address = get_server_address()
+    if not server_address:
+        raise HTTPException(status_code=500, detail="Server identity not configured")
+
+    # Validate and decode optional nonce
+    nonce_bytes: bytes | None = None
+    if nonce is not None:
+        try:
+            nonce_bytes = bytes.fromhex(nonce)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Nonce must be a hex string")
+        if len(nonce_bytes) > 512:
+            raise HTTPException(status_code=400, detail="Nonce too long (max 512 bytes)")
+
+    # Embed server Ethereum address as user_data (20 bytes)
+    address_bytes = bytes.fromhex(server_address[2:])  # strip 0x prefix
+
+    try:
+        result = get_attestation(user_data=address_bytes, nonce=nonce_bytes)
+    except NsmError:
+        # Dev mode — return synthetic attestation with deterministic PCR-0
+        import base64 as _b64
+        import time as _time
+
+        dev_pcr0 = b"\x00" * 48  # all-zero PCR-0 signals dev mode
+        return AttestationResponse(
+            document=_b64.b64encode(b"DEV_MODE_NO_NSM").decode(),
+            module_id="dev-mode",
+            timestamp=int(_time.time() * 1000),
+            digest="SHA384",
+            pcrs={
+                "0": dev_pcr0.hex(),
+                "1": (b"\x00" * 48).hex(),
+                "2": (b"\x00" * 48).hex(),
+            },
+            user_data=address_bytes.hex(),
+            nonce=nonce_bytes.hex() if nonce_bytes else None,
+            server_address=server_address,
+        )
+
+    import base64
+
+    payload = result.payload
+    pcrs_hex = {
+        str(k): v.hex()
+        for k, v in payload.pcrs.items()
+        if k in (0, 1, 2)
+    }
+
+    return AttestationResponse(
+        document=base64.b64encode(result.raw_document).decode(),
+        module_id=payload.module_id,
+        timestamp=payload.timestamp,
+        digest=payload.digest,
+        pcrs=pcrs_hex,
+        user_data=payload.user_data.hex() if payload.user_data else None,
+        nonce=payload.nonce.hex() if payload.nonce else None,
+        server_address=server_address,
+    )
 
 
 @app.get("/health")
@@ -118,7 +185,7 @@ _materializers = {
 }
 
 
-def _make_recorder(game_id: int, game_type: str) -> GameRecorder:
+def _make_recorder(game_id: str, game_type: str) -> GameRecorder:
     materializer = _materializers.get(game_type)
     return GameRecorder(game_id, event_store, stats_store, summary_materializer=materializer)
 
@@ -132,7 +199,7 @@ def _on_event_hook(game_id, game, config, event_type, data):
         state = _build_spectator_for_game(game, config)
         _snapshot_buffer.append(game_id, game.state_version, state.model_dump())
     except Exception:
-        _log.debug("snapshot_capture_failed game_id=%d event=%s", game_id, event_type, exc_info=True)
+        _log.debug("snapshot_capture_failed game_id=%s event=%s", game_id, event_type, exc_info=True)
 
 
 manager = GameManager(
@@ -161,8 +228,8 @@ escrow_audit = EscrowAuditStore(_pool)
 
 require_auth = make_auth_dependency(lambda: account_store, get_audit=lambda: auth_audit)
 
-# Wire up the poker router with shared stores
-configure_poker_router(
+# Wire up the unified game router
+configure_unified_router(
     mgr=manager,
     bal=balance_store,
     acc=account_store,
@@ -172,24 +239,13 @@ configure_poker_router(
     snapshots=_snapshot_buffer,
 )
 
-app.include_router(poker_router, prefix="/poker")
-
-# Wire up the dice router with shared stores
-configure_dice_router(
-    mgr=manager,
-    bal=balance_store,
-    acc=account_store,
-    meta=metadata_store,
-    auth_dep=require_auth,
-)
-
-app.include_router(dice_router, prefix="/dice")
+app.include_router(unified_router, prefix="/api/games")
 
 
-# ── Stream routes (game-type agnostic) ────────────────────
+# ── Stream routes (under /api/) ───────────────────────────
 
-@app.post("/game/{game_id}/streams", response_model=CreateStreamResponse)
-def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Depends(require_auth)):
+@app.post("/api/games/{game_id}/streams", response_model=CreateStreamResponse)
+def create_stream(game_id: str, req: CreateStreamRequest, account: Account = Depends(require_auth)):
     game = manager.get_game(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -205,7 +261,7 @@ def create_stream(game_id: int, req: CreateStreamRequest, account: Account = Dep
     return CreateStreamResponse(stream_id=stream.id)
 
 
-@app.post("/stream/{stream_id}/commentate", response_model=CommentateResponse)
+@app.post("/api/streams/{stream_id}/commentate", response_model=CommentateResponse)
 def stream_commentate(stream_id: int, req: CommentateRequest, account: Account = Depends(require_auth)):
     stream = stream_store.get(stream_id)
     if stream is None:
@@ -216,14 +272,7 @@ def stream_commentate(stream_id: int, req: CommentateRequest, account: Account =
     return CommentateResponse(success=True)
 
 
-def _build_spectator_for_game(game, config, **overrides):
-    """Dispatch to the correct spectator response builder based on game type."""
-    if game.game_type == "dice":
-        return _build_dice_spectator_response(game, config, **overrides)
-    return _build_poker_spectator_response(game, config, **overrides)
-
-
-@app.get("/stream/{stream_id}/data")
+@app.get("/api/streams/{stream_id}/data")
 def stream_view(stream_id: int):
     stream = stream_store.get(stream_id)
     if stream is None:
@@ -243,6 +292,7 @@ def stream_view(stream_id: int):
         return delayed
     return _build_spectator_for_game(
         game, config,
+        skip_live=True,
         commentary_text=stream.commentary_text,
         stream_id=stream.id,
         stream_title=stream.title,
@@ -251,30 +301,7 @@ def stream_view(stream_id: int):
     )
 
 
-@app.get("/game/{game_id}/spectator")
-def game_spectator_compat(game_id: int):
-    """Compat route: dispatches to the correct game-type spectator."""
-    game = manager.get_game(game_id)
-    config = manager.get_config(game_id)
-    if game is None or config is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    game._check_timeout()
-    delayed = _snapshot_buffer.get_delayed_latest(game_id)
-    if delayed is not None:
-        return delayed
-    return _build_spectator_for_game(game, config)
-
-
-@app.get("/game/{game_id}/spectator/snapshots")
-def game_spectator_snapshots(game_id: int, after: int = 0):
-    """Return spectator state snapshots since *after* sequence (game-type agnostic)."""
-    game = manager.get_game(game_id)
-    if game is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return _snapshot_buffer.get_since(game_id, after)
-
-
-@app.get("/stream/{stream_id}/snapshots")
+@app.get("/api/streams/{stream_id}/snapshots")
 def stream_spectator_snapshots(stream_id: int, after: int = 0):
     """Return spectator state snapshots for a stream's underlying game."""
     stream = stream_store.get(stream_id)

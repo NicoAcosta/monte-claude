@@ -32,12 +32,12 @@ export function Hero() {
 					src="/logo.png"
 					alt=""
 					aria-hidden="true"
+					width={chip.size}
+					height={chip.size}
 					className="pointer-events-none absolute select-none"
 					style={{
 						left: chip.x,
 						top: chip.y,
-						width: chip.size,
-						height: chip.size,
 						opacity: 0.10,
 						animation: `spin-chip ${chip.duration} ease-in-out infinite`,
 						animationDelay: chip.delay,
@@ -72,13 +72,7 @@ export function Hero() {
 						href="/games"
 						className="group flex h-12 items-center gap-2.5 rounded-lg bg-crimson px-8 font-headline text-sm tracking-[0.2em] text-mc-white transition-all hover:bg-red-bright hover:shadow-[0_0_30px_oklch(from_#B2171D_l_c_h_/_0.5)]"
 					>
-						<span
-							className="inline-block h-2 w-2 rounded-full bg-red-400"
-							style={{
-								animation: "live-pulse 2s ease-in-out infinite",
-								boxShadow: "0 0 6px rgba(248,113,113,0.6)",
-							}}
-						/>
+						<span className="live-dot inline-block h-2 w-2 rounded-full bg-red-400" />
 						WATCH LIVE
 						<span className="inline-block transition-transform group-hover:translate-x-1">
 							&rarr;

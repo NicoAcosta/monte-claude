@@ -37,6 +37,9 @@ export function ScrollReveal({
       className={`scroll-reveal ${className}`}
       style={{ transitionDelay: `${delay}ms` }}
     >
+      <noscript>
+        <style>{`.scroll-reveal { opacity: 1; transform: none; }`}</style>
+      </noscript>
       {children}
     </div>
   );
