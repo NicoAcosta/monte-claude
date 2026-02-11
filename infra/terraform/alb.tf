@@ -347,5 +347,37 @@ resource "aws_lb_listener_rule" "attestation_routes" {
   }
 }
 
+# Rule 7: /health → Data API (external health check)
+resource "aws_lb_listener_rule" "data_health" {
+  listener_arn = local.main_listener_arn
+  priority     = 460
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.data_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/health"] }
+  }
+}
+
+# Rule 8: /api/* → Data API (catch-all for read endpoints)
+# Account API rules (register, faucet, balance) have higher priority
+# and match first; remaining /api/* routes are Data API reads
+# (lobby, leaderboard, stats, history, streams, config, instructions, play).
+resource "aws_lb_listener_rule" "data_api_routes" {
+  listener_arn = local.main_listener_arn
+  priority     = 500
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.data_api.arn
+  }
+
+  condition {
+    path_pattern { values = ["/api/*"] }
+  }
+}
+
 # Everything else → Frontend (default action).
-# Next.js rewrites proxy /api/* to Data API and Game API as needed.
